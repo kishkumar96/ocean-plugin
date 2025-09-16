@@ -1,0 +1,37 @@
+# Multi-stage build: Build with Node.js, serve with nginx
+FROM node:18-alpine AS builder
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files first (for better caching)
+COPY package*.json ./
+
+# Install dependencies (prefer npm ci; if it fails due to out-of-sync lock, fallback to npm install)
+RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
+            echo "Lock file detected: attempting npm ci" && npm ci --omit=dev || \
+            (echo "npm ci failed; falling back to npm install --legacy-peer-deps" && npm install --omit=dev --legacy-peer-deps); \
+        else \
+            echo "No lock file found; using npm install --legacy-peer-deps" && npm install --omit=dev --legacy-peer-deps; \
+        fi
+
+# Copy all source files
+COPY . .
+
+# Build the React application
+RUN npm run build
+
+# Production stage: Use nginx to serve the built files
+FROM nginx:alpine
+
+# Copy built files from builder stage
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Expose port 80
+EXPOSE 80
+
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]

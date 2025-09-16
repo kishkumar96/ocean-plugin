@@ -1,0 +1,5 @@
+.history/
+.vscode/
+plugin/site1/node_modules/
+plugin/site1/package-lock.json
+node_modules/

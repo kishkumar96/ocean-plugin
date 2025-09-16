@@ -1,0 +1,465 @@
+
+:root {
+    /* Light mode palette */
+    --color-primary: #2563eb;
+    --color-secondary: #64748b;
+    --color-accent: #f59e42;
+    --color-background: #f8fafc;
+    --color-surface: #ffffff;
+    --color-text: #1e293b;
+    --color-success: #22c55e;
+    --color-warning: #facc15;
+    --color-error: #ef4444;
+    --color-info: #0ea5e9;
+    --btn-secondary: #1c54b2;
+    --btn-secondary-hover: #174a8c;
+    --card-shadow: 0 2px 8px rgba(0,0,0,0.10);
+    --card-shadow-hover: 0 4px 16px rgba(0,0,0,0.18);
+    
+  }
+  
+body.dark-mode {
+    /* Dark mode palette */
+    --color-primary: #60a5fa;
+    --color-secondary: #a1a1aa;
+    --color-accent: #fbbf24;
+    --color-background: #2e2f33;
+    --color-surface: #3f4854;
+    --color-text: #f1f5f9;
+    --color-border: #44454a;
+    --color-success: #4ade80;
+    --color-warning: #fde047;
+    --color-error: #f87171;
+    --color-info: #38bdf8;
+    --btn-secondary: #3f4854;
+    --btn-secondary-hover: #23242a;
+    --card-shadow: 0 2px 8px rgba(0,0,0,0.32);
+    --card-shadow-hover: 0 4px 16px rgba(0,0,0,0.44);
+    background-color: var(--color-background) !important;
+    color: var(--color-text) !important;
+    --select-arrow-white: url("data:image/svg+xml,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3e%3cpath fill=%27none%27 stroke=%27%23ffffff%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27 stroke-width=%272%27 d=%27m2 5 6 6 6-6%27/%3e%3c/svg%3e");
+  }
+
+/* Navbar styling */
+.navbar {
+  transition: all 0.3s ease;
+}
+
+.navbar-nav .nav-link {
+  transition: color 0.3s ease;
+ 
+}
+
+.navbar-nav .nav-link:hover {
+  color: var(--color-primary) !important;
+}
+
+/* Theme toggle styling */
+.form-check-input {
+  transition: all 0.3s ease;
+  cursor: pointer;
+  background-color: white !important;
+  border-color: #0065f8 !important;
+  border-width: 2px !important;
+}
+
+.form-check-input:checked {
+  background-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+}
+
+.form-check-input:focus {
+  box-shadow: 0 0 0 0.25rem rgba(0, 101, 248, 0.25);
+}
+
+/* Dark mode override for toggle */
+body.dark-mode .form-check-input {
+  background-color: var(--color-secondary) !important;
+  border-color: var(--color-secondary) !important;
+}
+
+body.dark-mode .form-check-input:checked {
+  background-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+}
+
+/* Logo styling */
+.navbar-brand img {
+  transition: filter 0.3s ease;
+}
+
+/* Button styling */
+.btn {
+  transition: all 0.3s ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--card-shadow-hover);
+}
+
+/* Body transition for theme switching */
+body {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Navbar responsive adjustments */
+@media (max-width: 991.98px) {
+  .navbar-nav {
+    margin-top: 1rem;
+  }
+  
+  .navbar-nav .nav-item {
+    margin-bottom: 0.5rem;
+  }
+}
+
+/* ===== THEME-AWARE COMPONENT CLASSES ===== */
+
+/* Button variants that automatically adapt to theme */
+.btn-theme-primary {
+  background-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+  color: white !important;
+}
+
+.btn-theme-secondary {
+  background-color: var(--color-secondary) !important;
+  border-color: var(--color-secondary) !important;
+  color: white !important;
+}
+
+.btn-theme-outline {
+  background-color: transparent !important;
+  border: 2px solid var(--color-primary) !important;
+  color: var(--color-primary) !important;
+}
+
+.btn-theme-outline:hover {
+  background-color: var(--color-primary) !important;
+  color: white !important;
+}
+
+/* Card component that adapts to theme */
+.card-theme {
+  background-color: var(--color-surface) !important;
+  border-color: var(--color-border, #e2e8f0) !important;
+  box-shadow: var(--card-shadow) !important;
+  transition: all 0.3s ease;
+}
+
+.card-theme:hover {
+  box-shadow: var(--card-shadow-hover) !important;
+}
+
+/* Text classes that adapt to theme */
+.text-theme-primary {
+  color: var(--color-primary) !important;
+}
+
+.text-theme-secondary {
+  color: var(--color-secondary) !important;
+}
+
+.text-theme-body {
+  color: var(--color-text) !important;
+}
+
+/* Background classes that adapt to theme */
+.bg-theme-surface {
+  background-color: var(--color-surface) !important;
+}
+
+.bg-theme-background {
+  background-color: var(--color-background) !important;
+}
+
+/* Border classes that adapt to theme */
+.border-theme {
+  border-color: var(--color-border, #e2e8f0) !important;
+}
+
+/* Alert variants that adapt to theme */
+.alert-theme-info {
+  background-color: var(--color-info) !important;
+  border-color: var(--color-info) !important;
+  color: white !important;
+}
+
+.alert-theme-success {
+  background-color: var(--color-success) !important;
+  border-color: var(--color-success) !important;
+  color: white !important;
+}
+/* .css-inrg7p-indicatorContainer svg.css-tj5bde-Svg:first-child {
+  display: none !important;  Hides only the last SVG within the container that matches the selector 
+}*/
+
+.alert-theme-warning {
+  background-color: var(--color-warning) !important;
+  border-color: var(--color-warning) !important;
+  color: #1e293b !important;
+}
+
+.alert-theme-error {
+  background-color: var(--color-error) !important;
+  border-color: var(--color-error) !important;
+  color: white !important;
+}
+
+
+/* select styling for Light mode products select */
+body .treeProduct {
+
+  
+  width: 100%;
+}
+
+
+/* select styling for dark mode products select */
+body.dark-mode .treeProduct {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  
+  width: 100%;
+}
+/* 
+body.dark-mode .treeProduct .p-treeselect-label{
+  background-color:#282626!important;
+
+} */
+body.dark-mode #pr_id_144_list{
+  background: var(--color-surface)!important;
+}
+body.dark-mode .treeProduct svg.p-icon.p-treeselect-trigger-icon.p-clickable{
+  color: #f1f5f9 !important;
+  margin-left: 10px;
+  height: 100%;
+}
+body.dark-mode .treeProduct svg[viewBox="0 0 20 20"] path{
+  fill: #ffffff !important;
+}
+
+body.dark-mode .p-treeselect-panel .p-treeselect-header {
+  background-color: var(--color-surface)!important;
+  border-color: var(--color-surface)!important;
+}
+
+body.dark-mode input.p-treeselect-filter.p-inputtext.p-component
+{
+  background-color: var(--color-surface)!important;
+  
+}
+
+body.dark-mode .p-treeselect-panel #pr_id_7_list {
+  background-color: var(--color-surface)!important;
+  border-color: var(--color-surface)!important;
+  color: #fff;
+}
+body.dark-mode .p-treeselect-items-wrapper{
+  background-color: var(--color-surface)!important;
+}
+
+body.dark-mode .p-treeselect-panel #pr_id_7_list svg.p-icon.p-tree-toggler-icon {
+  fill: #ffffff !important;
+}
+
+/* Ensure all card content respects theme (forms, text) */
+body.dark-mode .card-theme .form-control,
+body.dark-mode .card-theme .form-select {
+  background-color: var(--color-surface) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+body.dark-mode .card-theme .form-control::placeholder {
+  color: var(--color-text) !important;
+  opacity: 0.7;
+}
+
+/* Range slider theming */
+body.dark-mode .card-theme .form-range::-webkit-slider-thumb { background-color: var(--color-text); }
+body.dark-mode .card-theme .form-range::-moz-range-thumb { background-color: var(--color-text); }
+body.dark-mode .card-theme .form-range::-ms-thumb { background-color: var(--color-text); }
+body.dark-mode .card-theme .form-range::-webkit-slider-runnable-track { background-color: var(--color-border); }
+body.dark-mode .card-theme .form-range::-moz-range-track { background-color: var(--color-border); }
+body.dark-mode .card-theme .form-range::-ms-track { background-color: var(--color-border); }
+
+/* PrimeReact TreeSelect label and indicators in dark mode */
+body.dark-mode .p-treeselect .p-treeselect-label { color: var(--color-text) !important; }
+body.dark-mode .p-treeselect .p-tree .p-tree-toggler { color: #ffffff !important; }
+body.dark-mode .p-checkbox .p-checkbox-box { border-color: #ffffff !important; background: transparent !important; }
+body.dark-mode .p-checkbox .p-checkbox-box.p-highlight { background-color: var(--color-primary) !important; border-color: var(--color-primary) !important; }
+body.dark-mode .p-checkbox .p-checkbox-box .p-checkbox-icon { color: #ffffff !important; }
+
+/* Dark mode card borders */
+/* body.dark-mode .card-theme {
+  border-color: #ffffff !important;
+} */
+
+/* Dark mode input borders in cards */
+body.dark-mode .card-theme .form-control,
+body.dark-mode .card-theme .form-select {
+  border-color: #ffffff !important;
+}
+
+/* React DatePicker calendar icon dark mode override */
+body.dark-mode .react-datepicker__calendar-icon {
+  color: #ffffff !important; /* sets icon color */
+  fill: #ffffff !important;  /* for SVG fill */
+  opacity: 0.95;
+}
+/* Ensure input keeps spacing when icon present */
+body.dark-mode .react-datepicker__view-calendar-icon input {
+  color: var(--color-text) !important;
+}
+
+
+/* React DatePicker styling - White theme only within cards */
+.card-theme .react-datepicker__input-container input {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid #d1d5db !important;
+}
+
+.card-theme .react-datepicker {
+  background-color: #ffffff !important;
+  border: 1px solid #d1d5db !important;
+  color: #000000 !important;
+}
+
+.card-theme .react-datepicker__header {
+  background-color: #ffffff !important;
+  border-bottom: 1px solid #d1d5db !important;
+}
+
+.card-theme .react-datepicker__current-month,
+.card-theme .react-datepicker__day-name,
+.card-theme .react-datepicker__day {
+  color: #000000 !important;
+}
+
+.card-theme .react-datepicker__day:hover {
+  background-color: #3b82f6 !important;
+  color: white !important;
+}
+
+.card-theme .react-datepicker__day--selected {
+  background-color: #3b82f6 !important;
+  color: white !important;
+}
+
+.card-theme .react-datepicker__day--keyboard-selected {
+  background-color: #3b82f6 !important;
+  color: white !important;
+}
+
+.card-theme .react-datepicker__day--disabled {
+  color: #9ca3af !important;
+  background-color: transparent !important;
+  cursor: not-allowed !important;
+}
+
+.card-theme .react-datepicker__month-text--disabled {
+  color: #9ca3af !important;
+  background-color: transparent !important;
+  cursor: not-allowed !important;
+  opacity: 0.4 !important;
+}
+
+.card-theme .react-datepicker__month-text--disabled:hover {
+  background-color: transparent !important;
+  color: #9ca3af !important;
+}
+
+.card-theme .react-datepicker__navigation {
+  background-color: #ffffff !important;
+}
+
+.card-theme .react-datepicker__navigation:hover {
+  background-color: #f3f4f6 !important;
+}
+
+.card-theme .react-datepicker__navigation-icon::before {
+  border-color: #000000 !important;
+}
+
+.card-theme .react-datepicker__month-container {
+  background-color: #ffffff !important;
+}
+J
+.card-theme .react-datepicker__month {
+  background-color: #282626 !important;
+}
+
+/* Month picker specific styling within cards */
+.card-theme .react-datepicker__month-text {
+  color: #000000 !important;
+  background-color: #ffffff !important;
+  border: 1px solid transparent !important;
+  padding: 8px 12px !important;
+  margin: 2px !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.card-theme .react-datepicker__month-text:hover {
+  background-color: #3b82f6 !important;
+  color: white !important;
+  border-color: #3b82f6 !important;
+}
+
+.card-theme .react-datepicker__month-text--selected {
+  background-color: #3b82f6 !important;
+  color: white !important;
+  border-color: #3b82f6 !important;
+}
+
+.card-theme .react-datepicker__month-text--keyboard-selected {
+  background-color: #3b82f6 !important;
+  color: white !important;
+  border-color: #3b82f6 !important;
+}
+
+/* Range slider indicator (thumb) color across themes */
+.card-theme .form-range::-webkit-slider-thumb { background-color: #ffa500 !important; border: 3px solid #ffffff !important; }
+.card-theme .form-range::-moz-range-thumb { background-color: #ffa500 !important; border: 3px solid #ffffff !important; }
+.card-theme .form-range::-ms-thumb { background-color: #ffa500 !important; border: 3px solid #ffffff !important; }
+
+body.dark-mode .card-theme .form-range::-webkit-slider-thumb { background-color: #ffa500 !important; border: 3px solid #ffffff !important; }
+body.dark-mode .card-theme .form-range::-moz-range-thumb { background-color: #ffa500 !important; border: 3px solid #ffffff !important; }
+body.dark-mode .card-theme .form-range::-ms-thumb { background-color: #ffa500 !important; border: 3px solid #ffffff !important; }
+
+/* Range slider track line color across themes */
+.card-theme .form-range { accent-color: #ffa500; }
+.card-theme .form-range::-webkit-slider-runnable-track { background-color: #ffa500 !important; }
+.card-theme .form-range::-moz-range-track { background-color: #ffa500 !important; }
+.card-theme .form-range::-ms-track { background-color: #ffa500 !important; border-color: transparent; color: transparent; }
+.card-theme .form-range::-ms-fill-lower { background-color: #ffa500 !important; }
+.card-theme .form-range::-ms-fill-upper { background-color: #ffa500 !important; }
+
+body.dark-mode .form-select {
+  background-image: var(--select-arrow-white);
+}
+
+/* For Webkit browsers (Chrome, Safari, Edge) */
+body.dark-mode input[type="number"]::-webkit-inner-spin-button,
+body.dark-mode input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0; /* Remove default margin */
+  /* You'll need to replace the default button with a custom white element or image */
+  /* This is more complex than just changing a color directly */
+}
+
+/* You might need to use a different approach for other browsers like Firefox */
+/* Firefox uses ::-moz-number-input, but styling is more limited */
+body.dark-mode input[type="number"] {
+  -moz-appearance: textfield; /* Hide default spinners in Firefox */
+}
+/*
+LIGHT
+*/
+
+
