@@ -243,7 +243,7 @@ export default function SearchComponent({
                     </div>
                 </div>
                 <div style={{flex:2,minWidth:0,marginLeft:'356px'}}>
-                    <div className="rounded card-theme" style={{height:'750px',position:'relative',display:'flex',flexDirection:'column',background:'var(--color-surface)',border:'1px solid var(--color-border,#e2e8f0)',boxShadow:'0 2px 12px rgba(0,0,0,0.06)'}}>
+                    <div className="rounded card-theme" style={{height:'calc(100vh - 190px)',position:'relative',display:'flex',flexDirection:'column',background:'var(--color-surface)',border:'1px solid var(--color-border,#e2e8f0)',boxShadow:'0 2px 12px rgba(0,0,0,0.06)'}}>
                         <div style={{flex:1,minHeight:0}}>
                             <Suspense fallback={<div className="p-3">Loading map...</div>}>
                                 <MapWithNoSSR
