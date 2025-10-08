@@ -53,11 +53,12 @@ export default function Home() {
     <div className="monitoring-container" style={{
       background: 'var(--color-background)',
       color: 'var(--color-text)',
-      height: 'calc(100vh - 58px)', // small reduction to prevent rounding overflow causing scrollbar
+      minHeight: 'calc(100vh - 58px)', // ensure full viewport coverage without clipping content
       display: 'flex',
       flexDirection: 'column',
       transition: 'background .3s,color .3s',
-      overflow: 'hidden'
+      overflowX: 'hidden',
+      overflowY: 'auto'
     }}>
       {!dashboardGenerated ? (
         <SearchComponent

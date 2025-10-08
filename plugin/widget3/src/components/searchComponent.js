@@ -93,6 +93,15 @@ export default function SearchComponent({
 
     // Cache for fetched country short names to avoid duplicate requests
     const [countryCache, setCountryCache] = useState({});
+    const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const handleResize = () => setIsMobile(window.innerWidth <= 768);
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     // Lazy fetch country short_name only when a station is selected and missing its country_short
     useEffect(() => {
@@ -150,17 +159,35 @@ export default function SearchComponent({
     }, [selectedStations, setSelectedStations]);
 
     return (
-        <Container fluid className="py-3 px-3" style={{maxWidth:'100%',paddingLeft:'0.75rem',paddingRight:'0.75rem'}}>
-            <div className="d-flex justify-content-between align-items-center mb-4">
-                <div className="d-flex align-items-center gap-2">
-                      <Lottie
+        <Container
+            fluid
+            className="py-3 px-3"
+            style={{
+                maxWidth:'100%',
+                paddingLeft:'0.75rem',
+                paddingRight:'0.75rem',
+                paddingTop: isMobile ? '0.75rem' : '1.5rem',
+                scrollMarginTop: '70px'
+            }}
+        >
+            <div
+                className="d-flex justify-content-between align-items-center mb-4"
+                style={{flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? '1rem' : '0'}}
+            >
+                <div className="d-flex align-items-center gap-2" style={{flex: isMobile ? '1 0 100%' : '0 0 auto'}}>
+                    <Lottie
                         animationData={animationData}
                         style={{ width: 30, height: 30 }}
                         loop={true}
                     />
                     <h1 className="mb-0" style={{color:'var(--color-primary)'}}>Real-Time Ocean Monitoring</h1>
                 </div>
-                                <Button className="btn-theme-primary generate-btn" onClick={handleSubmit} disabled={!selectedStations.length || loading}>
+                <Button
+                    className="btn-theme-primary generate-btn"
+                    onClick={handleSubmit}
+                    disabled={!selectedStations.length || loading}
+                    style={{width: isMobile ? '100%' : 'auto'}}
+                >
                                         {loading ? (
                                                 <>
                                                     <Spinner animation="border" size="sm" className="me-2"/>Generating...
@@ -173,9 +200,40 @@ export default function SearchComponent({
                                         )}
                                 </Button>
             </div>
-            <div className="mb-4" style={{display:'flex',gap:'3.5rem',alignItems:'flex-start',justifyContent:'flex-start'}}>
-                <div style={{width:'300px',minWidth:'220px',maxWidth:'340px',marginRight:'0.5rem',position:'absolute',left:'16px',top:0,zIndex:2}}>
-                        <div className="p-4 rounded card-theme mb-3" style={{background:'var(--color-surface)',border:'1px solid var(--color-border,#e2e8f0)',boxShadow:'0 2px 12px rgba(0,0,0,0.06)', marginTop: '55%' }}>
+            <div
+                className="mb-4"
+                style={{
+                    display: 'flex',
+                    flexDirection: isMobile ? 'column' : 'row',
+                    gap: isMobile ? '1.75rem' : '3.5rem',
+                    alignItems: isMobile ? 'stretch' : 'flex-start',
+                    justifyContent: 'flex-start'
+                }}
+            >
+                <div
+                    style={{
+                        width: isMobile ? '100%' : '300px',
+                        minWidth: isMobile ? 'auto' : '220px',
+                        maxWidth: isMobile ? '100%' : '340px',
+                        marginRight: isMobile ? 0 : '0.5rem',
+                        position: isMobile ? 'relative' : 'absolute',
+                        left: isMobile ? undefined : '16px',
+                        top: isMobile ? undefined : 0,
+                        zIndex: isMobile ? undefined : 2,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '1rem'
+                    }}
+                >
+                    <div
+                        className="p-4 rounded card-theme mb-3"
+                        style={{
+                            background:'var(--color-surface)',
+                            border:'1px solid var(--color-border,#e2e8f0)',
+                            boxShadow:'0 2px 12px rgba(0,0,0,0.06)',
+                            marginTop: isMobile ? 0 : '55%'
+                        }}
+                    >
                         <Form.Group>
                             <Form.Label style={{color:'var(--color-text)',fontWeight:600,fontSize:'1.05rem'}}>Filter by Type</Form.Label>
                             {typesLoading && <div className="d-flex align-items-center"><Spinner animation="border" size="sm" className="me-2"/>Loading types...</div>}
@@ -197,10 +255,17 @@ export default function SearchComponent({
                             {/* <div className="mt-2 small" style={{color:'var(--color-text)',opacity:0.7}}>{selectedTypeFilters.length ? `${selectedTypeFilters.length} type filter(s) active` : 'No type filters (showing all)'}</div> */}
                         </Form.Group>
                     </div>
-                    <div className="p-4 rounded card-theme" style={{background:'var(--color-surface)',border:'1px solid var(--color-border,#e2e8f0)',boxShadow:'0 2px 12px rgba(0,0,0,0.06)'}}>
-        <Form.Label style={{color:'var(--color-text)',fontWeight:600,fontSize:'1.05rem'}}>
-  Selected Stations <span className="fw-normal" style={{fontSize:'0.95rem',opacity:0.7}}>(double‑click markers to add/remove)</span>
-</Form.Label>
+                    <div
+                        className="p-4 rounded card-theme"
+                        style={{
+                            background:'var(--color-surface)',
+                            border:'1px solid var(--color-border,#e2e8f0)',
+                            boxShadow:'0 2px 12px rgba(0,0,0,0.06)'
+                        }}
+                    >
+                        <Form.Label style={{color:'var(--color-text)',fontWeight:600,fontSize:'1.05rem'}}>
+                            Selected Stations <span className="fw-normal" style={{fontSize:'0.95rem',opacity:0.7}}>(tap/click markers to add/remove)</span>
+                        </Form.Label>
                         {loading && <div className="d-flex align-items-center"><Spinner animation="border" size="sm" className="me-2"/>Loading stations...</div>}
                         {error && <div className="text-danger small mt-2">{error}</div>}
                         <div className="mt-2 d-flex flex-wrap gap-2" style={{maxWidth:'100%'}}>
@@ -242,8 +307,26 @@ export default function SearchComponent({
                         {selectedStations.length >= MAX_SELECTION && <Alert variant="info" className="mt-2 p-2" style={{background:'var(--color-accent,#e0f2fe)',color:'var(--color-primary,#2563eb)',border:'none'}}>Maximum of {MAX_SELECTION} stations selected</Alert>}
                     </div>
                 </div>
-                <div style={{flex:2,minWidth:0,marginLeft:'356px'}}>
-                    <div className="rounded card-theme" style={{height:'calc(100vh - 190px)',position:'relative',display:'flex',flexDirection:'column',background:'var(--color-surface)',border:'1px solid var(--color-border,#e2e8f0)',boxShadow:'0 2px 12px rgba(0,0,0,0.06)'}}>
+                <div
+                    style={{
+                        flex: isMobile ? '1 1 auto' : 2,
+                        minWidth: 0,
+                        marginLeft: isMobile ? 0 : '356px'
+                    }}
+                >
+                    <div
+                        className="rounded card-theme"
+                        style={{
+                            height: isMobile ? 'min(60vh, 520px)' : '750px',
+                            minHeight: isMobile ? '320px' : undefined,
+                            position:'relative',
+                            display:'flex',
+                            flexDirection:'column',
+                            background:'var(--color-surface)',
+                            border:'1px solid var(--color-border,#e2e8f0)',
+                            boxShadow:'0 2px 12px rgba(0,0,0,0.06)'
+                        }}
+                    >
                         <div style={{flex:1,minHeight:0}}>
                             <Suspense fallback={<div className="p-3">Loading map...</div>}>
                                 <MapWithNoSSR
