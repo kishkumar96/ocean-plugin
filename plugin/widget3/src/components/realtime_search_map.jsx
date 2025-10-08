@@ -93,9 +93,9 @@ export default function RealtimeSearchMap({ buoyOptions = [], selectedStations =
           }).bindPopup(`<strong>${b.label}</strong><br/>${b.type_value || ''}${isSelected ? '<br/><em>Selected</em>' : ''}`)
             .addTo(group);
 
-          // Double click toggles selection
+          // Click toggles selection (better for touch devices)
           if (setSelectedStations) {
-            marker.on('dblclick', () => {
+            marker.on('click', () => {
               setSelectedStations(prev => {
                 const currentlySelected = prev.includes(b.spotter_id);
                 if (currentlySelected) {

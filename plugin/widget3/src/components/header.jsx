@@ -46,45 +46,10 @@ export default function Header({ theme, toggleTheme }) {
           </div>
         </div>
 
-        {/* Mobile Toggle Button */}
-        <button 
-          className="navbar-toggler" 
-          type="button" 
-          data-bs-toggle="collapse" 
-          data-bs-target="#navbarNav" 
-          aria-controls="navbarNav" 
-          aria-expanded="false" 
-          aria-label="Toggle navigation"
-          style={{ borderColor: 'var(--color-border, #e2e8f0)' }}
-        >
-          <span className="navbar-toggler-icon"></span>
-        </button>
-
         {/* Navigation Items */}
-        <div className="collapse navbar-collapse" id="navbarNav">
-          {/* Left side - Explorer Button */}
-          <div className="navbar-nav me-auto">
-            {/* <button 
-              className="btn btn-success" 
-              style={{ 
-                backgroundColor: 'var(--color-success)', 
-                borderColor: 'var(--color-success)',
-                color: 'white'
-              }}
-            >
-              Explorer
-            </button> */}
-          </div>
-
-          {/* Right side - Navigation Links and Theme Toggle */}
-          <ul className="navbar-nav ms-auto mb-2 mb-lg-0">
-            {/* <li className="nav-item">
-              <Link className="nav-link" to="/" style={{ color: 'var(--color-text)' }}>
-                Home
-              </Link>
-            </li> */}
-         
-            <li className="nav-item d-flex align-items-center ms-3">
+        <div className="flex-grow-1 d-flex align-items-center justify-content-end" id="navbarNav">
+          <ul className="navbar-nav mb-0 d-flex align-items-center">
+            <li className="nav-item d-flex align-items-center">
               <ThemeToggle theme={theme} toggleTheme={toggleTheme} />
             </li>
           </ul>
