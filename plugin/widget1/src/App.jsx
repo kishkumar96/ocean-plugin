@@ -1,11 +1,35 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import EnhancedForecastApp from './components/EnhancedForecastApp';
 import './App.css';
-import TokenError from './components/TokenError';
-import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
+
+// ==========================================
+// TOKEN SYSTEM TEMPORARILY DISABLED
+// ==========================================
+// The token validation system has been temporarily commented out for development and testing.
+// This allows the app to load directly without requiring authentication tokens.
+// 
+// To re-enable: Uncomment the imports and logic below, then uncomment the validation code in the function.
+// import TokenError from './components/TokenError';
+// import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
 
 function App() {
+  // ==========================================
+  // TOKEN SYSTEM TEMPORARILY DISABLED
+  // ==========================================
+  // The token validation has been bypassed for development purposes.
+  // The app will now load directly without requiring authentication.
+  //
+  // To re-enable token validation:
+  // 1. Uncomment the imports at the top of this file
+  // 2. Uncomment the token validation logic below
+  // 3. Remove or modify these simplified state declarations
+  
+  const [widgetData] = useState(null); // No widget data for now
+  const [validCountries] = useState([]); // No country validation
+
+  // COMMENTED OUT: Token validation logic
+  /*
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorType, setErrorType] = useState(null);
@@ -64,7 +88,10 @@ function App() {
 
     initializeApp();
   }, []);
+  */
 
+  // COMMENTED OUT: Token validation UI
+  /*
   // Show loading state while validating token
   if (isLoading) {
     return (
@@ -95,6 +122,7 @@ function App() {
   if (!isAuthenticated || errorType) {
     return <TokenError errorType={errorType || 'invalid_token'} />;
   }
+  */
 
   return (
     <Router basename={process.env.PUBLIC_URL}>
