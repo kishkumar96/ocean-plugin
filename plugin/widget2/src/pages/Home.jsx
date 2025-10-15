@@ -52,6 +52,7 @@ export default function Home() {
   const markerClusterRef = useRef(null);
   const containerRef = useRef(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [mapInitialized, setMapInitialized] = useState(false);
 
   const normalizeLongitude = (lon) => {
     while (lon > 180) lon -= 360;
@@ -207,6 +208,8 @@ export default function Home() {
           zoomToBoundsOnClick: true
         });
         markerClusterRef.current.addTo(mapRef.current);
+        // Mark map/cluster as ready so markers can populate even if data loaded first
+        setMapInitialized(true);
       }
     }
     setup();
@@ -233,7 +236,7 @@ export default function Home() {
 
   // Populate markers (after createCountryMarker is defined)
   const populateMarkers = useCallback(() => {
-    if (mapRef.current && markerClusterRef.current && expertsData.length > 0 && window.L.MarkerClusterGroup) {
+    if (mapRef.current && markerClusterRef.current && expertsData.length > 0) {
       markerClusterRef.current.clearLayers();
       const countryGroups = {};
       expertsData.forEach(expert => { const country = expert.country || 'Unknown'; (countryGroups[country] = countryGroups[country] || []).push(expert); });
@@ -251,6 +254,13 @@ export default function Home() {
       });
     }
   }, [expertsData, createCountryMarker]);
+
+  // If the data arrives before the map/cluster is ready, populate once ready
+  useEffect(() => {
+    if (mapInitialized) {
+      populateMarkers();
+    }
+  }, [mapInitialized, populateMarkers]);
 
   // Basemap change effect (after populateMarkers is defined)
   useEffect(() => {
