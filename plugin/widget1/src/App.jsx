@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Home from './pages/Home';
 import './App.css';
-import Header from './components/header';
+import ModernHeader from './components/ModernHeader';
 import TokenError from './components/TokenError';
 import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
 
@@ -104,7 +104,7 @@ function App() {
         minHeight: '100vh',
         transition: 'background-color 0.3s ease'
       }}>
-        <Header />
+        <ModernHeader />
         <Routes>
           <Route path="/" element={<Home widgetData={widgetData} validCountries={validCountries} />} />
           {/* <Route path="/link1" element={<Link1 />} />
