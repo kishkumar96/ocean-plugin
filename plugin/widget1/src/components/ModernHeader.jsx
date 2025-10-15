@@ -1,5 +1,5 @@
 import React from 'react';
-import NIUE_CONFIG from '../config/niueConfig';
+import { NIUE_CONFIG } from '../config/NiueConfig';
 
 const ModernHeader = () => {
   const [currentTime, setCurrentTime] = React.useState(new Date());

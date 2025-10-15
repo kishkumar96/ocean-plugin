@@ -7,7 +7,7 @@
 // Main configurations
 export { default as UI_CONFIG } from './uiConfig.js';
 export { default as MARINE_CONFIG, MARINE_VARIABLES, NIUE_LAYERS } from './marineVariables.js';
-export { default as NIUE_CONFIG } from './niueConfig.js';
+export { NIUE_CONFIG } from './NiueConfig.js';
 
 // Selective exports for convenience
 export {
