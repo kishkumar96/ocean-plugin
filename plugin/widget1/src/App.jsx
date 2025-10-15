@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import Home from './pages/Home';
+import EnhancedForecastApp from './components/EnhancedForecastApp';
 import './App.css';
-import ModernHeader from './components/ModernHeader';
 import TokenError from './components/TokenError';
 import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
 
@@ -104,12 +103,8 @@ function App() {
         minHeight: '100vh',
         transition: 'background-color 0.3s ease'
       }}>
-        <ModernHeader />
         <Routes>
-          <Route path="/" element={<Home widgetData={widgetData} validCountries={validCountries} />} />
-          {/* <Route path="/link1" element={<Link1 />} />
-          <Route path="/link2" element={<Link2 />} />
-          <Route path="/link3" element={<Link3 />} /> */}
+          <Route path="/" element={<EnhancedForecastApp widgetData={widgetData} validCountries={validCountries} />} />
           {/* Redirect any unknown routes to home */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
