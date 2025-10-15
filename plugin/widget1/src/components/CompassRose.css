@@ -1,0 +1,167 @@
+/* Niue Marine Compass Styles */
+
+.compass-container.niue-marine {
+  position: absolute;
+  z-index: 1000;
+  pointer-events: none;
+  user-select: none;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  filter: drop-shadow(0 6px 12px rgba(12, 74, 110, 0.4));
+}
+
+.compass-container.niue-marine:hover {
+  opacity: 1 !important;
+  filter: drop-shadow(0 8px 16px rgba(6, 182, 212, 0.5));
+  transform: scale(1.02);
+}
+
+.compass-svg.niue-marine {
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.compass-container.niue-marine:hover .compass-svg.niue-marine {
+  transform: scale(1.05);
+}
+
+/* Niue marine fade-in animation */
+@keyframes niueCompassAppear {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(8px);
+    filter: blur(2px) drop-shadow(0 0 0 rgba(6, 182, 212, 0));
+  }
+  to {
+    opacity: 0.92;
+    transform: scale(1) translateY(0);
+    filter: blur(0px) drop-shadow(0 6px 12px rgba(12, 74, 110, 0.4));
+  }
+}
+
+.compass-container.niue-marine {
+  animation: niueCompassAppear 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0.92;
+}
+
+.compass-container.niue-marine:hover {
+  opacity: 1 !important;
+}
+
+/* Pulse animation for active navigation */
+@keyframes niuePulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(6, 182, 212, 0);
+  }
+}
+
+.compass-container.niue-marine.active {
+  animation: niuePulse 2s infinite, niueCompassAppear 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Enhanced responsive behavior for Niue waters */
+@media (max-width: 1024px) {
+  .compass-container.niue-marine {
+    transform: scale(0.9);
+  }
+}
+
+@media (max-width: 768px) {
+  .compass-container.niue-marine {
+    transform: scale(0.8);
+    bottom: 100px !important; /* Avoid overlap with mobile controls */
+    left: 10px !important;
+  }
+  
+  .compass-container.niue-marine:hover {
+    transform: scale(0.82);
+  }
+}
+
+@media (max-width: 480px) {
+  .compass-container.niue-marine {
+    transform: scale(0.7);
+    bottom: 80px !important;
+    left: 8px !important;
+  }
+  
+  .compass-container.niue-marine:hover {
+    transform: scale(0.72);
+  }
+}
+
+/* Marine wind indicator enhancement */
+.compass-container.niue-marine.wind-active {
+  animation: niuePulse 3s infinite ease-in-out;
+}
+
+.compass-container.niue-marine.wind-active .compass-svg.niue-marine {
+  filter: drop-shadow(0 0 8px rgba(6, 182, 212, 0.6));
+}
+
+/* Coral reef theme accent */
+.compass-container.niue-marine.coral-accent {
+  filter: drop-shadow(0 6px 12px rgba(249, 115, 22, 0.3));
+}
+
+.compass-container.niue-marine.coral-accent:hover {
+  filter: drop-shadow(0 8px 16px rgba(249, 115, 22, 0.4));
+}
+
+/* Loading state */
+.compass-container.niue-marine.loading {
+  opacity: 0.5;
+  filter: grayscale(0.3) blur(1px);
+}
+
+.compass-container.niue-marine.loading .compass-svg.niue-marine {
+  animation: rotate 4s linear infinite;
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* High contrast mode for accessibility */
+@media (prefers-contrast: high) {
+  .compass-container.niue-marine {
+    filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.8));
+  }
+  
+  .compass-svg.niue-marine text {
+    stroke: rgba(0, 0, 0, 0.8);
+    stroke-width: 0.5;
+  }
+}
+
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .compass-container.niue-marine,
+  .compass-svg.niue-marine,
+  .compass-container.niue-marine:hover,
+  .compass-container.niue-marine:hover .compass-svg.niue-marine {
+    animation: none;
+    transition: none;
+    transform: none;
+  }
+  
+  .compass-container.niue-marine.active {
+    animation: none;
+  }
+}
+
+/* Dark mode compatibility */
+@media (prefers-color-scheme: dark) {
+  .compass-container.niue-marine {
+    filter: drop-shadow(0 6px 12px rgba(6, 182, 212, 0.2));
+  }
+}
+
+/* Print media - hide compass for printed maps */
+@media print {
+  .compass-container.niue-marine {
+    display: none;
+  }
+}
