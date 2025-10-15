@@ -1,9 +1,10 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
-export default function Header({ theme, toggleTheme }) {
+
+export default function Header() {
   return (
-  <nav className="navbar navbar-expand-lg py-2" data-theme={theme} style={{ 
+    <nav className="navbar navbar-expand-lg py-2" style={{ 
       backgroundColor: 'var(--color-surface)', 
       borderBottom: '1px solid var(--color-border, #e2e8f0)',
       boxShadow: 'var(--card-shadow)',
@@ -23,7 +24,7 @@ export default function Header({ theme, toggleTheme }) {
             }}
           />
           <span style={{ color: '#0065f8', fontWeight: 'bold', fontSize: '1.1rem' }}>
-            Widget 5
+            Cook Islands Forecast
           </span>
         </Link>
 
@@ -63,10 +64,24 @@ export default function Header({ theme, toggleTheme }) {
               <Link className="nav-link" to="/" style={{ color: 'var(--color-text)' }}>
                 Home
               </Link>
+            </li>
+            <li className="nav-item">
+              <Link className="nav-link" to="/link1" style={{ color: 'var(--color-text)' }}>
+                Link 1
+              </Link>
+            </li>
+            <li className="nav-item">
+              <Link className="nav-link" to="/link2" style={{ color: 'var(--color-text)' }}>
+                Link 2
+              </Link>
+            </li>
+            <li className="nav-item">
+              <Link className="nav-link" to="/link3" style={{ color: 'var(--color-text)' }}>
+                Link 3
+              </Link>
             </li> */}
-         
             <li className="nav-item d-flex align-items-center ms-3">
-              <ThemeToggle theme={theme} toggleTheme={toggleTheme} />
+              <ThemeToggle />
             </li>
           </ul>
         </div>
