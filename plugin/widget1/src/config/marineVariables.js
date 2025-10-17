@@ -1,22 +1,24 @@
 /**
- * Marine Variable Definitions and Configuration - NIUE
+ * Marine Variable Definitions and Configuration
  * Centralized configuration for marine forecast parameters
  */
 
-// ✅ Marine Forecast Configuration - NIUE SPECIFIC
+import { calculateDynamicRange, extractCoverageTimeseries } from '../utils/marineDataUtils.js';
+
+// ✅ Marine Forecast Configuration
 export const MARINE_CONFIG = {
   // Model warm-up period configuration
-  WARMUP_DAYS: 0,           // Skip first N days of model spin-up (0 = disabled, keep all data)
-  ENABLE_WARMUP_SKIP: false, // Toggle warm-up skip feature (disabled)
+  WARMUP_DAYS: 0,           // Skip first N days of model spin-up (0 = disabled, keep all data like Widget1)
+  ENABLE_WARMUP_SKIP: false, // Toggle warm-up skip feature (disabled to match Widget1 behavior)
   
   // First timestep configuration
-  SKIP_FIRST_TIMESTEP: false,  // Keep all timesteps for Niue (including 0-hour analysis)
+  SKIP_FIRST_TIMESTEP: true,  // Skip the 0-hour forecast (often analysis/nowcast, not forecast)
   
   // Slider initialization configuration
-  DEFAULT_SLIDER_INDEX: 0,  // Start at index 0 for Niue
+  DEFAULT_SLIDER_INDEX: 1,  // Start at index 1 (first forecast timestep after skipping 0-hour)
   
   // Time dimension configuration
-  DEFAULT_STEP_HOURS: 1,    // Niue uses hourly timesteps
+  DEFAULT_STEP_HOURS: 6,    // Default timestep for marine forecasts
   
   // WMS configuration
   DEFAULT_WMS_VERSION: '1.3.0',
@@ -24,17 +26,17 @@ export const MARINE_CONFIG = {
   DEFAULT_TRANSPARENCY: true,
   
   // Display configuration
-  SHOW_WARMUP_NOTICE: false, // No warm-up notice needed
+  SHOW_WARMUP_NOTICE: false, // Show notice about skipped warm-up period (disabled since we're not skipping)
 };
 
-// Marine variable definitions for Niue - matching existing layer structure
+// Marine variable definitions with WMO standards
 export const MARINE_VARIABLES = {
   'hs': {
     key: 'hs',
     label: 'Significant Wave Height',
     description: 'The average height of the highest third of waves',
-    defaultRange: { min: 0, max: 4 }, // Niue-specific range
-    colorScheme: 'jet',  // Jet scheme for consistency with existing Niue setup
+    defaultRange: { min: 0, max: 5 },
+    colorScheme: 'bu',  // Blue scheme - MATCHING NIUE
     decimalPlaces: 1,
     units: 'm',
     category: 'wave',
@@ -45,7 +47,7 @@ export const MARINE_VARIABLES = {
     label: 'Mean Wave Period',
     description: 'Mean zero-crossing period of waves',
     defaultRange: { min: 0, max: 20 },
-    colorScheme: 'jet',  // Jet scheme for consistency
+    colorScheme: 'ylgnbu',  // Match WMS YlGnBu palette
     decimalPlaces: 0,
     units: 's',
     category: 'wave',
@@ -55,8 +57,8 @@ export const MARINE_VARIABLES = {
     key: 'tpeak',
     label: 'Peak Wave Period', 
     description: 'Wave period corresponding to the most energetic waves',
-    defaultRange: { min: 0, max: 20 },
-    colorScheme: 'jet',  // Jet scheme for consistency
+    defaultRange: { min: 0, max: 20 },  // 0-20 range - MATCHING NIUE
+    colorScheme: 'rd',  // Red scheme - MATCHING NIUE
     decimalPlaces: 0,
     units: 's',
     category: 'wave',
@@ -95,82 +97,244 @@ export const MARINE_VARIABLES = {
     category: 'direction',
     wmoCodes: ['wind_from_direction']
   },
-  'inundation': {
-    key: 'inundation',
-    label: 'Inundation Depth',
-    description: 'Coastal inundation depth from wave action',
-    defaultRange: { min: 0, max: 2 },
-    colorScheme: 'Blues',
-    decimalPlaces: 2,
+  'sst': {
+    key: 'sst',
+    label: 'Sea Surface Temperature',
+    description: 'Temperature at the sea surface',
+    defaultRange: { min: 20, max: 30 },
+    colorScheme: 'rd',
+    decimalPlaces: 1,
+    units: '°C',
+    category: 'temperature',
+    wmoCodes: ['sea_surface_temperature']
+  },
+  // Swell partition variables (added for Cook Islands - matching Niue)
+  'dirp': {
+    key: 'dirp',
+    label: 'Wave direction',
+    description: 'Peak wave direction',
+    defaultRange: { min: 0, max: 360 },
+    colorScheme: 'dir',
+    decimalPlaces: 0,
+    units: '°',
+    category: 'direction',
+    wmoCodes: ['direction_of_peak_wave']
+  },
+  'transp_x': {
+    key: 'transp_x',
+    label: 'Wave Energy',
+    description: 'Wave transport energy (X component)',
+    defaultRange: { min: 0, max: 100 },
+    colorScheme: 'jet',
+    decimalPlaces: 0,
+    units: 'kW/m',
+    category: 'energy',
+    isCalculated: true,
+    wmoCodes: []
+  },
+  'transp_y': {
+    key: 'transp_y',
+    label: 'Wave Transport Y',
+    description: 'Wave transport energy (Y component)',
+    defaultRange: { min: 0, max: 100 },
+    colorScheme: 'jet',
+    decimalPlaces: 0,
+    units: 'kW/m',
+    category: 'energy',
+    hidden: true, // Don't display this row (used for calculations)
+    wmoCodes: []
+  },
+  'hs_p1': {
+    key: 'hs_p1',
+    label: 'Wind wave(m)',
+    description: 'Wind wave significant height',
+    defaultRange: { min: 0, max: 5 },
+    colorScheme: 'bu',
+    decimalPlaces: 1,
     units: 'm',
-    category: 'coastal',
-    wmoCodes: ['sea_surface_height_above_sea_level']
+    category: 'swell',
+    wmoCodes: []
+  },
+  'tp_p1': {
+    key: 'tp_p1',
+    label: 'Wind wave period',
+    description: 'Wind wave peak period',
+    defaultRange: { min: 0, max: 25 },
+    colorScheme: 'rd',
+    decimalPlaces: 0,
+    units: 's',
+    category: 'swell',
+    wmoCodes: []
+  },
+  'dirp_p1': {
+    key: 'dirp_p1',
+    label: 'Wind wave dir',
+    description: 'Wind wave direction',
+    defaultRange: { min: 0, max: 360 },
+    colorScheme: 'dir',
+    decimalPlaces: 0,
+    units: '°',
+    category: 'direction',
+    wmoCodes: []
+  },
+  'hs_p2': {
+    key: 'hs_p2',
+    label: 'Swell(m)',
+    description: 'Primary swell significant height',
+    defaultRange: { min: 0, max: 5 },
+    colorScheme: 'bu',
+    decimalPlaces: 1,
+    units: 'm',
+    category: 'swell',
+    wmoCodes: []
+  },
+  'tp_p2': {
+    key: 'tp_p2',
+    label: 'Swell Period',
+    description: 'Primary swell peak period',
+    defaultRange: { min: 0, max: 25 },
+    colorScheme: 'rd',
+    decimalPlaces: 0,
+    units: 's',
+    category: 'swell',
+    wmoCodes: []
+  },
+  'dirp_p2': {
+    key: 'dirp_p2',
+    label: 'Swell Dir',
+    description: 'Primary swell direction',
+    defaultRange: { min: 0, max: 360 },
+    colorScheme: 'dir',
+    decimalPlaces: 0,
+    units: '°',
+    category: 'direction',
+    wmoCodes: []
+  },
+  'hs_p3': {
+    key: 'hs_p3',
+    label: '2.Swell (m)',
+    description: 'Secondary swell significant height',
+    defaultRange: { min: 0, max: 5 },
+    colorScheme: 'bu',
+    decimalPlaces: 1,
+    units: 'm',
+    category: 'swell',
+    wmoCodes: []
+  },
+  'tp_p3': {
+    key: 'tp_p3',
+    label: '2.Swell Period',
+    description: 'Secondary swell peak period',
+    defaultRange: { min: 0, max: 25 },
+    colorScheme: 'rd',
+    decimalPlaces: 0,
+    units: 's',
+    category: 'swell',
+    wmoCodes: []
+  },
+  'dirp_p3': {
+    key: 'dirp_p3',
+    label: '2. Swell Dir',
+    description: 'Secondary swell direction',
+    defaultRange: { min: 0, max: 360 },
+    colorScheme: 'dir',
+    decimalPlaces: 0,
+    units: '°',
+    category: 'direction',
+    wmoCodes: []
   }
 };
 
-// Niue-specific layer configurations matching existing structure
-export const NIUE_LAYERS = [
-  {
-    label: "Significant Wave Height + Dir",
-    value: "composite_hs_dirm",
-    id: 100,
-    composite: true,
-    legendUrl: "https://ocean-plotter.spc.int/plotter/GetLegendGraphic?layer_map=40&mode=standard&min_color=0&max_color=4&step=1&color=jet&unit=m",
-    layers: [
-      {
-        layer: "niue/hs",
-        url: "https://gem-ncwms-hpc.spc.int/ncWMS/wms",
-        styles: "default-scalar/jet",
-        time: null,
-        opacity: 0.7,
-        attribution: "SPC Ocean Portal"
-      },
-      {
-        layer: "niue/dirm", 
-        url: "https://gem-ncwms-hpc.spc.int/ncWMS/wms",
-        styles: "prettyvec/rainbow",
-        time: null,
-        opacity: 0.8,
-        attribution: "SPC Ocean Portal"
-      }
-    ]
-  },
-  {
-    label: "Mean Wave Period",
-    value: "tm02",
-    id: 2,
-    layer: "niue/tm02",
-    url: "https://gem-ncwms-hpc.spc.int/ncWMS/wms",
-    styles: "default-scalar/jet",
-    legendUrl: "https://ocean-plotter.spc.int/plotter/GetLegendGraphic?layer_map=41&mode=standard&min_color=0&max_color=20&step=2&color=jet&unit=s",
-    time: null,
-    opacity: 0.7,
-    attribution: "SPC Ocean Portal"
-  },
-  {
-    label: "Peak Wave Period",
-    value: "tpeak",
-    id: 3,
-    layer: "niue/tpeak",
-    url: "https://gem-ncwms-hpc.spc.int/ncWMS/wms",
-    styles: "default-scalar/jet",
-    legendUrl: "https://ocean-plotter.spc.int/plotter/GetLegendGraphic?layer_map=42&mode=standard&min_color=0&max_color=20&step=2&color=jet&unit=s",
-    time: null,
-    opacity: 0.7,
-    attribution: "SPC Ocean Portal"
-  },
-  {
-    label: "Inundation Depth",
-    value: "inundation",
-    id: 4,
-    layer: "niue_inun/Band1",
-    url: "https://gem-ncwms-hpc.spc.int/ncWMS/wms",
-    styles: "default-scalar/seq-Blues",
-    legendUrl: "https://gem-ncwms-hpc.spc.int/ncWMS/wms?REQUEST=GetLegendGraphic&LAYER=niue_inun/Band1&PALETTE=seq-Blues&COLORBARONLY=true&WIDTH=60&HEIGHT=320&COLORSCALERANGE=0,2&NUMCOLORBANDS=220&VERTICAL=true&TRANSPARENT=true",
-    time: null,
-    opacity: 0.8,
-    attribution: "SPC Ocean Portal"
+// Get variable definition with dynamic range calculation
+export const getVariableDefinition = (key, actualData = null) => {
+  const baseDefinition = MARINE_VARIABLES[key] || {
+    key,
+    label: key.toUpperCase(),
+    description: `Marine parameter: ${key}`,
+    defaultRange: { min: 0, max: 10 },
+    colorScheme: 'bu',
+    decimalPlaces: 1,
+    units: '',
+    category: 'unknown',
+    wmoCodes: []
+  };
+
+  // Create a copy to avoid mutation
+  const definition = { ...baseDefinition };
+
+  // Calculate actual range if data is provided
+  if (actualData) {
+    const ts = extractCoverageTimeseries(actualData, key);
+    if (ts?.values) {
+      const actualRange = calculateDynamicRange(
+        ts.values, 
+        definition.defaultRange.min, 
+        definition.defaultRange.max
+      );
+      definition.actualRange = actualRange;
+    }
   }
+
+  return definition;
+};
+
+// Get all available marine variables
+export const getAllVariableKeys = () => Object.keys(MARINE_VARIABLES);
+
+// Get variables by category
+export const getVariablesByCategory = (category) => {
+  return Object.values(MARINE_VARIABLES).filter(v => v.category === category);
+};
+
+// Validate variable configuration
+export const validateVariableConfig = (config) => {
+  const required = ['key', 'label', 'defaultRange', 'colorScheme', 'units'];
+  const missing = required.filter(field => !(field in config));
+  
+  if (missing.length > 0) {
+    console.warn(`Variable config missing required fields: ${missing.join(', ')}`);
+    return false;
+  }
+  
+  const { defaultRange } = config;
+  if (!defaultRange || typeof defaultRange.min !== 'number' || typeof defaultRange.max !== 'number') {
+    console.warn('Invalid defaultRange in variable config');
+    return false;
+  }
+  
+  if (defaultRange.min >= defaultRange.max) {
+    console.warn('Invalid range: min must be less than max');
+    return false;
+  }
+  
+  return true;
+};
+
+// Default variable order for table display - Same order as Niue (Widget1)
+export const DEFAULT_VARIABLE_ORDER = [
+  'hs',      // Wave
+  'tpeak',   // Wave Period
+  'dirp',    // Wave direction
+  'transp_x',// Wave Energy (calculated)
+  'hs_p2',   // Swell(m)
+  'tp_p2',   // Swell Period
+  'dirp_p2', // Swell Dir
+  'hs_p3',   // 2.Swell (m)
+  'tp_p3',   // 2.Swell Period
+  'dirp_p3', // 2.Swell Dir
+  'hs_p1',   // Wind wave(m)
+  'tp_p1',   // Wind wave period
+  'dirp_p1', // Wind wave dir
+  'dirm',    // Mean wave direction
+  'tm02',    // Mean wave period
+  'ws',      // Wind speed
+  'wd',      // Wind direction
+  'sst'      // Sea surface temp
 ];
 
-export default MARINE_CONFIG;
+// Get ordered variables based on availability
+export const getOrderedVariables = (availableKeys) => {
+  const ordered = DEFAULT_VARIABLE_ORDER.filter(key => availableKeys.includes(key));
+  const remaining = availableKeys.filter(key => !DEFAULT_VARIABLE_ORDER.includes(key));
+  return [...ordered, ...remaining];
+};

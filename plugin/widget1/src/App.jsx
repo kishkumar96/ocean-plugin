@@ -1,42 +1,27 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import EnhancedForecastApp from './components/EnhancedForecastApp';
+import Home from './pages/Home';
 import './App.css';
-
-// ==========================================
-// TOKEN SYSTEM TEMPORARILY DISABLED
-// ==========================================
-// The token validation system has been temporarily commented out for development and testing.
-// This allows the app to load directly without requiring authentication tokens.
-// 
-// To re-enable: Uncomment the imports and logic below, then uncomment the validation code in the function.
+// LEGACY HEADER REMOVED - ModernHeader is now used in Home.jsx
+// import Header from './components/header';
+// TEMPORARILY DISABLED FOR DEVELOPMENT
 // import TokenError from './components/TokenError';
 // import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
 
 function App() {
-  // ==========================================
-  // TOKEN SYSTEM TEMPORARILY DISABLED
-  // ==========================================
-  // The token validation has been bypassed for development purposes.
-  // The app will now load directly without requiring authentication.
-  //
-  // To re-enable token validation:
-  // 1. Uncomment the imports at the top of this file
-  // 2. Uncomment the token validation logic below
-  // 3. Remove or modify these simplified state declarations
-  
-  const [widgetData] = useState(null); // No widget data for now
-  const [validCountries] = useState([]); // No country validation
-
-  // COMMENTED OUT: Token validation logic
-  /*
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // TEMPORARILY DISABLED FOR DEVELOPMENT
+  // const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [errorType, setErrorType] = useState(null);
-  const [widgetData, setWidgetData] = useState(null);
-  const [validCountries, setValidCountries] = useState([]);
+  // const [errorType, setErrorType] = useState(null);
+  const [widgetData] = useState(null);
+  const [validCountries] = useState([]);
 
   useEffect(() => {
+    // TEMPORARILY DISABLED FOR DEVELOPMENT - Skip token validation
+    console.log('Token validation temporarily disabled for development');
+    setIsLoading(false);
+    
+    /* ORIGINAL TOKEN VALIDATION CODE - COMMENTED OUT FOR DEVELOPMENT
     const initializeApp = async () => {
       console.log('Initializing app with token and country validation...');
       
@@ -87,11 +72,9 @@ function App() {
     };
 
     initializeApp();
+    */
   }, []);
-  */
 
-  // COMMENTED OUT: Token validation UI
-  /*
   // Show loading state while validating token
   if (isLoading) {
     return (
@@ -119,20 +102,33 @@ function App() {
   }
 
   // Show error message if not authenticated
-  if (!isAuthenticated || errorType) {
-    return <TokenError errorType={errorType || 'invalid_token'} />;
-  }
-  */
+  // TEMPORARILY DISABLED FOR DEVELOPMENT
+  // if (!isAuthenticated || errorType) {
+  //   return <TokenError errorType={errorType || 'invalid_token'} />;
+  // }
+
+  // Use PUBLIC_URL for production, but allow root access in development
+  const basename = process.env.NODE_ENV === 'production' ? process.env.PUBLIC_URL : '';
 
   return (
-    <Router basename={process.env.PUBLIC_URL}>
+    <Router 
+      basename={basename}
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true
+      }}
+    >
       <div style={{ 
         backgroundColor: 'var(--color-background)', 
         minHeight: '100vh',
         transition: 'background-color 0.3s ease'
       }}>
+        {/* Legacy Header removed - ModernHeader now renders in Home.jsx */}
         <Routes>
-          <Route path="/" element={<EnhancedForecastApp widgetData={widgetData} validCountries={validCountries} />} />
+          <Route path="/" element={<Home widgetData={widgetData} validCountries={validCountries} />} />
+          {/* <Route path="/link1" element={<Link1 />} />
+          <Route path="/link2" element={<Link2 />} />
+          <Route path="/link3" element={<Link3 />} /> */}
           {/* Redirect any unknown routes to home */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

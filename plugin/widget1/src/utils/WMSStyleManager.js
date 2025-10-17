@@ -1,598 +1,464 @@
-/**
- * WMSStyleManager - Advanced WMS Layer Styling and Management
- * 
- * Dynamic layer styling, performance optimization, and cache management
- * specifically designed for marine forecast WMS services and SPC Ocean Portal integration.
- */
+// WMSStyleManager.js - Advanced WMS styling with multiple color palettes
 
-import WorldClassVisualization from './WorldClassVisualization';
-
-// WMS service configurations for different providers
-const WMS_PROVIDERS = {
-  spcOcean: {
-    name: 'SPC Ocean Portal',
-    baseUrl: 'https://ocean-wms.spc.int/ncWMS2/wms',
-    version: '1.3.0',
-    format: 'image/png',
-    transparent: true,
-    crs: 'EPSG:4326',
-    attribution: 'SPC Ocean Portal - Marine Forecasting',
-    capabilities: null,
-    lastCapabilitiesUpdate: null
-  },
+export const WMSColorPalettes = {
+  // ncWMS Available Palettes (verified from server capabilities)
   
-  thredds: {
-    name: 'THREDDS Data Server',
-    baseUrl: 'https://ocean-thredds.spc.int/thredds/wms',
-    version: '1.3.0',
-    format: 'image/png',
-    transparent: true,
-    crs: 'EPSG:4326',
-    attribution: 'SPC THREDDS Server',
-    capabilities: null,
-    lastCapabilitiesUpdate: null
-  }
+  // Perceptually uniform palettes (excellent for scientific data)
+  VIRIDIS: 'default-scalar/psu-viridis',
+  PLASMA: 'default-scalar/psu-plasma',
+  INFERNO: 'default-scalar/psu-inferno',
+  MAGMA: 'default-scalar/psu-magma',
+  
+  // Diverging palettes (good for anomalies, deviations)
+  SPECTRAL: 'default-scalar/div-Spectral',
+  RdYlBu: 'default-scalar/div-RdYlBu',
+  RdBu: 'default-scalar/div-RdBu',
+  BrBG: 'default-scalar/div-BrBG',
+  
+  // Sequential palettes (good for single variable ranges)
+  BLUES: 'default-scalar/seq-Blues',
+  BLUEHEAT: 'default-scalar/blueheat',
+  FERRET: 'default-scalar/ferret',
+  OCCAM: 'default-scalar/occam',
+  YLGNBU: 'default-scalar/seq-YlGnBu',
+  
+  // Default fallback
+  DEFAULT: 'default-scalar/default'
 };
 
-// Style templates for different marine variables
-const STYLE_TEMPLATES = {
-  // Wave height styles
-  waveHeight: {
-    'default-scalar/jet': {
-      name: 'Jet (Blue-Red)',
-      description: 'Standard blue to red progression',
-      colorRange: { min: 0, max: 8 },
-      numColorBands: 254,
-      opacity: 0.7
-    },
-    'default-scalar/rainbow': {
-      name: 'Rainbow Spectrum',
-      description: 'Full rainbow color spectrum',
-      colorRange: { min: 0, max: 8 },
-      numColorBands: 254,
-      opacity: 0.7
-    },
-    'default-scalar/occam': {
-      name: 'Ocean Blue',
-      description: 'Marine-focused blue tones',
-      colorRange: { min: 0, max: 8 },
-      numColorBands: 254,
-      opacity: 0.8
+export const WMSStylePresets = {
+  WAVE_HEIGHT: {
+    style: WMSColorPalettes.VIRIDIS,
+    numcolorbands: 256, // Continuous like QGIS (max resolution)
+    belowmincolor: 'transparent',
+    abovemaxcolor: 'extend',
+    interpolation: 'linear', // Linear interpolation like your QGIS example
+    mode: 'continuous', // Continuous classification
+    description: 'Viridis palette - perceptually uniform ramp for wave height',
+    // Rounded, perceptually uniform color mapping (heights in meters) - Bright Viridis
+    colorMapping: {
+      0: 'rgb(13, 8, 135)',    // Calm seas (0–1 m) - Deep blue
+      1: 'rgb(70, 3, 159)',    // Slight (1–2 m) - Purple  
+      2: 'rgb(114, 1, 168)',   // Moderate (2–4 m) - Blue-purple
+      4: 'rgb(31, 158, 137)',  // Rough (4–6 m) - Teal
+      6: 'rgb(53, 183, 121)',  // Very Rough (6–9 m) - Green
+      9: 'rgb(181, 222, 43)',  // High (9–14 m) - Yellow-green
+      14: 'rgb(240, 249, 33)'  // Extreme (14+ m) - Bright yellow
     }
   },
   
-  // Wave period styles
-  wavePeriod: {
-    'default-scalar/rainbow': {
-      name: 'Period Rainbow',
-      description: 'Spectral colors for period data',
-      colorRange: { min: 2, max: 20 },
-      numColorBands: 254,
-      opacity: 0.7
-    },
-    'default-scalar/alg2': {
-      name: 'Algorithm 2',
-      description: 'Enhanced period visualization',
-      colorRange: { min: 2, max: 20 },
-      numColorBands: 254,
-      opacity: 0.7
-    }
+  WAVE_PERIOD: {
+    style: WMSColorPalettes.YLGNBU,
+    numcolorbands: 220,
+    belowmincolor: 'transparent',
+    abovemaxcolor: 'extend',
+    description: 'Seafoam-to-sunrise palette tailored for mean wave period'
   },
   
-  // Wave direction styles
-  waveDirection: {
-    'default-scalar/occam': {
-      name: 'Directional Occam',
-      description: 'Circular color mapping for directions',
-      colorRange: { min: 0, max: 360 },
-      numColorBands: 254,
-      opacity: 0.6,
-      circular: true
-    }
+  PEAK_WAVE_PERIOD: {
+    style: WMSColorPalettes.MAGMA,
+    numcolorbands: 256,
+    belowmincolor: 'transparent',
+    abovemaxcolor: 'extend',
+    description: 'Magma palette optimized for peak wave period (tpeak) - server compatible'
   },
   
-  // Inundation styles
-  inundation: {
-    'default-scalar/alg2': {
-      name: 'Inundation Alert',
-      description: 'Progressive alert colors',
-      colorRange: { min: 0, max: 3 },
-      numColorBands: 254,
-      opacity: 0.8
-    }
+  INUNDATION: {
+    style: WMSColorPalettes.BLUES,
+    numcolorbands: 220,
+    belowmincolor: 'transparent',
+    abovemaxcolor: 'extend',
+    description: 'Sequential blues palette for inundation depth visualisation'
+  },
+  
+  WAVE_ENERGY: {
+    style: WMSColorPalettes.INFERNO,
+    numcolorbands: 300,
+    belowmincolor: 'transparent',
+    abovemaxcolor: 'extend',
+    description: 'Inferno palette - high dynamic range for wave energy visualization'
+  },
+  
+  TEMPERATURE: {
+    style: WMSColorPalettes.COOLWARM,
+    numcolorbands: 250,
+    belowmincolor: 'blue',
+    abovemaxcolor: 'red',
+    description: 'Blue-to-red diverging palette for temperature data'
+  },
+  
+  BATHYMETRY: {
+    style: WMSColorPalettes.SPECTRAL,
+    numcolorbands: 200,
+    belowmincolor: 'darkblue',
+    abovemaxcolor: 'brown',
+    description: 'Spectral palette ideal for depth/elevation data'
   }
 };
-
-// Performance optimization settings (for future use)
-// const PERFORMANCE_CONFIG = {
-//   tileSize: 256,
-//   maxZoom: 18,
-//   minZoom: 4,
-//   updateThreshold: 500, // ms
-//   cacheSize: 100,
-//   compressionLevel: 'medium',
-//   prefetchTiles: true,
-//   adaptiveQuality: true
-// };
 
 export class WMSStyleManager {
-  constructor(options = {}) {
-    this.options = {
-      defaultProvider: 'spcOcean',
-      cacheEnabled: true,
-      performanceMode: 'balanced', // 'performance', 'balanced', 'quality'
-      debugMode: false,
-      ...options
+  constructor() {
+    this.currentPalette = WMSColorPalettes.VIRIDIS;
+    this.listeners = [];
+  }
+
+  /**
+   * Get enhanced WMS options for a specific data type (QGIS-style continuous classification)
+   * @param {string} dataType - Type of oceanographic data
+   * @param {Object} baseOptions - Base WMS options
+   * @returns {Object} Enhanced WMS options with optimal styling
+   */
+  getEnhancedWMSOptions(dataType, baseOptions = {}) {
+    const preset = this.getPresetForDataType(dataType);
+    
+    return {
+      ...baseOptions,
+      style: preset.style,
+      // QGIS-style continuous rendering
+      numcolorbands: preset.numcolorbands || 256, // Maximum resolution like QGIS
+      belowmincolor: preset.belowmincolor,
+      abovemaxcolor: preset.abovemaxcolor,
+      // Enhanced sampling for smoother gradients (like QGIS linear interpolation)
+      version: '1.3.0',
+      format: 'image/png',
+      transparent: true,
+      // Advanced rendering options for professional quality
+      map_resolution: 200, // Higher resolution for crisp rendering
+      bgcolor: '0x000000',
+      // Anti-aliasing and smooth transitions
+      smooth: true,
+      antialias: true
     };
-    
-    // Initialize services
-    this.visualization = new WorldClassVisualization();
-    
-    // Cache management
-    this.styleCache = new Map();
-    this.capabilitiesCache = new Map();
-    this.urlCache = new Map();
-    
-    // Performance tracking
-    this.performanceMetrics = {
-      requestCount: 0,
-      cacheHits: 0,
-      averageResponseTime: 0,
-      lastRequestTime: null
-    };
-    
-    // Active layers tracking
-    this.activeLayers = new Map();
   }
 
   /**
-   * Get WMS provider configuration
+   * Generate QGIS-style continuous color scale range with optimal breaks
+   * @param {string} dataType - Type of data
+   * @param {number} min - Minimum value
+   * @param {number} max - Maximum value
+   * @returns {Object} Color scale configuration
    */
-  getProvider(providerId = this.options.defaultProvider) {
-    return WMS_PROVIDERS[providerId];
-  }
-
-  /**
-   * Get available style templates for a variable type
-   */
-  getStyleTemplates(variableType) {
-    return STYLE_TEMPLATES[variableType] || {};
-  }
-
-  /**
-   * Fetch WMS GetCapabilities for a provider
-   */
-  async fetchCapabilities(providerId, force = false) {
-    const provider = this.getProvider(providerId);
-    if (!provider) throw new Error(`Unknown provider: ${providerId}`);
-
-    const cacheKey = `capabilities_${providerId}`;
-    const cached = this.capabilitiesCache.get(cacheKey);
+  getContinuousColorScale(dataType, min = 0, max = 4) {
+    const preset = this.getPresetForDataType(dataType);
     
-    // Return cached if recent and not forced
-    if (!force && cached && this.isCacheValid(cached.timestamp, 30 * 60 * 1000)) {
-      return cached.data;
-    }
-
-    try {
-      const url = `${provider.baseUrl}?SERVICE=WMS&REQUEST=GetCapabilities&VERSION=${provider.version}`;
-      const startTime = Date.now();
-      
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      
-      const xmlText = await response.text();
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(xmlText, 'text/xml');
-      
-      // Parse capabilities
-      const capabilities = this.parseCapabilities(xml);
-      
-      // Cache results
-      this.capabilitiesCache.set(cacheKey, {
-        data: capabilities,
-        timestamp: Date.now()
-      });
-      
-      // Update performance metrics
-      this.updatePerformanceMetrics(Date.now() - startTime);
-      
-      if (this.options.debugMode) {
-        console.log(`🌊 Fetched capabilities for ${provider.name}:`, capabilities);
-      }
-      
-      return capabilities;
-      
-    } catch (error) {
-      console.error(`Failed to fetch capabilities for ${providerId}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Parse WMS Capabilities XML
-   */
-  parseCapabilities(xml) {
-    const layers = [];
-    const layerElements = xml.getElementsByTagName('Layer');
-    
-    for (const layerElement of layerElements) {
-      const nameElement = layerElement.getElementsByTagName('Name')[0];
-      if (!nameElement) continue;
-      
-      const titleElement = layerElement.getElementsByTagName('Title')[0];
-      const abstractElement = layerElement.getElementsByTagName('Abstract')[0];
-      
-      // Get supported styles
-      const styles = [];
-      const styleElements = layerElement.getElementsByTagName('Style');
-      for (const styleElement of styleElements) {
-        const styleName = styleElement.getElementsByTagName('Name')[0]?.textContent;
-        const styleTitle = styleElement.getElementsByTagName('Title')[0]?.textContent;
-        if (styleName) {
-          styles.push({ name: styleName, title: styleTitle || styleName });
-        }
-      }
-      
-      // Get time dimension
-      const timeDimensions = [];
-      const dimensions = layerElement.getElementsByTagName('Dimension');
-      for (const dim of dimensions) {
-        if (dim.getAttribute('name') === 'time') {
-          timeDimensions.push({
-            name: 'time',
-            units: dim.getAttribute('units'),
-            default: dim.getAttribute('default'),
-            values: dim.textContent.trim()
-          });
-        }
-      }
-      
-      layers.push({
-        name: nameElement.textContent,
-        title: titleElement?.textContent || nameElement.textContent,
-        abstract: abstractElement?.textContent || '',
-        styles,
-        timeDimensions,
-        queryable: layerElement.getAttribute('queryable') === '1'
-      });
+    // For wave height, create optimal color breaks like QGIS
+    if (dataType.toLowerCase().includes('hs') || dataType.toLowerCase().includes('height')) {
+      return {
+        range: `${min},${max}`,
+        breaks: this.generateColorBreaks(min, max, preset.colorMapping),
+        numcolorbands: 256, // Continuous like QGIS
+        interpolation: 'linear'
+      };
     }
     
     return {
-      version: xml.getElementsByTagName('WMS_Capabilities')[0]?.getAttribute('version'),
-      layers,
-      timestamp: new Date().toISOString()
+      range: `${min},${max}`,
+      numcolorbands: preset.numcolorbands,
+      interpolation: 'linear'
     };
   }
 
   /**
-   * Build optimized WMS URL with dynamic styling
+   * Generate color breaks similar to QGIS continuous classification
+   * @param {number} min - Minimum value
+   * @param {number} max - Maximum value  
+   * @param {Object} colorMapping - Color mapping object
+   * @returns {Array} Array of color breaks
    */
-  buildWMSUrl(layerConfig, options = {}) {
-    const {
-      providerId = this.options.defaultProvider,
-      style = 'default-scalar/jet',
-      time = null,
-      bbox = null,
-      width = 512,
-      height = 512,
-      colorRange = null,
-      quality = 'standard'
-    } = options;
+  generateColorBreaks(min, max, colorMapping) {
+    const breaks = [];
+    const values = Object.keys(colorMapping).map(Number).sort((a, b) => a - b);
+    let previousValue = min;
 
-    const provider = this.getProvider(providerId);
-    if (!provider) throw new Error(`Unknown provider: ${providerId}`);
-
-    // Build cache key
-    const cacheKey = `url_${JSON.stringify({ layerConfig, options })}`;
-    const cached = this.urlCache.get(cacheKey);
-    
-    if (cached && this.isCacheValid(cached.timestamp, 5 * 60 * 1000)) {
-      return cached.url;
-    }
-
-    // Base parameters
-    const params = new URLSearchParams({
-      SERVICE: 'WMS',
-      VERSION: provider.version,
-      REQUEST: 'GetMap',
-      LAYERS: layerConfig.layer,
-      STYLES: this.optimizeStyle(style, layerConfig.type, quality),
-      CRS: provider.crs,
-      FORMAT: this.getOptimalFormat(quality),
-      TRANSPARENT: provider.transparent.toString(),
-      WIDTH: this.getOptimalDimension(width, quality).toString(),
-      HEIGHT: this.getOptimalDimension(height, quality).toString()
-    });
-
-    // Add BBOX if provided
-    if (bbox) {
-      params.set('BBOX', Array.isArray(bbox) ? bbox.join(',') : bbox);
-    }
-
-    // Add time if provided
-    if (time) {
-      params.set('TIME', time instanceof Date ? time.toISOString() : time);
-    }
-
-    // Add color range if provided
-    if (colorRange) {
-      params.set('COLORSCALERANGE', `${colorRange.min},${colorRange.max}`);
-    }
-
-    // Add performance optimizations
-    if (this.options.performanceMode === 'performance') {
-      params.set('NUMCOLORBANDS', '128'); // Reduce color bands for performance
-    }
-
-    const url = `${provider.baseUrl}?${params}`;
-    
-    // Cache the URL
-    this.urlCache.set(cacheKey, {
-      url,
-      timestamp: Date.now()
-    });
-
-    return url;
-  }
-
-  /**
-   * Optimize style based on performance mode and quality
-   */
-  optimizeStyle(style, variableType, quality) {
-    // In performance mode, use simpler styles
-    if (this.options.performanceMode === 'performance') {
-      const templates = this.getStyleTemplates(variableType);
-      const availableStyles = Object.keys(templates);
-      
-      // Prefer occam or jet for performance
-      if (availableStyles.includes('default-scalar/occam')) {
-        return 'default-scalar/occam';
+    for (let i = 0; i < values.length; i++) {
+      const value = values[i];
+      if (value < min || value > max + Number.EPSILON) {
+        continue;
       }
-      if (availableStyles.includes('default-scalar/jet')) {
-        return 'default-scalar/jet';
+
+      const upperBound = Math.min(value, max);
+      if (upperBound <= previousValue + Number.EPSILON) {
+        previousValue = value;
+        continue;
       }
+
+      breaks.push({
+        value: upperBound,
+        color: colorMapping[value],
+        label: this.getWaveHeightLabel(upperBound),
+        description: this.getWaveHeightDescription(previousValue, upperBound, { dataMax: 15 })
+      });
+
+      previousValue = value;
     }
-    
-    return style;
+
+    return breaks;
   }
 
   /**
-   * Get optimal image format based on quality setting
+   * Get descriptive labels for wave height values
+   * @param {number} value - Wave height in meters
+   * @returns {string} Descriptive label
    */
-  getOptimalFormat(quality) {
-    switch (quality) {
-      case 'high':
-        return 'image/png';
-      case 'standard':
-        return 'image/png';
-      case 'low':
-        return 'image/jpeg';
-      default:
-        return 'image/png';
-    }
+  getWaveHeightLabel(value) {
+    if (value <= 1) return 'Calm';
+    if (value <= 2) return 'Slight';
+    if (value <= 4) return 'Moderate';
+    if (value <= 6) return 'Rough';
+    if (value <= 9) return 'Very Rough';
+    if (value <= 14) return 'High';
+    return 'Extreme';
   }
 
   /**
-   * Get optimal tile dimensions based on quality and performance
+   * Provide adaptive marine descriptions based on regional data characteristics and island-scale conditions
+   * @param {number} min - Minimum height in meters
+   * @param {number} max - Maximum height in meters (Infinity for open-ended)
+   * @param {Object} context - Regional context (dataMax, location, etc.)
+   * @returns {string} Context-aware marine classification
    */
-  getOptimalDimension(requested, quality) {
-    const maxDimensions = {
-      high: 1024,
-      standard: 512,
-      low: 256
-    };
+  getWaveHeightDescription(min, max, context = {}) {
+    const formattedRange = this.formatWaveHeightRange(min, max);
+    const dataMax = context.dataMax || 15; // Default to global range if unknown
+    const isIslandScale = dataMax < 3; // Tropical/protected waters
+    const isModerateScale = dataMax < 8; // Temperate/coastal waters
     
-    const max = maxDimensions[quality] || 512;
-    return Math.min(requested, max);
-  }
-
-  /**
-   * Create enhanced legend with custom styling
-   */
-  createEnhancedLegend(layerConfig, styleConfig = {}) {
-    const {
-      orientation = 'horizontal',
-      size = { width: 400, height: 60 },
-      showTitle = true,
-      showLabels = true,
-      customDomain = null
-    } = styleConfig;
-
-    // Determine palette based on layer type
-    let paletteId = 'jet'; // Default
-    
-    if (layerConfig.type) {
-      switch (layerConfig.type) {
-        case 'waveHeight':
-        case 'hs':
-        case 'composite_hs_dirm':
-          paletteId = 'waveHeight';
-          break;
-        case 'wavePeriod':
-        case 'tm02':
-        case 'tpeak':
-          paletteId = 'wavePeriod';
-          break;
-        case 'waveDirection':
-        case 'dirm':
-          paletteId = 'waveDirection';
-          break;
-        case 'inundation':
-          paletteId = 'inundation';
-          break;
-        default:
-          paletteId = 'jet';
-          break;
+    // Island-scale descriptions (tropical atolls, protected waters, data max < 3m)
+    if (isIslandScale) {
+      if (max <= 0.5) {
+        return `Calm Lagoon Conditions: ${formattedRange}. Mirror-like conditions inside reef protection. Ideal for all water activities, kayaking, snorkeling. No reef breaking.`;
       }
-    }
-
-    const options = {
-      canvasSize: size,
-      showTitle,
-      showLabels,
-      domain: customDomain,
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-      borderColor: 'rgba(0, 0, 0, 0.2)'
-    };
-
-    if (orientation === 'horizontal') {
-      return this.visualization.createHorizontalLegend(paletteId, options);
-    } else {
-      return this.visualization.createVerticalLegend(paletteId, options);
-    }
-  }
-
-  /**
-   * Get GetFeatureInfo URL for point queries
-   */
-  buildFeatureInfoUrl(layerConfig, point, mapBounds, mapSize, options = {}) {
-    const {
-      providerId = this.options.defaultProvider,
-      infoFormat = 'application/json',
-      featureCount = 1
-    } = options;
-
-    const provider = this.getProvider(providerId);
-    if (!provider) throw new Error(`Unknown provider: ${providerId}`);
-
-    const params = new URLSearchParams({
-      SERVICE: 'WMS',
-      VERSION: provider.version,
-      REQUEST: 'GetFeatureInfo',
-      LAYERS: layerConfig.layer,
-      QUERY_LAYERS: layerConfig.layer,
-      INFO_FORMAT: infoFormat,
-      FEATURE_COUNT: featureCount.toString(),
-      CRS: provider.crs,
-      BBOX: Array.isArray(mapBounds) ? mapBounds.join(',') : mapBounds,
-      WIDTH: mapSize.width.toString(),
-      HEIGHT: mapSize.height.toString(),
-      I: Math.round(point.x).toString(),
-      J: Math.round(point.y).toString()
-    });
-
-    // Add time if available in layer config
-    if (layerConfig.time) {
-      params.set('TIME', layerConfig.time instanceof Date ? 
-        layerConfig.time.toISOString() : layerConfig.time);
-    }
-
-    return `${provider.baseUrl}?${params}`;
-  }
-
-  /**
-   * Preload and cache commonly used styles
-   */
-  async preloadStyles(layerConfigs) {
-    const promises = layerConfigs.map(async config => {
-      try {
-        // Build URLs for common style combinations
-        const commonStyles = ['default-scalar/jet', 'default-scalar/rainbow', 'default-scalar/occam'];
-        
-        for (const style of commonStyles) {
-          const url = this.buildWMSUrl(config, { style });
-          
-          // Pre-cache the URL construction
-          this.styleCache.set(`${config.layer}_${style}`, {
-            url,
-            timestamp: Date.now(),
-            preloaded: true
-          });
-        }
-        
-      } catch (error) {
-        if (this.options.debugMode) {
-          console.warn(`Failed to preload styles for ${config.layer}:`, error);
-        }
+      if (max <= 1) {
+        return `Light Trade Wind Seas: ${formattedRange}. Gentle swells on outer reefs. Small craft operations normal. Light surf on windward shores. Tourism activities unaffected.`;
       }
-    });
-
-    await Promise.allSettled(promises);
-    
-    if (this.options.debugMode) {
-      console.log(`🎨 Preloaded styles for ${layerConfigs.length} layers`);
-    }
-  }
-
-  /**
-   * Update performance metrics
-   */
-  updatePerformanceMetrics(responseTime) {
-    this.performanceMetrics.requestCount++;
-    this.performanceMetrics.lastRequestTime = Date.now();
-    
-    // Calculate moving average
-    const count = this.performanceMetrics.requestCount;
-    const current = this.performanceMetrics.averageResponseTime;
-    this.performanceMetrics.averageResponseTime = 
-      ((current * (count - 1)) + responseTime) / count;
-  }
-
-  /**
-   * Check if cached item is still valid
-   */
-  isCacheValid(timestamp, maxAge) {
-    return (Date.now() - timestamp) < maxAge;
-  }
-
-  /**
-   * Clear expired cache entries
-   */
-  cleanupCache() {
-    const maxAge = 30 * 60 * 1000; // 30 minutes
-    
-    // Cleanup style cache
-    for (const [key, entry] of this.styleCache.entries()) {
-      if (!this.isCacheValid(entry.timestamp, maxAge)) {
-        this.styleCache.delete(key);
+      if (max <= 1.5) {
+        return `Moderate Trade Conditions: ${formattedRange}. Active reef breaking on exposed coasts. Small craft may experience spray. Larger swells reach protected harbors.`;
       }
+      if (max <= 2.5) {
+        return `Strong Trade Wind Seas: ${formattedRange}. Significant reef breaking, restricted passage through cuts. Consider delayed departure for vessels <10m. Elevated surf conditions.`;
+      }
+      return `High Island Seas: ${formattedRange}. Maximum regional wave conditions. Heavy reef breaking, dangerous passages. Port restrictions likely. Emergency response preparations.`;
     }
     
-    // Cleanup capabilities cache
-    for (const [key, entry] of this.capabilitiesCache.entries()) {
-      if (!this.isCacheValid(entry.timestamp, maxAge)) {
-        this.capabilitiesCache.delete(key);
+    // Moderate coastal scale (temperate waters, data max 3-8m) 
+    if (isModerateScale) {
+      if (max <= 1) {
+        return `WMO Sea State 0-2: ${formattedRange}. Calm to slight coastal seas. Safe for all vessels including recreational craft. Light onshore conditions.`;
       }
+      if (max <= 2) {
+        return `WMO Sea State 3: ${formattedRange}. Slight seas with occasional whitecaps. Normal coastal operations. Minor spray over breakwaters.`;
+      }
+      if (max <= 4) {
+        return `WMO Sea State 4: ${formattedRange}. Moderate seas, frequent whitecaps. Small craft advisory conditions. Reduced speeds recommended for pleasure craft.`;
+      }
+      if (max <= 6) {
+        return `WMO Sea State 5: ${formattedRange}. Rough coastal seas. Gale warning conditions. Restrict operations for vessels <15m LOA. Port approach difficulties.`;
+      }
+      return `WMO Sea State 6: ${formattedRange}. Very rough regional seas. Storm conditions approaching maximum for this area. Commercial traffic restrictions.`;
     }
     
-    // Cleanup URL cache
-    for (const [key, entry] of this.urlCache.entries()) {
-      if (!this.isCacheValid(entry.timestamp, 5 * 60 * 1000)) {
-        this.urlCache.delete(key);
-      }
+    // Global scale descriptions (open ocean, data max >8m)
+    if (max <= 1) {
+      return `WMO Sea State 0-2: ${formattedRange}. Calm to slight seas. Wave crests smooth, no breaking. Safe for all vessel operations including small craft.`;
     }
+    if (max <= 2) {
+      return `WMO Sea State 3: ${formattedRange}. Slight seas. Short wavelength, few whitecaps. Minor spray may affect bridge visibility on smaller vessels.`;
+    }
+    if (max <= 4) {
+      return `WMO Sea State 4: ${formattedRange}. Moderate seas. Frequent whitecaps, moderate spray. Small craft advisories may be issued. Reduced speed recommended.`;
+    }
+    if (max <= 6) {
+      return `WMO Sea State 5: ${formattedRange}. Rough seas. Continuous whitecapping, heavy spray. Gale warning conditions. Restrict operations for vessels <20m LOA.`;
+    }
+    if (max <= 9) {
+      return `WMO Sea State 6: ${formattedRange}. Very rough seas. Extensive foam patches, significant spray impairment. Storm warning conditions. Commercial traffic restricted.`;
+    }
+    if (max <= 14) {
+      return `WMO Sea State 7-8: ${formattedRange}. High to very high seas. Continuous heavy breaking, severe visibility reduction. Hurricane-force conditions. Port closures likely.`;
+    }
+    return `WMO Sea State 9: ${formattedRange}. Phenomenal seas. Exceptional wave conditions exceeding operational design limits for most vessels. Emergency conditions.`;
   }
 
   /**
-   * Get comprehensive performance and cache statistics
+   * Format ranges with rounded breakpoints for display and tooltips
    */
-  getStatistics() {
-    return {
-      performance: { ...this.performanceMetrics },
-      cache: {
-        styleCache: this.styleCache.size,
-        capabilitiesCache: this.capabilitiesCache.size,
-        urlCache: this.urlCache.size,
-        activeLayers: this.activeLayers.size
-      },
-      config: {
-        performanceMode: this.options.performanceMode,
-        cacheEnabled: this.options.cacheEnabled,
-        defaultProvider: this.options.defaultProvider
-      }
-    };
+  formatWaveHeightRange(min, max) {
+    const minText = this.formatWaveHeightValue(min);
+    if (!Number.isFinite(max)) {
+      return `${minText}+ m`;
+    }
+    const maxText = this.formatWaveHeightValue(max);
+    return `${minText}–${maxText} m`;
   }
 
   /**
-   * Clear all caches
+   * Format individual values with minimal decimals
    */
-  clearAllCaches() {
-    this.styleCache.clear();
-    this.capabilitiesCache.clear();
-    this.urlCache.clear();
-    this.visualization.clearCache();
+  formatWaveHeightValue(value) {
+    if (!Number.isFinite(value)) {
+      return '';
+    }
+    if (Math.abs(value - Math.round(value)) < 1e-6) {
+      return `${Math.round(value)}`;
+    }
+    return value.toFixed(1);
+  }
+
+  /**
+   * Get appropriate style preset based on data type
+   * @param {string} dataType - Type of data (height, period, direction, etc.)
+   * @returns {Object} Style preset
+   */
+  getPresetForDataType(dataType) {
+    const type = dataType.toLowerCase();
+    
+    if (type.includes('hs') || type.includes('height') || type.includes('wave')) {
+      return WMSStylePresets.WAVE_HEIGHT;
+    }
+    
+    if (type.includes('tpeak')) {
+      return WMSStylePresets.PEAK_WAVE_PERIOD;
+    }
+    
+    if (type.includes('inun') || type.includes('flood') || type.includes('inund')) {
+      return WMSStylePresets.INUNDATION;
+    }
+    
+    if (type.includes('period') || type.includes('tm')) {
+      return WMSStylePresets.WAVE_PERIOD;
+    }
+    
+    if (type.includes('energy') || type.includes('power') || type.includes('flux')) {
+      return WMSStylePresets.WAVE_ENERGY;
+    }
+    
+    if (type.includes('temp') || type.includes('sst')) {
+      return WMSStylePresets.TEMPERATURE;
+    }
+    
+    if (type.includes('depth') || type.includes('bathy') || type.includes('elevation')) {
+      return WMSStylePresets.BATHYMETRY;
+    }
+    
+    // Default to wave height styling
+    return WMSStylePresets.WAVE_HEIGHT;
+  }
+
+  /**
+   * Generate optimized color scale ranges based on data statistics
+   * @param {string} dataType - Type of data
+   * @param {Object} stats - Data statistics {min, max, mean, std}
+   * @returns {string} Optimized color scale range
+   */
+  getOptimizedColorRange(dataType, stats = {}) {
+    const type = dataType.toLowerCase();
+    
+    // Use provided statistics if available
+    if (stats.min !== undefined && stats.max !== undefined) {
+      // Add some padding for outliers
+      const range = stats.max - stats.min;
+      const min = Math.max(0, stats.min - range * 0.1);
+      const max = stats.max + range * 0.1;
+      return `${min.toFixed(1)},${max.toFixed(1)}`;
+    }
+    
+    // Default ranges based on Cook Islands typical conditions
+    if (type.includes('hs') || type.includes('height')) {
+      return '0,6';  // Extended range for extreme events
+    }
+    
+    if (type.includes('tpeak')) {
+      return '9,14'; // Peak wave period optimized range (based on Cook Islands data)
+    }
+    
+    if (type.includes('inun') || type.includes('inund')) {
+      return '0,2'; // Typical inundation depth range in metres
+    }
+    
+    if (type.includes('period') || type.includes('tm')) {
+      return '2,25'; // More realistic period range
+    }
+    
+    if (type.includes('temp') || type.includes('sst')) {
+      return '20,32'; // Tropical Pacific temperature range
+    }
+    
+    if (type.includes('depth') || type.includes('bathy')) {
+      return '-4000,100'; // Pacific bathymetry range
+    }
+    
+    return '0,10'; // Generic range
+  }
+
+  /**
+   * Get legend URL with enhanced styling
+   * @param {string} dataType - Type of data
+   * @param {string} colorRange - Color scale range
+   * @param {string} unit - Data unit
+   * @returns {string} Enhanced legend URL
+   */
+  getEnhancedLegendUrl(dataType, colorRange, unit = '') {
+    const preset = this.getPresetForDataType(dataType);
+    const [min, max] = colorRange.split(',');
+    
+    // Determine appropriate layer map ID based on data type
+    let layerMapId = 40; // Default for wave height
+    if (dataType.includes('period')) layerMapId = 43;
+    if (dataType.includes('temp')) layerMapId = 41;
+    if (dataType.includes('depth')) layerMapId = 42;
+    
+    const step = Math.max(0.1, (parseFloat(max) - parseFloat(min)) / 10);
+    
+    return `https://ocean-plotter.spc.int/plotter/GetLegendGraphic?` +
+           `layer_map=${layerMapId}&mode=enhanced&` +
+           `min_color=${min}&max_color=${max}&step=${step}&` +
+           `color=${this.getColorSchemeFromStyle(preset.style)}&` +
+           `unit=${encodeURIComponent(unit)}&` +
+           `bands=${preset.numcolorbands}&` +
+           `quality=high`;
+  }
+
+  /**
+   * Extract color scheme name from WMS style
+   * @param {string} style - WMS style string
+   * @returns {string} Color scheme name
+   */
+  getColorSchemeFromStyle(style) {
+    if (style.includes('x-Sst')) return 'sst';
+    if (style.includes('viridis')) return 'viridis';
+    if (style.includes('plasma')) return 'plasma';
+    if (style.includes('turbo')) return 'turbo';
+    if (style.includes('coolwarm')) return 'coolwarm';
+    if (style.includes('spectral')) return 'spectral';
+    if (style.toLowerCase().includes('ylgnbu')) return 'ylgnbu';
+    if (style.toLowerCase().includes('seq-blues')) return 'blues';
+    if (style.includes('rainbow')) return 'rainbow';
+    return 'jet'; // Default
+  }
+
+  /**
+   * Add listener for style changes
+   * @param {Function} callback - Callback function
+   */
+  addListener(callback) {
+    this.listeners.push(callback);
+  }
+
+  /**
+   * Remove listener
+   * @param {Function} callback - Callback function to remove
+   */
+  removeListener(callback) {
+    this.listeners = this.listeners.filter(cb => cb !== callback);
+  }
+
+  /**
+   * Notify all listeners of style changes
+   */
+  notifyListeners() {
+    this.listeners.forEach(callback => callback(this.currentPalette));
   }
 }
 
-export default WMSStyleManager;
+const instance = new WMSStyleManager();
+export default instance;

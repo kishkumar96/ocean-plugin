@@ -1,23 +1,11 @@
 /**
- * Shared UI Components for Niue Marine Forecast Application
+ * Shared UI Components for Forecast Application
  * 
  * Reusable components with consistent styling and accessibility
  * to maintain uniformity across widgets.
  */
 
 import React from 'react';
-import { 
-  Waves, 
-  Wind, 
-  Navigation, 
-  Activity, 
-  Timer, 
-  Triangle, 
-  CloudRain,
-  Play,
-  Pause,
-  Info
-} from 'lucide-react';
 
 /**
  * Control Group Container with consistent header styling
@@ -30,16 +18,13 @@ export const ControlGroup = ({
   className = '' 
 }) => (
   <div className={`control-group ${className}`} role="group" aria-label={ariaLabel}>
-    <h3>
-      {typeof icon === 'string' ? icon : icon}
-      {title}
-    </h3>
+    <h3>{icon} {title}</h3>
     {children}
   </div>
 );
 
 /**
- * Variable Selection Buttons with Lucide React Icons
+ * Variable Selection Buttons with Fancy Icons
  */
 export const VariableButtons = ({ 
   layers, 
@@ -51,63 +36,21 @@ export const VariableButtons = ({
 }) => {
   const getShortLabel = (label) => labelMap[label] || label;
   
-  // Default icon mapping for Niue marine variables
-  const getDefaultIcon = (layer) => {
-    const layerName = layer.value?.toLowerCase() || '';
-    const layerLabel = layer.label?.toLowerCase() || '';
-    
-    // Inundation layers
-    if (layerName.includes('inun') || layerLabel.includes('inundation')) {
-      return <CloudRain size={18} />;
-    }
-    
-    // Wave height layers
-    if (layerName.includes('hs') || layerLabel.includes('wave height') || layerName.includes('composite')) {
-      return <Waves size={18} />;
-    }
-    
-    // Mean wave period (tm02)
-    if (layerName.includes('tm02') || (layerLabel.includes('mean') && layerLabel.includes('period'))) {
-      return <Timer size={18} />;
-    }
-    
-    // Peak wave period (tpeak)
-    if (layerName.includes('tpeak') || (layerLabel.includes('peak') && layerLabel.includes('period'))) {
-      return <Triangle size={18} />;
-    }
-    
-    // Wave direction layers
-    if (layerName.includes('dirm') || layerLabel.includes('direction')) {
-      return <Navigation size={18} />;
-    }
-    
-    // Wind layers
-    if (layerName.includes('wind') || layerLabel.includes('wind')) {
-      return <Wind size={18} />;
-    }
-    
-    // Default to activity icon
-    return <Activity size={18} />;
-  };
-  
   return (
     <div className="variable-buttons" role="radiogroup" aria-label={ariaLabel}>
       {layers.map((layer) => (
         <button
           type="button"
           key={layer.value}
-          className={`var-btn ${selectedValue === layer.value ? 'active' : ''}`}
+          className={`var-btn ${selectedValue === layer.value ? 'active' : ''} ${layer.isPlaceholder ? 'placeholder' : ''}`}
           onClick={() => onVariableChange(layer.value)}
           role="radio"
           aria-checked={selectedValue === layer.value}
           aria-label={`${getShortLabel(layer.label)} forecast variable`}
+          title={layer.isPlaceholder ? layer.placeholderMessage : `Switch to ${getShortLabel(layer.label)} layer`}
         >
-          <span className="var-btn-icon">
-            {getVariableIcon ? getVariableIcon(layer) : getDefaultIcon(layer)}
-          </span>
-          <span className="var-btn-label">
-            {getShortLabel(layer.label)}
-          </span>
+          {getVariableIcon && getVariableIcon(layer)}
+          {getShortLabel(layer.label)}
         </button>
       ))}
     </div>
@@ -127,18 +70,14 @@ export const TimeControl = ({
   onPlayToggle,
   formatDateTime,
   stepHours = 1,
+  playIcon = '▶️',
+  pauseIcon = '⏸️',
   minIndex = 0
 }) => (
   <div className="time-control">
     <div className="forecast-info">
-      <div>
-        <span>Forecast Hour:</span> 
-        <span>+{sliderIndex * stepHours}h</span>
-      </div>
-      <div>
-        <span>Valid DateTime:</span> 
-        <span>{formatDateTime ? formatDateTime(currentSliderDate) : 'Loading...'}</span>
-      </div>
+      <div>Forecast Hour: <span>+{sliderIndex * stepHours}h</span></div>
+      <div>Valid DateTime: <span>{formatDateTime(currentSliderDate)}</span></div>
     </div>
     
     <div className="time-slider-container">
@@ -151,7 +90,7 @@ export const TimeControl = ({
         max={totalSteps}
         value={sliderIndex}
         onChange={(e) => onSliderChange(e.target.value)}
-        disabled={capTime?.loading}
+        disabled={capTime.loading}
       />
       
       <div className="playback-controls">
@@ -159,29 +98,16 @@ export const TimeControl = ({
           type="button"
           className="play-btn"
           onClick={onPlayToggle}
-          disabled={capTime?.loading}
+          disabled={capTime.loading}
           aria-label={isPlaying ? 'Pause forecast animation' : 'Play forecast animation'}
         >
-          {isPlaying ? (
-            <>
-              <Pause size={16} />
-              <span>Pause</span>
-            </>
-          ) : (
-            <>
-              <Play size={16} />
-              <span>Play</span>
-            </>
-          )}
+          <span>{isPlaying ? <>{pauseIcon} Pause</> : <>{playIcon} Play</>}</span>
         </button>
       </div>
     </div>
     
     <div className="forecast-info">
-      <div>
-        <span>Forecast Length:</span> 
-        <strong>{totalSteps + 1} hours</strong>
-      </div>
+      <div>Forecast Length: <strong>{totalSteps + 1} hours</strong></div>
     </div>
   </div>
 );
@@ -196,11 +122,8 @@ export const OpacityControl = ({
   ariaLabel = "overlay-opacity"
 }) => (
   <div className="opacity-control">
-    <label className="opacity-label">
-      <span>Overlay Opacity:</span> 
-      <span className="opacity-value">
-        {formatPercent ? formatPercent(opacity) : `${Math.round(opacity * 100)}%`}
-      </span>
+    <label>
+      Overlay Opacity: <span>{formatPercent(opacity)}</span>
     </label>
     <input
       aria-label={ariaLabel}
@@ -216,118 +139,35 @@ export const OpacityControl = ({
 );
 
 /**
- * Data Information Display - Niue Specific
+ * Data Information Display
  */
 export const DataInfo = ({ 
-  source = "Pacific Community (SPC)", 
-  model = "SCHISM + WaveWatch III", 
-  resolution = "Unstructured Mesh", 
-  updateFrequency = "4x Daily", 
-  coverage = "Niue Waters"
+  source, 
+  model, 
+  resolution, 
+  updateFrequency, 
+  coverage 
 }) => (
   <div className="data-info">
-    <div className="data-info-header">
-      <Info size={16} />
-      <span>Data Information</span>
-    </div>
-    <div className="data-info-grid">
-      <div className="data-info-item">
-        <strong>Source:</strong> 
-        <span>{source}</span>
-      </div>
-      <div className="data-info-item">
-        <strong>Model:</strong> 
-        <span>{model}</span>
-      </div>
-      <div className="data-info-item">
-        <strong>Resolution:</strong> 
-        <span>{resolution}</span>
-      </div>
-      <div className="data-info-item">
-        <strong>Update:</strong> 
-        <span>{updateFrequency}</span>
-      </div>
-      <div className="data-info-item">
-        <strong>Coverage:</strong> 
-        <span>{coverage}</span>
-      </div>
-    </div>
+    <div><strong>Source:</strong> {source}</div>
+    <div><strong>Model:</strong> {model}</div>
+    <div><strong>Resolution:</strong> {resolution}</div>
+    <div><strong>Update:</strong> {updateFrequency}</div>
+    <div><strong>Coverage:</strong> {coverage}</div>
   </div>
 );
 
 /**
- * Legend Toggle Control
+ * Status Bar Footer
  */
-export const LegendToggle = ({
-  showLegend,
-  onToggleLegend,
-  disabled = false
-}) => (
-  <div className="legend-toggle">
-    <button
-      type="button"
-      className={`legend-btn ${showLegend ? 'active' : ''}`}
-      onClick={onToggleLegend}
-      disabled={disabled}
-      aria-label={showLegend ? 'Hide legend' : 'Show legend'}
-    >
-      <Info size={16} />
-      <span>{showLegend ? 'Hide Legend' : 'Show Legend'}</span>
-    </button>
+/**export const StatusBar = ({ copyright, lastUpdated }) => (
+  <div className="status-bar">
+    <div className="status-indicator">
+      {lastUpdated && <span className="last-update-time">{lastUpdated}</span>}
+    </div>
+    <div>{copyright}</div>
   </div>
-);
-
-/**
- * Loading Indicator
- */
-export const LoadingIndicator = ({ 
-  message = "Loading forecast data...",
-  size = "medium"
-}) => (
-  <div className={`loading-indicator ${size}`}>
-    <div className="loading-spinner" />
-    <span className="loading-message">{message}</span>
-  </div>
-);
-
-// Icon mapping for external use
-export const NIUE_ICON_MAP = {
-  'wave_height': Waves,
-  'hs': Waves,
-  'composite_hs_dirm': Waves,
-  'wave_period': Timer,
-  'tm02': Timer,
-  'peak_period': Triangle,
-  'tpeak': Triangle,
-  'wave_direction': Navigation,
-  'dirm': Navigation,
-  'inundation': CloudRain,
-  'wind_speed': Wind,
-  'wind_direction': Wind,
-  'ws': Wind,
-  'wd': Wind
-};
-
-// Utility function to get icon by variable name
-export const getVariableIcon = (variableName, size = 18) => {
-  const iconName = variableName?.toLowerCase() || '';
-  
-  // Try exact match first
-  if (NIUE_ICON_MAP[iconName]) {
-    const IconComponent = NIUE_ICON_MAP[iconName];
-    return <IconComponent size={size} />;
-  }
-  
-  // Try partial matches
-  for (const [key, IconComponent] of Object.entries(NIUE_ICON_MAP)) {
-    if (iconName.includes(key)) {
-      return <IconComponent size={size} />;
-    }
-  }
-  
-  // Default to Activity icon
-  return <Activity size={size} />;
-};
+);**/
 
 const UIComponents = {
   ControlGroup,
@@ -335,10 +175,7 @@ const UIComponents = {
   TimeControl,
   OpacityControl,
   DataInfo,
-  LegendToggle,
-  LoadingIndicator,
-  getVariableIcon,
-  NIUE_ICON_MAP
+  //StatusBar
 };
 
 export default UIComponents;
