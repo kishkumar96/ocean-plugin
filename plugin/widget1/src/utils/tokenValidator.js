@@ -276,7 +276,7 @@ export const withTokenValidation = (Component, options = {}) => {
 
     React.useEffect(() => {
       const validateAndSetState = async () => {
-        await validateTokenOnLoad(
+        const valid = await validateTokenOnLoad(
           () => setIsValid(true),
           () => setIsValid(false),
           paramName
@@ -285,8 +285,7 @@ export const withTokenValidation = (Component, options = {}) => {
       };
 
       validateAndSetState();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [paramName]);
 
     if (isLoading) {
       return (
@@ -317,7 +316,7 @@ export const withTokenValidation = (Component, options = {}) => {
   };
 };
 
-const tokenValidator = {
+export default {
   extractTokenFromURL,
   extractCountriesFromURL,
   validateToken,
@@ -328,5 +327,3 @@ const tokenValidator = {
   validateTokenOnLoad,
   withTokenValidation
 };
-
-export default tokenValidator;

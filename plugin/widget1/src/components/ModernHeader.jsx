@@ -1,5 +1,4 @@
 import React from 'react';
-import { NIUE_CONFIG } from '../config/NiueConfig';
 
 const ModernHeader = () => {
   const [currentTime, setCurrentTime] = React.useState(new Date());
@@ -12,23 +11,20 @@ const ModernHeader = () => {
   }, []);
 
   const formatDateTime = (date) => {
-    // Format for Niue timezone (UTC-11)
-    return date.toLocaleString('en-NU', {
+    return date.toLocaleString(undefined, {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      hour12: false,
-      timeZone: 'Pacific/Niue'
+      hour12: false
     });
   };
 
   return (
     <nav style={{
-      // Niue marine gradient - deeper blues reflecting Pacific waters
-      background: 'linear-gradient(135deg, #0c4a6e 0%, #1e40af 30%, #0ea5e9 60%, #06b6d4 100%)',
+      background: 'linear-gradient(135deg, #0a2463 0%, #1e3a5f 40%, #2e5266 70%, #3e7b69 100%)',
       minHeight: '60px',
       padding: '0 30px',
       display: 'flex',
@@ -61,12 +57,12 @@ const ModernHeader = () => {
             fontSize: '1.5rem',
             fontWeight: '700',
             textShadow: '0 2px 4px rgba(0,0,0,0.3)',
-            background: 'linear-gradient(45deg, #00d4ff, #38bdf8)',
+            background: 'linear-gradient(45deg, #00d4ff, #90e0ef)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text'
           }}>
-            Niue Wave and Inundation Forecast System
+            Niue Wave and Innundation Forecast System
           </h1>
           <p style={{
             margin: 0,
@@ -74,7 +70,7 @@ const ModernHeader = () => {
             fontSize: '0.9rem',
             fontWeight: '300'
           }}>
-            High Resolution Marine Forecasting • {NIUE_CONFIG.dataSources.primary.name} Data
+            Marine Forecasting • Pacific Community (SPC) Data
           </p>
         </div>
       </div>
@@ -85,13 +81,13 @@ const ModernHeader = () => {
         alignItems: 'center',
         gap: '20px'
       }}>
-        {/* Connection Status with Niue flag colors inspiration */}
+        {/* Connection Status */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <div style={{
             width: '8px',
             height: '8px',
             borderRadius: '50%',
-            backgroundColor: '#10b981', // Green for active connection
+            backgroundColor: '#10b981',
             boxShadow: '0 0 6px rgba(16, 185, 129, 0.6)',
             animation: 'pulse 2s infinite'
           }}></div>
@@ -101,29 +97,7 @@ const ModernHeader = () => {
             color: 'rgba(255,255,255,0.5)',
             marginLeft: '10px'
           }}>
-            Niue Time: {formatDateTime(currentTime)}
-          </span>
-        </div>
-
-        {/* Niue Status Indicator */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '6px 12px',
-          background: 'rgba(255,255,255,0.1)',
-          borderRadius: '20px',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255,255,255,0.2)'
-        }}>
-          <span style={{
-            fontSize: '0.75rem',
-            color: 'rgba(255,255,255,0.9)',
-            fontWeight: '500',
-            textTransform: 'uppercase',
-            letterSpacing: '0.5px'
-          }}>
-            🇳🇺 {NIUE_CONFIG.displayName}
+            {formatDateTime(currentTime)}
           </span>
         </div>
       </div>
@@ -137,34 +111,6 @@ const ModernHeader = () => {
           0% { transform: scale(1); opacity: 1; }
           50% { transform: scale(1.2); opacity: 0.7; }
           100% { transform: scale(1); opacity: 1; }
-        }
-        
-        /* Responsive design for mobile */
-        @media (max-width: 768px) {
-          nav h1 {
-            font-size: 1.2rem !important;
-          }
-          nav p {
-            font-size: 0.8rem !important;
-          }
-          nav > div:first-child {
-            gap: 10px !important;
-          }
-          nav > div:last-child span {
-            font-size: 0.7rem !important;
-          }
-        }
-        
-        @media (max-width: 480px) {
-          nav h1 {
-            font-size: 1rem !important;
-          }
-          nav p {
-            display: none !important;
-          }
-          nav {
-            padding: 0 15px !important;
-          }
         }
       `}} />
     </nav>

@@ -1,5 +1,5 @@
 /**
- * UI Configuration for Niue Forecast Application
+ * UI Configuration for Forecast Application
  * 
  * Centralized configuration for labels, icons, accessibility text,
  * and display options to maintain consistency across widgets.
@@ -32,7 +32,7 @@ export const UI_CONFIG = {
 
   // Variable label mappings for consistent display
   VARIABLE_LABELS: {
-    'Significant Wave Height + Dir': 'Wave Height + Direction',
+    ' Significant Wave Height + Direction': 'Wave Height + Direction', // Composite layer with automatic direction overlay
     'Mean Wave Period': 'Wave Period',
     'Peak Wave Period': 'Peak Period',
     'Wind U Component': 'Wind U',
@@ -66,7 +66,7 @@ export const UI_CONFIG = {
     }
   },
 
-  // Data source information - NIUE SPECIFIC
+  // Data source information
   DATA_SOURCE: {
     source: 'Pacific Community (SPC)',
     model: 'SCHISM + WaveWatch III',
@@ -75,9 +75,9 @@ export const UI_CONFIG = {
     coverage: 'Niue'
   },
 
-  // Footer information - NIUE SPECIFIC
+  // Footer information
   FOOTER: {
-    copyright: '© 2025 Niue Marine Forecast System'
+    copyright: '© 2025 Niue Marine Forecast'
   },
 
   // Accessibility labels
