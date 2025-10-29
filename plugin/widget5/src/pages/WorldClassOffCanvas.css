@@ -171,7 +171,7 @@
 }
 
 .world-class-tab.light-mode {
-  color: rgba(71, 85, 105, 0.7);
+  color: rgba(71, 85, 105, 0.95);  /* Improved from 0.7 for better contrast */
 }
 
 .world-class-tab.light-mode:hover {
@@ -194,7 +194,7 @@
 .world-class-close {
   border: none;
   background: rgba(239, 68, 68, 0.1);
-  color: rgba(239, 68, 68, 0.8);
+  color: rgba(250, 100, 100, 0.95);  /* Improved from rgba(239, 68, 68, 0.8) for better contrast */
   width: 36px;
   height: 36px;
   border-radius: 8px;
@@ -216,12 +216,12 @@
 
 .world-class-close.light-mode {
   background: rgba(71, 85, 105, 0.1);
-  color: rgba(71, 85, 105, 0.7);
+  color: rgba(71, 85, 105, 0.95);  /* Improved from 0.7 for better contrast */
 }
 
 .world-class-close.light-mode:hover {
   background: rgba(239, 68, 68, 0.1);
-  color: rgba(239, 68, 68, 0.8);
+  color: rgba(250, 100, 100, 0.95);  /* Improved from rgba(239, 68, 68, 0.8) for better contrast */
 }
 
 /* Content Area */
@@ -280,13 +280,13 @@
 }
 
 .world-class-loading-text {
-  color: rgba(148, 163, 184, 0.8);
+  color: rgba(200, 210, 225, 0.95);  /* Improved from rgba(148, 163, 184, 0.8) for better contrast */
   font-size: 14px;
   font-weight: 500;
 }
 
 .world-class-loading-text.light-mode {
-  color: rgba(71, 85, 105, 0.7);
+  color: rgba(71, 85, 105, 0.95);  /* Improved from 0.7 for better contrast */
 }
 
 /* Error States */
