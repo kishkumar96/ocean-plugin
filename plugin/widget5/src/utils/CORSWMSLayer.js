@@ -23,19 +23,18 @@ export const createCORSWMSLayer = (url, options = {}) => {
     createTile: function(coords, done) {
       const tile = document.createElement('img');
       
-      // Set up CORS handling
-      if (this.options.crossOrigin !== null) {
-        tile.crossOrigin = this.options.crossOrigin;
+      // Set up CORS handling - only set if explicitly needed
+      // Valid values are: "anonymous", "use-credentials", or empty string
+      if (this.options.crossOrigin && typeof this.options.crossOrigin === 'string') {
+        const validCorsValues = ['anonymous', 'use-credentials'];
+        if (validCorsValues.includes(this.options.crossOrigin.toLowerCase())) {
+          tile.crossOrigin = this.options.crossOrigin;
+        }
       }
 
       // Add event listeners
       L.DomEvent.on(tile, 'load', L.Util.bind(this._tileOnLoad, this, done, tile));
       L.DomEvent.on(tile, 'error', L.Util.bind(this._tileOnError, this, done, tile));
-
-      // Handle abort
-      if (this.options.crossOrigin === false) {
-        tile.crossOrigin = '';
-      }
 
       tile.alt = '';
       tile.setAttribute('role', 'presentation');
@@ -123,10 +122,7 @@ export const createCORSWMSLayer = (url, options = {}) => {
     },
 
     _tileOnLoad: function(done, tile) {
-      // Delete the crossOrigin attribute to avoid memory leaks
-      if (tile.crossOrigin) {
-        tile.removeAttribute('crossorigin');
-      }
+      // Clean up after successful load
       done(null, tile);
     },
 

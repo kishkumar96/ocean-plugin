@@ -518,7 +518,7 @@
 
 .range-metadata-panel h4 .wmo-code {
   font-size: 0.65rem;
-  color: #90e0ef;
+  color: #70d8ff;  /* Improved from #70d8ff for better contrast */
   font-weight: 400;
   margin-left: 8px;
 }
@@ -568,7 +568,7 @@
 
 .range-description {
   font-size: 0.68rem;
-  color: #b8ddef;
+  color: #d4ebf7;  /* Improved from #b8ddef for better contrast */
   line-height: 1.3;
   opacity: 1;
   font-weight: 400;
@@ -601,7 +601,7 @@
 }
 
 .metadata-label {
-  color: #90e0ef;
+  color: #70d8ff;  /* Improved from #70d8ff for better contrast */
   font-weight: 500;
   letter-spacing: 0.2px;
 }
@@ -615,14 +615,14 @@
 /* Professional Marine Classifications */
 .wmo-classification {
   font-size: 0.65rem;
-  color: #a8d8ea;
+  color: #c5e7f2;  /* Improved from #a8d8ea for better contrast */
   margin-top: 0.2rem;
   font-weight: 500;
 }
 
 .operational-impact {
   font-size: 0.63rem;
-  color: #79c3d4;
+  color: #a0dae8;  /* Improved from #79c3d4 for better contrast */
   margin-top: 0.15rem;
   line-height: 1.2;
 }
@@ -700,8 +700,8 @@
   bottom: 80px; /* Position above Leaflet scale control */
   left: 20px;
   background: rgba(8, 26, 70, 0.85);
-  color: #90e0ef;
-  border: 1px solid rgba(144, 224, 239, 0.6);
+  color: #70d8ff;  /* Improved from #70d8ff for better contrast */
+  border: 1px solid rgba(112, 216, 255, 0.6);
   padding: 0.4rem 0.8rem;
   border-radius: 8px;
   font-size: 0.7rem;
@@ -722,7 +722,7 @@
 }
 
 .metadata-toggle:focus-visible {
-  outline: 2px solid #90e0ef;
+  outline: 2px solid #70d8ff;  /* Improved from #70d8ff for better contrast */
   outline-offset: 2px;
 }
 
@@ -761,7 +761,7 @@
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: #90e0ef;
+  color: #70d8ff;  /* Improved from #70d8ff for better contrast */
   line-height: 1.2;
 }
 
@@ -848,7 +848,7 @@
 
 .leaflet-control-scale-line {
   background: transparent !important;
-  border: 2px solid #90e0ef !important;
+  border: 2px solid #70d8ff !important;  /* Improved from #70d8ff for better contrast */
   border-top: none !important;
   color: #ffffff !important;
   font-size: 0.75rem !important;
@@ -1013,7 +1013,7 @@
 }
 
 .forecast-info span {
-  color: #90e0ef;
+  color: #70d8ff;
   font-weight: 600;
   font-size: 0.9rem;
 }
@@ -1097,7 +1097,7 @@
   justify-content: center;
   gap: 0.5rem;
   padding: 14px 32px;
-  background: linear-gradient(135deg, #00d4ff 0%, #48cae4 35%, #90e0ef 100%);
+  background: linear-gradient(135deg, #00d4ff 0%, #48cae4 35%, #70d8ff 100%);
   border: 1px solid rgba(144, 224, 239, 0.6);
   border-radius: 999px;
   color: #0b1f3a;
@@ -1245,7 +1245,7 @@
 .forecast-units {
   text-align: center;
   font-size: 1.1rem;
-  color: #90e0ef;
+  color: #70d8ff;
   font-weight: 500;
 }
 
@@ -1290,7 +1290,7 @@
 }
 
 .data-info strong {
-  color: #90e0ef;
+  color: #70d8ff;
 }
 
 .status-bar {
@@ -1600,7 +1600,7 @@
 .tooltip-units {
   font-size: 1.2rem;
   font-weight: 400;
-  color: #90e0ef;
+  color: #70d8ff;
   margin-left: 5px;
 }
 
@@ -1983,6 +1983,6 @@
 }
 
 .last-update-time {
-  color: #90e0ef;
+  color: #70d8ff;
   margin-left: 1rem;
 }
