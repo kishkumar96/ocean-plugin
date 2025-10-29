@@ -46,10 +46,6 @@ class WMSTileLoadingService {
     const errorInfo = this.errorTracking.get(layerId);
     const notifState = this.notificationState.get(layerId);
     
-    // DEBUG: Log the actual URL being attempted
-    const originalUrl = tile._originalWMSUrl;
-    console.log(`🔍 Tile error for ${layerId}: URL = ${originalUrl}`);
-    
     if (!errorInfo || !notifState) {
       console.error('Layer not initialized:', layerId);
       return;
@@ -59,7 +55,7 @@ class WMSTileLoadingService {
     errorInfo.totalErrors++;
     errorInfo.lastErrorTime = Date.now();
 
-    // Store original URL for retry
+    // Store original URL for retry (only log in development mode)
     if (!tile._originalWMSUrl && tile.src && !tile.src.startsWith('data:')) {
       tile._originalWMSUrl = tile.src;
     }

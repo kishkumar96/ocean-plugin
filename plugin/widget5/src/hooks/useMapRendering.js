@@ -107,8 +107,11 @@ export const useMapRendering = ({
       };
       
       // Add DATASET parameter only for ncWMS servers, not THREDDS
+      // BUT only if the layer value doesn't already include the dataset prefix
       const isThreddsServer = layerConfig.wmsUrl && (layerConfig.wmsUrl.includes('thredds') || layerConfig.wmsUrl.includes('/api/thredds/'));
-      if (!isThreddsServer) {
+      const layerHasDatasetPrefix = layerConfig.value && layerConfig.value.includes('/');
+      
+      if (!isThreddsServer && !layerHasDatasetPrefix) {
         commonOptions.DATASET = layerConfig.dataset || 'cook_forecast';
       }
 

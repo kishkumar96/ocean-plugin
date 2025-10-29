@@ -6,6 +6,11 @@
 export const UI_CONFIG = {
   // Section headers and icons
   sections: {
+    forecastVariables: {
+      icon: '🌊',
+      title: 'Forecast Variables',
+      ariaLabel: 'Forecast variable controls'
+    },
     forecastTime: {
       icon: '⏰',
       title: 'Forecast Time',
@@ -21,6 +26,39 @@ export const UI_CONFIG = {
       title: 'Data Info',
       ariaLabel: 'Data source and model information'
     }
+  },
+
+  // Uppercase aliases for backward compatibility
+  SECTIONS: {
+    get FORECAST_VARIABLES() { return UI_CONFIG.sections.forecastVariables; },
+    get FORECAST_TIME() { return UI_CONFIG.sections.forecastTime; },
+    get DISPLAY_OPTIONS() { return UI_CONFIG.sections.displayOptions; },
+    get DATA_INFO() { return UI_CONFIG.sections.dataInfo; }
+  },
+
+  // Uppercase alias for layer labels
+  get VARIABLE_LABELS() { return UI_CONFIG.layerLabels; },
+
+  // ARIA labels for accessibility
+  ARIA_LABELS: {
+    variableButton: 'Select variable',
+    overlayOpacity: 'Adjust overlay opacity'
+  },
+
+  // Format functions
+  FORMATS: {
+    opacityPercent: (n) => `${n}%`
+  },
+
+  // Data source with uppercase alias
+  get DATA_SOURCE() {
+    return {
+      source: UI_CONFIG.dataInfo.source,
+      model: UI_CONFIG.dataInfo.model,
+      resolution: UI_CONFIG.dataInfo.resolution,
+      updateFrequency: UI_CONFIG.dataInfo.update,
+      coverage: UI_CONFIG.dataInfo.coverage
+    };
   },
 
   // Control labels and accessibility text
@@ -52,14 +90,13 @@ export const UI_CONFIG = {
   // Layer label mappings for display
   layerLabels: {
     'Significant Wave Height': 'Wave Height',
-    'Wave Direction (arrow)': 'Wave Direction',
+    'Inundation Depth': 'Inundation',
     'Peak Wave Period': 'Wave Period',
     'Mean Wave Period': 'Mean Period',
     'Zero-crossing Period': 'Zero Period',
     'Mean Wave Direction': 'Mean Dir',
     'Peak Wave Direction': 'Peak Dir',
-    'Wave Direction': 'Wave Dir',
-    'Inundation Depth': 'Inundation'
+    'Wave Direction': 'Wave Dir'
   },
 
   // Time format strings
