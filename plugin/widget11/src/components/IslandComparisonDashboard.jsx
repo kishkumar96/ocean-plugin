@@ -40,7 +40,7 @@ const IslandComparisonDashboard = ({ comparisonIslands, inundationData }) => {
           avgDepth: inundationPoints.length > 0
             ? inundationPoints.reduce((sum, p) => sum + p.depth, 0) / inundationPoints.length
             : 0,
-          highRisk: inundationPoints.filter(p => p.depth > 1.0).length
+          highRisk: inundationPoints.filter(p => p.depth >= 0.6).length
         },
         coordinates: {
           lat: island.lat,
@@ -68,10 +68,9 @@ const IslandComparisonDashboard = ({ comparisonIslands, inundationData }) => {
   };
 
   const getRiskLevel = (depth) => {
-    if (depth < 0.3) return { level: 'Low', color: 'success' };
-    if (depth < 0.6) return { level: 'Moderate', color: 'warning' };
-    if (depth < 1.0) return { level: 'High', color: 'danger' };
-    return { level: 'Extreme', color: 'dark' };
+    if (depth < 0.3) return { level: 'Low', color: 'primary' };
+    if (depth < 0.6) return { level: 'Medium', color: 'warning' };
+    return { level: 'High', color: 'danger' };
   };
 
   if (!comparisonIslands || comparisonIslands.length === 0) {

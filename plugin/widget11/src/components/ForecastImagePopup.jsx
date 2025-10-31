@@ -162,6 +162,38 @@ const ForecastImagePopup = ({ show, onHide, location, inundationPoint }) => {
           </Alert>
         )}
 
+        {inundationPoint?.imageUrl && (
+          <div className="forecast-image-container mb-4">
+            <div className="image-header">
+              <h5>Primary Forecast Image</h5>
+              <p className="text-muted">
+                High-resolution inundation outlook provided by SPC GEM-THREDDS.
+              </p>
+            </div>
+            <div className="image-content">
+              <div className="image-with-legend">
+                <img
+                  src={inundationPoint.imageUrl}
+                  alt={`Primary forecast for ${location}`}
+                  className="forecast-map-image"
+                  style={{ display: 'block' }}
+                />
+              </div>
+            </div>
+            <div className="text-center mt-3">
+              <Button
+                variant="outline-primary"
+                size="sm"
+                href={inundationPoint.imageUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open Full Resolution Image
+              </Button>
+            </div>
+          </div>
+        )}
+
         {forecastImages.length === 0 ? (
           <div className="text-center py-5">
             <Spinner animation="border" role="status">

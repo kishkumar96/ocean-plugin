@@ -16,14 +16,27 @@ function extractCoverageTimeseries(json, variable) {
     !json.domain.axes ||
     !json.domain.axes.t ||
     !json.domain.axes.t.values ||
-    !json.ranges ||
-    !json.ranges[variable] ||
-    !json.ranges[variable].values
+    !json.ranges
   )
     return null;
+  const range = getRangeForVariable(json, variable);
+  if (!range || !range.values) return null;
   const times = json.domain.axes.t.values;
-  const values = json.ranges[variable].values;
+  const values = range.values;
   return { times, values };
+}
+
+function getRangeForVariable(json, variable) {
+  if (!json?.ranges) return null;
+  if (json.ranges[variable]) return json.ranges[variable];
+  const target = variable.toLowerCase();
+  const matchingKey = Object.keys(json.ranges).find(key => {
+    const lower = key.toLowerCase();
+    if (lower === target) return true;
+    const trimmed = key.includes('/') ? key.split('/').pop().toLowerCase() : lower;
+    return trimmed === target;
+  });
+  return matchingKey ? json.ranges[matchingKey] : null;
 }
 
 function Timeseries({ perVariableData }) {

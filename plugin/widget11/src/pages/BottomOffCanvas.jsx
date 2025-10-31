@@ -24,6 +24,25 @@ const variableDefs = [
   { key: "dirp_p1", label: "Wind wave dir{0-4/dir}" }
 ];
 
+const SERVER_LAYER_MAP = {
+  hs: "Hs",
+  tm02: "Tm",
+  tpeak: "Tp",
+  dirm: "Dir",
+  dirp: "Dir",
+  transp_x: "transp_x",
+  transp_y: "transp_y",
+  hs_p2: "Hs_p2",
+  tp_p2: "Tp_p2",
+  dirp_p2: "Dir_p2",
+  hs_p3: "Hs_p3",
+  tp_p3: "Tp_p3",
+  dirp_p3: "Dir_p3",
+  hs_p1: "Hs_p1",
+  tp_p1: "Tp_p1",
+  dirp_p1: "Dir_p1"
+};
+
 // ---- Centralized fetching helpers (Tuvalu) ----
 // Ensure BBOX is in lon,lat,lon,lat order for THREDDS (CRS:84)
 function normalizeBboxToLonLat(bboxStr) {
@@ -46,12 +65,30 @@ function normalizeBboxToLonLat(bboxStr) {
   }
 }
 
-async function fetchLayerTimeseries(layer, data) {
+function normalizeCoverageResponse(json, clientKey, serverKey) {
+  if (!json || !json.ranges || !clientKey) return json;
+  if (json.ranges[clientKey]) return json;
+  const targetKey = (serverKey || clientKey).toLowerCase();
+  const matchingKey = Object.keys(json.ranges).find(rangeKey => {
+    const lower = rangeKey.toLowerCase();
+    if (lower === targetKey) return true;
+    const trimmed = rangeKey.includes('/') ? rangeKey.split('/').pop().toLowerCase() : lower;
+    return trimmed === targetKey;
+  });
+  if (matchingKey) {
+    json.ranges[clientKey] = json.ranges[matchingKey];
+  }
+  return json;
+}
+
+async function fetchLayerTimeseries(layer, data, serverLayerOverride) {
   if (!data || !data.bbox || (data.x === undefined && data.i === undefined) || (data.y === undefined && data.j === undefined)) return null;
   
   // Strip dataset prefix if present (e.g., "tuvalu_forecast/hs" -> "hs")
   // THREDDS server doesn't use dataset prefixes in GetTimeseries requests
-  const cleanLayer = layer.includes('/') ? layer.split('/').pop() : layer;
+  const serverLayer = serverLayerOverride || SERVER_LAYER_MAP[layer] || layer;
+  const targetLayer = typeof serverLayer === 'string' ? serverLayer : String(serverLayer || layer);
+  const cleanLayer = targetLayer.includes('/') ? targetLayer.split('/').pop() : targetLayer;
   
   let timeParam = "";
   if (data.timeDimension) {
@@ -87,7 +124,7 @@ async function fetchLayerTimeseries(layer, data) {
     `&STYLES=default/default` +
     `&VERSION=1.1.1` +
     (timeParam ? `&TIME=${encodeURIComponent(timeParam)}` : "") +
-    `&INFO_FORMAT=text/json`;
+    `&INFO_FORMAT=application/json`;
   try {
     const response = await fetch(url);
     if (!response.ok) {
@@ -95,6 +132,7 @@ async function fetchLayerTimeseries(layer, data) {
       return null;
     }
     const json = await response.json();
+    normalizeCoverageResponse(json, layer, cleanLayer);
     if (!json || !json.ranges || !json.domain) {
       console.warn("GetTimeseries returned empty payload", { layer: cleanLayer, url });
     }
@@ -206,18 +244,20 @@ function BottomOffCanvas({ show, onHide, data }) {
     (async () => {
       const out = {};
       let transpX, transpY;
+      const transpYLayer = SERVER_LAYER_MAP["transp_y"] || "transp_y";
       for (let i = 0; i < variableDefs.length; i++) {
         const { key } = variableDefs[i];
+        const serverLayer = SERVER_LAYER_MAP[key] || key;
         if (key === "transp_x") {
           // Only fetch both transp_x and transp_y ONCE
-          transpX = await fetchLayerTimeseries("transp_x", data);
-          transpY = await fetchLayerTimeseries("transp_y", data);
+          transpX = await fetchLayerTimeseries("transp_x", data, serverLayer);
+          transpY = await fetchLayerTimeseries("transp_y", data, transpYLayer);
           out["transp_x"] = transpX;
           out["transp_y"] = transpY;
         } else if (key === "transp_y") {
           continue;
         } else {
-          out[key] = await fetchLayerTimeseries(key, data);
+          out[key] = await fetchLayerTimeseries(key, data, serverLayer);
         }
       }
       if (!isMounted) return;

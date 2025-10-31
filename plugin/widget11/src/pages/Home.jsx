@@ -18,22 +18,6 @@ import logger from "../utils/logger";
 // Initialize world-class visualization system
 const worldClassViz = new WorldClassVisualization();
 
-const getResponsiveLegendDimensions = () => {
-  const screenWidth = window.innerWidth;
-  if (screenWidth <= 480) {
-    return { width: '40', height: '200' };
-  }
-  if (screenWidth <= 768) {
-    return { width: '45', height: '240' };
-  }
-  if (screenWidth <= 1024) {
-    return { width: '50', height: '280' };
-  }
-  return { width: '60', height: '320' };
-};
-
-
-
 // World-class legend URL generator
 const getWorldClassLegendUrl = (variable, range, unit) => {
   return worldClassViz.getWorldClassLegendUrl(variable, range, unit);
@@ -96,23 +80,47 @@ function TuvaluForecast() {
   const [selectedIsland, setSelectedIsland] = useState(null);
   const [comparisonIslands, setComparisonIslands] = useState([]);
   const [showComparison, setShowComparison] = useState(false);
-  const [inundationData] = useState([]);
+  const [inundationData, setInundationData] = useState([]);
 
   // World-class composite layer configuration for Tuvalu
+  // NOTE: Using THREDDS server directly as Tuvalu data is not on ncWMS
   const WAVE_FORECAST_LAYERS = useMemo(() => {
-    const worldClassComposite = worldClassViz.getWorldClassCompositeConfig();
-    
-    // Create layers for main domain + each atoll
+    // THREDDS uses different layer names: Hs, Tp, Tm, Dir
     const mainDomainLayers = [
-      // 🌊 WORLD-CLASS COMPOSITE LAYER - Full Tuvalu Domain
+      // 🌊 Significant Wave Height + Direction Composite
       {
-        ...worldClassComposite,
-        value: "tuvalu_forecast/hs",
-        label: "Tuvalu Wave Height (Full Domain)",
+        label: "Tuvalu Wave Height + Direction",
+        value: "tuvalu_composite_hs_dir",
+        id: 1,
+        composite: true,
+        description: "Significant wave height with direction arrows for Tuvalu",
+        layers: [
+          {
+            value: "Hs", // THREDDS layer name for significant wave height
+            ...getWorldClassConfig('hs', 6.0),
+            wmsUrl: TuvaluConfig.WMS_BASE_URL,
+            id: 1001,
+            legendUrl: getWorldClassLegendUrl('hs', '0,6', 'm'),
+            zIndex: 1,
+            style: "default-scalar/psu-viridis",
+            colorscalerange: "0,6",
+            numcolorbands: 256,
+          },
+          {
+            value: "Dir", // THREDDS layer name for wave direction
+            style: "black-arrow",
+            colorscalerange: "",
+            wmsUrl: TuvaluConfig.WMS_BASE_URL,
+            id: 1002,
+            zIndex: 2,
+            opacity: 0.9,
+            description: "Wave direction arrows"
+          }
+        ]
       },
       {
         label: "Tuvalu Mean Wave Period",
-        value: "tuvalu_forecast/tm02",
+        value: "Tm", // THREDDS layer name for mean period
         ...getWorldClassConfig('tm02'),
         id: 4,
         wmsUrl: TuvaluConfig.WMS_BASE_URL,
@@ -121,7 +129,7 @@ function TuvaluForecast() {
       },
       {
         label: "Tuvalu Peak Wave Period",
-        value: "tuvalu_forecast/tpeak", 
+        value: "Tp", // THREDDS layer name for peak period
         ...getWorldClassConfig('tpeak'),
         id: 5,
         wmsUrl: TuvaluConfig.WMS_BASE_URL,
@@ -130,20 +138,10 @@ function TuvaluForecast() {
       }
     ];
     
-    // Add individual atoll layers
-    const atollLayers = TuvaluConfig.TUVALU_ATOLLS.map((atoll, index) => ({
-      label: `${atoll.name} Wave Height`,
-      value: `${atoll.dataset}/hs`,
-      ...getWorldClassConfig('hs'),
-      id: 100 + index,
-      wmsUrl: TuvaluConfig.WMS_BASE_URL,
-      legendUrl: getWorldClassLegendUrl('hs', '0,6', 'm'),
-      description: `Significant wave height for ${atoll.name} atoll`,
-      atollName: atoll.name,
-      isAtollLayer: true
-    }));
+    // Note: Individual atoll layers would need separate NetCDF files
+    // For now, using main domain only
     
-    return [...mainDomainLayers, ...atollLayers];
+    return mainDomainLayers;
   }, []);
 
   // No static inundation layers for Tuvalu (will use dynamic markers instead)
@@ -203,9 +201,19 @@ function TuvaluForecast() {
     logger.island(island.name, 'Island selected');
     setSelectedIsland(island);
     
-    // Optionally zoom to island
-    if (mapInstance) {
-      mapInstance.setView([island.lat, island.lon], 10);
+    // Optionally zoom to island - check if mapInstance is a valid Leaflet map
+    const map = mapInstance?.current;
+    if (map && typeof map.setView === 'function') {
+      try {
+        map.setView([island.lat, island.lon], 10);
+      } catch (error) {
+        logger.error('MAP', 'Failed to set view for island', { island: island.name, error });
+      }
+    } else {
+      logger.debug('MAP', 'Map instance not ready for setView', { 
+        hasMapInstance: !!map,
+        mapInstanceType: typeof map
+      });
     }
   };
 
@@ -218,9 +226,14 @@ function TuvaluForecast() {
 
   // Make function available globally for popup button clicks
   useEffect(() => {
-    window.showForecastImage = (location) => {
-      logger.forecast(`Show forecast image triggered for ${location}`);
-      const point = { location };
+    window.showForecastImage = (pointIdOrName) => {
+      const point =
+        inundationData.find(p => p.id === pointIdOrName) ||
+        inundationData.find(p => p.location === pointIdOrName) ||
+        window.__inundationPointCache?.[pointIdOrName] ||
+        { location: pointIdOrName };
+      
+      logger.forecast(`Show forecast image triggered for ${point.location}`, point);
       setSelectedInundationPoint(point);
       setShowForecastPopup(true);
     };
@@ -228,7 +241,7 @@ function TuvaluForecast() {
     return () => {
       delete window.showForecastImage;
     };
-  }, []);
+  }, [inundationData]);
 
   return (
     <div style={widgetContainerStyle}>
@@ -275,6 +288,7 @@ function TuvaluForecast() {
       <InundationMarkers 
         mapInstance={mapInstance}
         onMarkerClick={handleInundationMarkerClick}
+        onDataLoaded={setInundationData}
       />
       
       <ForecastApp
