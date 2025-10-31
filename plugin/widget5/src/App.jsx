@@ -5,29 +5,24 @@ import './App.css';
 import Header from './components/header';
 import './utils/NotificationManager'; // Initialize notification system
 import { initConsoleErrorSuppressor } from './utils/ConsoleErrorSuppressor';
-// import TokenError from './components/TokenError';
-// import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
+import TokenError from './components/TokenError';
+import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
 
 function App() {
-  // Authentication disabled for Cook Islands widget
-  const [/* isAuthenticated */, setIsAuthenticated] = useState(true); // Always true
-  const [/* isLoading */, /* setIsLoading */] = useState(false); // No loading needed
-  const [/* errorType */, /* setErrorType */] = useState(null);
-  const [/* widgetData */, /* setWidgetData */] = useState(null);
-  const [/* validCountries */, /* setValidCountries */] = useState(['COK']); // Cook Islands by default
+  // Authentication enabled
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorType, setErrorType] = useState(null);
+  const [widgetData, setWidgetData] = useState(null);
+  const [validCountries, setValidCountries] = useState(['COK']); // Cook Islands by default
 
   useEffect(() => {
-    // Authentication disabled for Cook Islands widget
-    console.log('Cook Islands widget initialized without authentication');
-    setIsAuthenticated(true);
-    
-    // Initialize console error suppressor for known WMS server issues
-    initConsoleErrorSuppressor();
-    // setIsLoading is disabled since loading state is not used
-    
-    /* ORIGINAL AUTHENTICATION CODE - COMMENTED OUT
+    // Authentication enabled
     const initializeApp = async () => {
       console.log('Initializing app with token and country validation...');
+      
+      // Initialize console error suppressor for known WMS server issues
+      initConsoleErrorSuppressor();
       
       // Check if token exists in URL first
       const token = extractTokenFromURL('token');
@@ -42,16 +37,16 @@ function App() {
       try {
         const validationResult = await validateTokenOnLoad(
           () => {
-            // console.log('Authentication successful - app can load');
+            console.log('Authentication successful - app can load');
             setIsAuthenticated(true);
           },
           () => {
-            // console.log('Authentication failed - app will not load');
+            console.log('Authentication failed - app will not load');
             setIsAuthenticated(false);
             setErrorType('invalid_token');
           },
           () => {
-            // console.log('Country validation failed - page should not load');
+            console.log('Country validation failed - page should not load');
             // Country validation failed, so we should not show the app
             setIsAuthenticated(false);
             setErrorType('invalid_country');
@@ -67,20 +62,17 @@ function App() {
         }
         
         console.log('Validation result:', validationResult);
-        // setIsLoading(false);
+        setIsLoading(false);
       } catch (error) {
         console.error('Network error during validation:', error);
-        // setErrorType('network_error');
-        // setIsLoading(false);
+        setErrorType('network_error');
+        setIsLoading(false);
       }
     };
 
     initializeApp();
-    */
   }, []);
 
-  // Authentication loading and error handling disabled
-  /* ORIGINAL AUTHENTICATION UI - COMMENTED OUT
   // Show loading state while validating token
   if (isLoading) {
     return (
@@ -111,7 +103,6 @@ function App() {
   if (!isAuthenticated || errorType) {
     return <TokenError errorType={errorType || 'invalid_token'} />;
   }
-  */
 
   return (
     <Router 
@@ -128,8 +119,8 @@ function App() {
       }}>
         <Header />
         <Routes>
-          {/* Pass static values since auth is disabled */}
-          <Route path="/" element={<Home widgetData={null} validCountries={['COK']} />} />
+          {/* Pass validated widget data and countries */}
+          <Route path="/" element={<Home widgetData={widgetData} validCountries={validCountries} />} />
           {/* <Route path="/link1" element={<Link1 />} />
           <Route path="/link2" element={<Link2 />} />
           <Route path="/link3" element={<Link3 />} /> */}
