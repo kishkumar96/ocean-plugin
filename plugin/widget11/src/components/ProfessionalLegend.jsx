@@ -6,7 +6,6 @@ import ProfessionalLegendSystem from '../utils/ProfessionalLegendSystem';
  * Replaces dual legend approach with unified, adaptive system
  */
 const ProfessionalLegend = ({ 
-  variable = "wave_height", 
   range = "0.17,1.66", 
   conditions = "normal",
   className = "",

@@ -15,7 +15,8 @@ class ConsoleErrorSuppressor {
       /Failed to load resource.*gem-ncwms-hpc\.spc\.int.*500/i,
       /net::ERR_HTTP2_PROTOCOL_ERROR.*gem-ncwms-hpc\.spc\.int/i,
       /net::ERR_HTTP2_PROTOCOL_ERROR/i,
-      /Failed to load resource.*net::ERR_HTTP2_PROTOCOL_ERROR/i
+      /Failed to load resource.*net::ERR_HTTP2_PROTOCOL_ERROR/i,
+      /\[INUNDATION\] No inundation data available for display/i
     ];
     
     // Track error frequencies to avoid spam

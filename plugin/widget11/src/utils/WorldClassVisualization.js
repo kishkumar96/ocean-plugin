@@ -392,33 +392,62 @@ class WorldClassVisualization {
 
   /**
    * Generate enhanced composite layer configuration
+   * @param {string} country - Country/region identifier (e.g., 'tuvalu', 'cook_islands')
+   * @param {object} config - Optional configuration overrides
    */
-  getWorldClassCompositeConfig() {
+  getWorldClassCompositeConfig(country = 'cook_islands', config = {}) {
+    // Country-specific configurations
+    const countryConfigs = {
+      tuvalu: {
+        dataset: 'Hs', // THREDDS uses simple names like Hs, Tp, Tm, Dir
+        dirLayer: 'Dir',
+        threddsPath: 'TUV/Tuvalu.nc',
+        wmsUrl: 'https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/TUV/Tuvalu.nc',
+        range: '0,6',
+        description: 'Tuvalu marine forecast'
+      },
+      cook_islands: {
+        dataset: 'cook_forecast',
+        dirLayer: 'dirm',
+        threddsPath: 'COK/Rarotonga_UGRID.nc',
+        wmsUrl: 'https://gem-ncwms-hpc.spc.int/ncWMS/wms',
+        range: '0.17,1.66',
+        description: 'Cook Islands marine forecast'
+      }
+    };
+    
+    const selectedConfig = countryConfigs[country] || countryConfigs['cook_islands'];
+    const mergedConfig = { ...selectedConfig, ...config };
+    
+    // For Tuvalu, use THREDDS directly; for Cook Islands, use ncWMS
+    const isTuvalu = country === 'tuvalu';
+    const layerValue = isTuvalu ? mergedConfig.dataset : `${mergedConfig.dataset}/hs`;
+    
     return {
       label: "Significant Wave Height + Direction",
       value: "world_class_composite_hs_dirm",
       id: 999,
       composite: true,
-      description: "Professional-grade wave analysis combining height and direction",
+      description: `Professional-grade wave analysis combining height and direction - ${mergedConfig.description}`,
       layers: [
         {
-          value: "cook_forecast/hs",
+          value: layerValue,
           ...this.getAdaptiveWaveHeightConfig(6.0, "tropical"),
-          wmsUrl: "https://gem-ncwms-hpc.spc.int/ncWMS/wms",
+          wmsUrl: mergedConfig.wmsUrl,
           id: 1001,
-          legendUrl: this.getWorldClassLegendUrl("hs", "0.17,1.66", "m", "spectral"),
+          legendUrl: this.getWorldClassLegendUrl("hs", mergedConfig.range, "m", "spectral"),
           zIndex: 1,
           // Add additional config needed for capabilities
           style: "default-scalar/psu-viridis",
-          colorscalerange: "0.17,1.66",
+          colorscalerange: mergedConfig.range,
           numcolorbands: 256,
-          dataset: "cook_forecast"
+          dataset: isTuvalu ? undefined : mergedConfig.dataset // ncWMS needs dataset, THREDDS doesn't
         },
         {
-          value: "dirm", // THREDDS layer name (without dataset prefix)
+          value: mergedConfig.dirLayer,
           style: "black-arrow",
           colorscalerange: "",
-          wmsUrl: "https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/COK/Rarotonga_UGRID.nc",
+          wmsUrl: isTuvalu ? mergedConfig.wmsUrl : `https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/${mergedConfig.threddsPath}`,
           id: 1002,
           zIndex: 2,
           opacity: 0.9,

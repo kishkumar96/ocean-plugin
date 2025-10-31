@@ -42,14 +42,15 @@ const createInundationIcon = (color, depth) => {
 
 /**
  * InundationMarkers Component
- * @param {Object} mapInstance - Leaflet map instance
+ * @param {Object} mapInstance - Leaflet map ref (use mapInstance.current to access map)
  * @param {Function} onMarkerClick - Callback when marker is clicked
  */
-const InundationMarkers = ({ mapInstance, onMarkerClick }) => {
+const InundationMarkers = ({ mapInstance, onMarkerClick, onDataLoaded }) => {
   const [markers, setMarkers] = useState([]);
   const [inundationPoints, setInundationPoints] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [hasShownNoDataMessage, setHasShownNoDataMessage] = useState(false);
 
   // Fetch inundation data on component mount
   useEffect(() => {
@@ -60,10 +61,18 @@ const InundationMarkers = ({ mapInstance, onMarkerClick }) => {
       try {
         const data = await fetchInundationData();
         setInundationPoints(data);
-        logger.inundation(`Loaded ${data.length} inundation points for map display`);
+        if (onDataLoaded) {
+          onDataLoaded(data);
+        }
+        if (data.length > 0) {
+          logger.inundation(`Loaded ${data.length} inundation points for map display`);
+        }
       } catch (err) {
-        logger.error('INUNDATION', 'Failed to load inundation data for markers', err);
+        // This shouldn't happen now since fetchInundationData returns [] on error
+        // But keeping error handling for safety
+        logger.debug('INUNDATION', 'Failed to load inundation data', err);
         setError(err.message);
+        setInundationPoints([]); // Set to empty array on error
       } finally {
         setIsLoading(false);
       }
@@ -74,16 +83,24 @@ const InundationMarkers = ({ mapInstance, onMarkerClick }) => {
 
   // Add markers to map when data is loaded
   useEffect(() => {
-    if (!mapInstance || !inundationPoints.length) {
+    // Get the actual map instance from the ref
+    const map = mapInstance?.current;
+    
+    if (!map || !inundationPoints.length) {
       return;
     }
 
     // Clear existing markers
-    markers.forEach(marker => marker.remove());
+    markers.forEach(marker => {
+      if (marker && marker.remove) {
+        marker.remove();
+      }
+    });
 
     // Create new markers
     const newMarkers = inundationPoints.map(point => {
       const icon = createInundationIcon(point.color, point.depth);
+      const popupPointId = JSON.stringify(point.id);
       
       const marker = L.marker([point.lat, point.lon], { icon })
         .bindPopup(`
@@ -105,9 +122,14 @@ const InundationMarkers = ({ mapInstance, onMarkerClick }) => {
                 <strong>Time:</strong> ${new Date(point.timestamp).toLocaleString()}
               </p>
             ` : ''}
+            ${point.imageUrl ? `
+              <p style="margin: 4px 0; font-size: 0.85em; color: #666;">
+                <strong>Forecast Image:</strong> ${point.imageFileName}
+              </p>
+            ` : ''}
             <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd;">
               <button 
-                onclick="window.showForecastImage && window.showForecastImage('${point.location}')"
+                onclick="window.showForecastImage && window.showForecastImage(${popupPointId})"
                 style="
                   width: 100%;
                   padding: 6px 12px;
@@ -129,7 +151,7 @@ const InundationMarkers = ({ mapInstance, onMarkerClick }) => {
             onMarkerClick(point);
           }
         })
-        .addTo(mapInstance);
+        .addTo(map);
 
       return marker;
     });
@@ -138,13 +160,38 @@ const InundationMarkers = ({ mapInstance, onMarkerClick }) => {
 
     // Cleanup function
     return () => {
-      newMarkers.forEach(marker => marker.remove());
+      newMarkers.forEach(marker => {
+        if (marker && marker.remove) {
+          marker.remove();
+        }
+      });
     };
-  }, [mapInstance, inundationPoints, onMarkerClick, markers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapInstance, inundationPoints, onMarkerClick]);
+
+  // Cache inundation points globally for popup button callbacks
+  useEffect(() => {
+    if (inundationPoints.length > 0) {
+      window.__inundationPointCache = inundationPoints.reduce((acc, point) => {
+        acc[point.id] = point;
+        return acc;
+      }, {});
+    } else if (window.__inundationPointCache) {
+      delete window.__inundationPointCache;
+    }
+
+    return () => {
+      if (window.__inundationPointCache) {
+        delete window.__inundationPointCache;
+      }
+    };
+  }, [inundationPoints]);
 
   // Add loading indicator to map if needed
   useEffect(() => {
-    if (!mapInstance) return;
+    const map = mapInstance?.current;
+    
+    if (!map) return;
 
     if (isLoading) {
       logger.debug('INUNDATION', 'Loading inundation markers...');
@@ -152,17 +199,20 @@ const InundationMarkers = ({ mapInstance, onMarkerClick }) => {
       logger.error('INUNDATION', 'Error displaying markers', { error });
     } else if (inundationPoints.length > 0) {
       logger.info('INUNDATION', `${inundationPoints.length} markers displayed on map`);
-    } else {
-      logger.warn('INUNDATION', 'No inundation data available for display');
+    } else if (!hasShownNoDataMessage) {
+      // Show user-friendly info message only once
+      logger.info('INUNDATION', 'No inundation data currently available. Data will appear when forecast is available.');
+      setHasShownNoDataMessage(true);
     }
-  }, [isLoading, error, inundationPoints, mapInstance]);
+  }, [isLoading, error, inundationPoints, mapInstance, hasShownNoDataMessage]);
 
   return null; // This component doesn't render anything directly
 };
 
 InundationMarkers.propTypes = {
   mapInstance: PropTypes.object,
-  onMarkerClick: PropTypes.func
+  onMarkerClick: PropTypes.func,
+  onDataLoaded: PropTypes.func
 };
 
 export default InundationMarkers;

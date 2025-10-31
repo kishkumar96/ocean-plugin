@@ -79,8 +79,10 @@ export const TUVALU_ATOLLS = [
   }
 ];
 
-// WMS Base URL
-export const WMS_BASE_URL = 'https://gem-ncwms-hpc.spc.int/ncWMS/wms';
+// WMS Base URLs
+// NOTE: Tuvalu data is NOT available on ncWMS server - must use THREDDS
+export const WMS_BASE_URL = 'https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/TUV/Tuvalu.nc';
+export const NCWMS_BASE_URL = 'https://gem-ncwms-hpc.spc.int/ncWMS/wms'; // For reference only
 
 // Tuvalu forecast dataset layers
 export const TUVALU_DATASETS = {

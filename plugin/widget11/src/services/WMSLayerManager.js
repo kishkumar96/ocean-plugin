@@ -69,6 +69,9 @@ export class WMSLayerManager {
    * @returns {Object} WMS options object
    */
   createWMSOptions(layerConfig, timeString, opacity) {
+    // Check if this is a THREDDS server (don't add DATASET parameter)
+    const isThreddsServer = layerConfig.wmsUrl && layerConfig.wmsUrl.includes('thredds');
+    
     const baseOptions = {
       layers: layerConfig.value,
       format: "image/png",
@@ -76,14 +79,18 @@ export class WMSLayerManager {
       opacity: opacity,
       styles: layerConfig.style,
       version: '1.3.0',
-      DATASET: layerConfig.dataset || 'tuvalu_forecast',
       crs: L.CRS.EPSG4326,
       pane: 'overlayPane',
       colorscalerange: layerConfig.colorscalerange || "",
-      abovemaxcolor: layerConfig.value === 'dirm' ? "transparent" : "extend",
+      abovemaxcolor: layerConfig.value === 'Dir' || layerConfig.value === 'dirm' ? "transparent" : "extend",
       belowmincolor: "transparent",
       numcolorbands: layerConfig.numcolorbands || "250",
     };
+
+    // Only add DATASET parameter for ncWMS servers (not THREDDS)
+    if (!isThreddsServer && layerConfig.dataset) {
+      baseOptions.DATASET = layerConfig.dataset;
+    }
 
     // Add time parameter only for time-dimensional layers
     if (this.isTimeDimensional(layerConfig) && timeString) {

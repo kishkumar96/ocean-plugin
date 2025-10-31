@@ -111,14 +111,15 @@ export const useMapRendering = ({
       const isThreddsServer = layerConfig.wmsUrl && (layerConfig.wmsUrl.includes('thredds') || layerConfig.wmsUrl.includes('/api/thredds/'));
       const layerHasDatasetPrefix = layerConfig.value && layerConfig.value.includes('/');
       
-      if (!isThreddsServer && !layerHasDatasetPrefix) {
-        commonOptions.DATASET = layerConfig.dataset || 'tuvalu_forecast';
+      // Only add DATASET for ncWMS servers, not for THREDDS
+      if (!isThreddsServer && !layerHasDatasetPrefix && layerConfig.dataset) {
+        commonOptions.DATASET = layerConfig.dataset;
       }
 
       // Only add time parameter for time-dimensional layers
       if (!isTimeDimensionless && currentSliderDateStr) {
         // Special handling for wave direction layer - often works better without time parameter
-        const isWaveDirectionLayer = layerConfig.value === 'dirm';
+        const isWaveDirectionLayer = layerConfig.value === 'dirm' || layerConfig.value === 'Dir';
         
         if (isWaveDirectionLayer) {
           // Skip time parameter for wave direction - let it use latest available data
@@ -133,7 +134,7 @@ export const useMapRendering = ({
       }
 
       // Special handling for wave direction in composite layers (now uses THREDDS)
-      const isWaveDirectionLayer = layerConfig.value === 'dirm';
+      const isWaveDirectionLayer = layerConfig.value === 'dirm' || layerConfig.value === 'Dir';
       
       // Add WMS layer to map
       const wmsLayer = addWMSTileLayer(
