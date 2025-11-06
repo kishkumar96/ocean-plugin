@@ -63,71 +63,73 @@ class WorldClassVisualization {
   // Advanced styling configurations
   static advancedConfigs = {
       significantWaveHeight: {
-        // Multi-threshold configuration for different sea states
+        // Tuned ranges for Tuvalu and similar tropical archipelagos
         calm: {
-          range: "0.17,1.66",      // Updated to actual Cook Islands data range
-          palette: "psu-viridis",  // Perceptually uniform Viridis palette
-          bands: 50,
-          opacity: 0.7,
-          description: "Cook Islands wave conditions"
+          range: "0,1.5",
+          palette: "psu-viridis",
+          bands: 80,
+          opacity: 0.72,
+          description: "Calm to slight seas"
         },
         moderate: {
-          range: "0.17,1.66",      // Updated to actual Cook Islands data range
-          palette: "psu-viridis",  // Perceptually uniform Viridis palette
-          bands: 100,
+          range: "0,3.0",
+          palette: "psu-viridis",
+          bands: 140,
           opacity: 0.8,
-          description: "Cook Islands wave height - current conditions"
+          description: "Moderate seas commonly observed around Tuvalu"
         },
         rough: {
-          range: "0.17,1.66",      // Cook Islands actual range (not typically rough)
-          palette: "psu-viridis",   // Perceptually uniform Viridis palette
-          bands: 150,
-          description: "Cook Islands wave height - full range"
+          range: "0,6.0",
+          palette: "psu-viridis",
+          bands: 200,
+          opacity: 0.85,
+          description: "Rough to very rough swell events"
         },
         dangerous: {
-          range: "0,15",
+          range: "0,10.0",
           palette: "psu-inferno",
-          bands: 200,
-          description: "Dangerous seas - gale warning"
+          bands: 240,
+          opacity: 0.9,
+          description: "Dangerous gale/TC driven seas"
         },
         extreme: {
-          range: "0,25",
+          range: "0,15.0",
           palette: "psu-jet",
-          bands: 250,
-          description: "Extreme seas - storm warning"
+          bands: 260,
+          opacity: 0.92,
+          description: "Extreme storm conditions"
         }
       },
       
       meanWavePeriod: {
-        // Professional wave period visualization configurations with enhanced divergent palettes
+        // Divergent palettes with ranges tuned for South Pacific swell
         lowFrequency: {
-          range: "0,20",           // Full range for comprehensive analysis
-          palette: "div-Spectral", // ENHANCED: Spectral provides maximum divergence (red-orange-yellow-green-cyan-blue-purple)
-          bands: 300,              // Increased resolution for better transitions
+          range: "0,20",
+          palette: "div-Spectral",
+          bands: 280,
           opacity: 0.88,
-          description: "Enhanced divergent wave period analysis - maximum visual distinction"
+          description: "Full-range mean period analysis"
         },
         surfConditions: {
-          range: "3,15",           // Focused on typical surf conditions  
-          palette: "div-RdYlBu",   // ENHANCED: Red-Yellow-Blue divergent palette for surf analysis
-          bands: 250,
+          range: "4,16",
+          palette: "div-RdYlBu",
+          bands: 240,
           opacity: 0.85,
-          description: "High-contrast surf wave period analysis with divergent colors"
+          description: "Surf and nearshore focus"
         },
         stormAnalysis: {
-          range: "5,25",           // Extended range for storm analysis
-          palette: "div-RdBu",     // ENHANCED: Red-Blue divergent palette for storm analysis
-          bands: 350,
-          opacity: 0.92,
-          description: "Ultra-high contrast storm wave period analysis - extreme visual differentiation"
+          range: "6,22",
+          palette: "div-RdBu",
+          bands: 320,
+          opacity: 0.9,
+          description: "Storm-driven long period energy"
         },
-        // NEW: Cook Islands optimized configuration
-        cookIslands: {
-          range: "0,20",           // Cook Islands typical range
-          palette: "div-Spectral", // ENHANCED: Spectral divergent palette for maximum contrast
-          bands: 280,
+        pacificIslands: {
+          range: "3,18",
+          palette: "div-Spectral",
+          bands: 260,
           opacity: 0.87,
-          description: "Cook Islands wave period - divergent palette optimized for Pacific conditions"
+          description: "Optimized for Pacific Island archipelagos"
         }
       }
   };
@@ -135,7 +137,13 @@ class WorldClassVisualization {
   /**
    * Get adaptive WMS configuration based on current conditions
    */
-  getAdaptiveWaveHeightConfig(maxObservedHeight = 4.0, region = "tropical") {
+  getAdaptiveWaveHeightConfig(maxObservedHeight = 4.0, region = "tropical", options = {}) {
+    const { 
+      minimumRangeStart = 0,
+      maxCeiling = region === "tropical" ? 10 : 12,
+      minimumCeiling = region === "tropical" ? 3 : 2.5
+    } = options;
+
     let config;
     const baseConfigs = this.constructor.advancedConfigs.significantWaveHeight;
     // Select configuration based on sea state
@@ -160,9 +168,19 @@ class WorldClassVisualization {
       config = { ...config, range: `0,${Math.min(parseFloat(config.range.split(',')[1]), 6)}` };
     }
 
+    const parsedRange = config.range.split(',').map(Number);
+    const baseMax = Number.isFinite(parsedRange[1]) ? parsedRange[1] : minimumCeiling;
+    const safeObserved = Number.isFinite(maxObservedHeight) ? Math.max(maxObservedHeight, 0) : baseMax;
+    const bufferedMax = safeObserved + Math.max(safeObserved * 0.15, 0.4);
+    const appliedMax = Math.min(
+      Math.max(bufferedMax, Math.max(baseMax, minimumCeiling)),
+      maxCeiling
+    );
+    const appliedMin = Number.isFinite(parsedRange[0]) ? Math.min(parsedRange[0], minimumRangeStart) : minimumRangeStart;
+
     return {
       style: `default-scalar/${config.palette}`,
-      colorscalerange: config.range,
+      colorscalerange: `${appliedMin.toFixed(2)},${appliedMax.toFixed(2)}`,
       numcolorbands: config.bands,
       belowmincolor: "transparent",
       abovemaxcolor: "extend",
@@ -174,7 +192,12 @@ class WorldClassVisualization {
    * Get adaptive mean wave period configuration based on expected conditions
    * ENHANCED with divergent color schemes for superior visual distinction
    */
-  getAdaptiveWavePeriodConfig(maxPeriod = 20.0, analysisType = "general") {
+  getAdaptiveWavePeriodConfig(maxPeriod = 20.0, analysisType = "general", options = {}) {
+    const {
+      minPeriod = 0,
+      maxCeiling = 24
+    } = options;
+
     let config;
     const periodConfigs = this.constructor.advancedConfigs.meanWavePeriod;
     
@@ -183,6 +206,8 @@ class WorldClassVisualization {
       config = periodConfigs.surfConditions;
     } else if (maxPeriod > 20.0 || analysisType === "storm") {
       config = periodConfigs.stormAnalysis;
+    } else if (analysisType === "pacificIslands") {
+      config = periodConfigs.pacificIslands;
     } else if (analysisType === "cookIslands") {
       // Use Cook Islands optimized divergent palette
       config = periodConfigs.cookIslands;
@@ -191,9 +216,16 @@ class WorldClassVisualization {
       config = periodConfigs.lowFrequency;
     }
 
+    const parsedRange = config.range.split(',').map(Number);
+    const baseMax = Number.isFinite(parsedRange[1]) ? parsedRange[1] : 20;
+    const safeMaxPeriod = Number.isFinite(maxPeriod) ? Math.max(maxPeriod, minPeriod) : baseMax;
+    const bufferedMax = safeMaxPeriod + Math.max(safeMaxPeriod * 0.1, 1.0);
+    const appliedMax = Math.min(Math.max(bufferedMax, baseMax), maxCeiling);
+    const appliedMin = Number.isFinite(parsedRange[0]) ? Math.min(parsedRange[0], minPeriod) : minPeriod;
+
     return {
       style: `default-scalar/${config.palette}`,
-      colorscalerange: config.range,
+      colorscalerange: `${appliedMin.toFixed(2)},${appliedMax.toFixed(2)}`,
       numcolorbands: config.bands,
       belowmincolor: "transparent",
       abovemaxcolor: "extend",
@@ -207,7 +239,7 @@ class WorldClassVisualization {
   /**
    * Generate world-class legend URL with robust fallback system
    */
-  getWorldClassLegendUrl(variable, range, unit, palette = null) {
+  getWorldClassLegendUrl(variable, range, unit, palette = null, options = {}) {
     // Smart palette selection based on variable type and server compatibility
     let selectedPalette = palette;
     if (!selectedPalette) {
@@ -223,7 +255,7 @@ class WorldClassVisualization {
     }
     
     // Primary: Use ncWMS for reliable legend generation
-    const primaryUrl = this.generateNcWMSLegendUrl(variable, range, unit, selectedPalette);
+    const primaryUrl = this.generateNcWMSLegendUrl(variable, range, unit, selectedPalette, options);
     if (primaryUrl) {
       return primaryUrl;
     }
@@ -235,7 +267,7 @@ class WorldClassVisualization {
   /**
    * Generate reliable ncWMS legend URL (preferred method)
    */
-  generateNcWMSLegendUrl(variable, range, unit, palette) {
+  generateNcWMSLegendUrl(variable, range, unit, palette, options = {}) {
     // Map variable to layer name
     const layerMapping = {
       'tm02': 'cook_forecast/tm02',
@@ -245,9 +277,10 @@ class WorldClassVisualization {
       'raro_inun': 'raro_inun/Band1'
     };
 
+    const layerOverride = options.layerId || options.layerName;
     const fallbackLayer = variable.includes('/') ? variable : `cook_forecast/${variable}`;
-    const layer = layerMapping[variable] || layerMapping[variable.split('/')[0]] || fallbackLayer;
-    const baseUrl = "https://gem-ncwms-hpc.spc.int/ncWMS/wms";
+    const layer = layerOverride || layerMapping[variable] || layerMapping[variable?.split('/')[0]] || fallbackLayer;
+    const baseUrl = options.wmsUrl || "https://gem-ncwms-hpc.spc.int/ncWMS/wms";
     
     // Get responsive dimensions
     const screenWidth = window.innerWidth || 1024;

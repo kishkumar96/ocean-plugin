@@ -36,7 +36,8 @@ class Logger {
       DEBUG: '🔍',
       INFO: 'ℹ️',
       WARN: '⚠️',
-      ERROR: '🚨'
+      ERROR: '🚨',
+      SUCCESS: '✅'
     }[level] || '';
     
     return {
@@ -59,6 +60,13 @@ class Logger {
   info(category, message, data = {}) {
     if (this.shouldLog(LOG_LEVELS.INFO)) {
       const formatted = this.formatMessage('INFO', category, message, data);
+      console.log(formatted.message, data);
+    }
+  }
+
+  success(category, message, data = {}) {
+    if (this.shouldLog(LOG_LEVELS.INFO)) {
+      const formatted = this.formatMessage('SUCCESS', category, message, data);
       console.log(formatted.message, data);
     }
   }

@@ -173,6 +173,64 @@ body {
   transform: translateY(0);
 }
 
+/* ═══════════════════════════════════════════════════════════ */
+/* 🌊 WAVE DIRECTION ARROW FLOW ANIMATION                      */
+/* ═══════════════════════════════════════════════════════════ */
+
+/* Subtle flowing animation for wave direction arrows */
+@keyframes arrow-flow {
+  0% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0.75;
+  }
+}
+
+/* Apply gentle pulsing to arrow tiles to simulate flow */
+.leaflet-layer img[src*="dirm"],
+.leaflet-layer img[src*="Dir"] {
+  animation: arrow-flow 3s ease-in-out infinite;
+  transition: opacity 0.3s ease;
+}
+
+/* Slightly brighten arrows for better visibility */
+.leaflet-layer img[src*="dirm"],
+.leaflet-layer img[src*="Dir"] {
+  filter: brightness(1.1) contrast(1.05);
+}
+
+/* Reduce animation on zoom out (less distracting at national scale) */
+.leaflet-container.zoom-low .leaflet-layer img[src*="dirm"],
+.leaflet-container.zoom-low .leaflet-layer img[src*="Dir"] {
+  animation-duration: 4s;
+  opacity: 0.7;
+  filter: brightness(1.0) contrast(1.0);
+}
+
+/* More prominent at high zoom (island scale) */
+.leaflet-container.zoom-high .leaflet-layer img[src*="dirm"],
+.leaflet-container.zoom-high .leaflet-layer img[src*="Dir"] {
+  animation-duration: 2.5s;
+  opacity: 0.9;
+  filter: brightness(1.15) contrast(1.1);
+}
+
+/* Disable animation for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .leaflet-layer img[src*="dirm"],
+  .leaflet-layer img[src*="Dir"] {
+    animation: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/* END WAVE ARROW ANIMATION                                    */
+/* ═══════════════════════════════════════════════════════════ */
+
 /* ===== THEME-AWARE COMPONENT CLASSES ===== */
 
 /* Button variants that automatically adapt to theme */

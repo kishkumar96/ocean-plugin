@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-
+import { getIslandWaveDisplayStats, calculateAdaptiveColorScale } from '../utils/IslandWaveStats';
 /**
  * Hook for managing Leaflet map rendering and WMS layer visualization
  * Handles map instance, layer addition/removal, and rendering logic
@@ -11,16 +11,34 @@ export const useMapRendering = ({
   dynamicLayers,
   staticLayers,
   currentSliderDateStr,
+  sliderIndex,
+  totalSteps,
   wmsOpacity,
   addWMSTileLayer,
   handleShow,
-  bounds
+  bounds,
+  selectedIsland
 }) => {
+  const [adaptiveColorScaleRange, setAdaptiveColorScaleRange] = useState(null);
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const wmsLayerGroup = useRef(null);
   const wmsLayerRefs = useRef([]);
   const layerRefs = useRef({});
+
+  useEffect(() => {
+    const calculateRange = async () => {
+      if (selectedIsland && selectedWaveForecast && currentSliderDateStr) {
+        const stats = await getIslandWaveDisplayStats(selectedIsland, currentSliderDateStr);
+        if (stats && stats.wavePeriod) {
+          const colorScale = calculateAdaptiveColorScale(stats.wavePeriod, selectedWaveForecast);
+          setAdaptiveColorScaleRange(colorScale);
+        }
+      }
+    };
+
+    calculateRange();
+  }, [selectedIsland, selectedWaveForecast, currentSliderDateStr]);
 
   // Initialize map with base layers
   useEffect(() => {
@@ -78,6 +96,15 @@ export const useMapRendering = ({
     }
     if (!selectedLayer) return;
 
+    // Determine if layer is time-dimensionless
+    const isTimeDimensionless = selectedLayer.isStatic || selectedLayer.id === 200;
+    
+    // CRITICAL: Don't render time-dimensional layers if time data isn't ready yet
+    if (!isTimeDimensionless && !currentSliderDateStr) {
+      console.log('⏳ Waiting for time data before rendering WMS layers...');
+      return;
+    }
+
     // Performance optimization: Clear and rebuild layers efficiently
     // TODO: Implement layer diffing in future iteration for even better performance
     wmsLayerGroup.current.clearLayers();
@@ -87,9 +114,6 @@ export const useMapRendering = ({
       }
     });
     wmsLayerRefs.current = [];
-
-    // Determine if layer is time-dimensionless
-    const isTimeDimensionless = selectedLayer.isStatic || selectedLayer.id === 200;
     
     // Prepare layers to add - handle composite layers (which already include direction overlay)
     const layersToAdd = selectedLayer.composite ? selectedLayer.layers : [selectedLayer];
@@ -118,15 +142,10 @@ export const useMapRendering = ({
 
       // Only add time parameter for time-dimensional layers
       if (!isTimeDimensionless && currentSliderDateStr) {
-        // Special handling for wave direction layer - often works better without time parameter
-        const isWaveDirectionLayer = layerConfig.value === 'dirm' || layerConfig.value === 'Dir';
-        
-        if (isWaveDirectionLayer) {
-          // Skip time parameter for wave direction - let it use latest available data
-          console.log('🌊 Skipping time parameter for wave direction layer');
-        } else if (isThreddsServer) {
+        if (isThreddsServer) {
           // Format for THREDDS: Remove milliseconds and use simpler format
           const threddsTime = new Date(currentSliderDateStr).toISOString().replace(/\.\d{3}Z$/, 'Z');
+          console.log(`🕐 WMS TIME parameter for ${layerConfig.value}: ${threddsTime}`);
           commonOptions.time = threddsTime;
         } else {
           commonOptions.time = currentSliderDateStr;
@@ -142,7 +161,7 @@ export const useMapRendering = ({
         layerConfig.wmsUrl,
         {
           ...commonOptions,
-          colorscalerange: layerConfig.colorscalerange || "",
+          colorscalerange: adaptiveColorScaleRange ? `${adaptiveColorScaleRange.min},${adaptiveColorScaleRange.max}` : layerConfig.colorscalerange || "",
           abovemaxcolor: isWaveDirectionLayer ? "transparent" : "extend",
           belowmincolor: "transparent",
           numcolorbands: layerConfig.numcolorbands || "250",
@@ -164,7 +183,8 @@ export const useMapRendering = ({
     wmsOpacity, 
     dynamicLayers,
     staticLayers,
-    addWMSTileLayer
+    addWMSTileLayer,
+    adaptiveColorScaleRange
   ]);
 
   // ✅ NEW: Efficiently update TIME parameter without recreating layers
@@ -172,16 +192,16 @@ export const useMapRendering = ({
     if (!wmsLayerRefs.current.length || !currentSliderDateStr) return;
 
     console.log(`🕒 Updating TIME parameter for ${wmsLayerRefs.current.length} layers to: ${currentSliderDateStr}`);
+    console.log(`   Current slider index: ${sliderIndex}, Total steps: ${totalSteps}`);
 
     wmsLayerRefs.current.forEach(layer => {
       if (layer && layer.setParams && layer.wmsParams) {
         // Check if this layer should have time dimension
         const layerName = layer.wmsParams.layers || '';
-        const isDirectionLayer = layerName.includes('dirm');
         const isInundationLayer = layerName.includes('raro_inun'); // Static layer, no time dimension
         
         // Skip time update for static/time-dimensionless layers
-        if (!isDirectionLayer && !isInundationLayer) {
+        if (!isInundationLayer) {
           // Format time for THREDDS if needed
           const isThredds = layer._url && layer._url.includes('thredds');
           const timeValue = isThredds 
@@ -204,7 +224,7 @@ export const useMapRendering = ({
       }
     });
 
-  }, [currentSliderDateStr]);
+  }, [currentSliderDateStr, sliderIndex, totalSteps]);
 
   // ✅ NEW: Update opacity for all active layers when opacity changes
   useEffect(() => {

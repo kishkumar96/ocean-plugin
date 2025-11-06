@@ -1,10 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import './ForecastApp.css';
 import '../styles/MapMarker.css';
+import '../styles/InundationPoints.css';
 import useMapInteraction from '../hooks/useMapInteraction';
+import useInundationPoints from '../hooks/useInundationPoints';
 import { UI_CONFIG } from '../config/UIConfig';
 import { MARINE_CONFIG } from '../config/marineVariables';
 import CompassRose from './CompassRose';
+import InundationControl from './InundationControl';
 import { 
   ControlGroup, 
   VariableButtons, 
@@ -102,8 +105,8 @@ const DIRECTION_METADATA = [
   { value: 'NW (↖)', label: 'Northwest', description: 'Flowing toward the northwest', color: 'rgba(255, 255, 255, 0.3)' }
 ];
 
-const ForecastApp = ({ 
-  WAVE_FORECAST_LAYERS,
+const ForecastApp = ({
+WAVE_FORECAST_LAYERS,
   ALL_LAYERS,
   selectedWaveForecast,
   setSelectedWaveForecast,
@@ -128,6 +131,13 @@ const ForecastApp = ({
 }) => {
   const [metadataVisible, setMetadataVisible] = useState(false); // Metadata panel state
   const [detailedMetadataVisible, setDetailedMetadataVisible] = useState(false); // Detailed metadata state
+  
+  // Initialize inundation points service
+  const inundationPoints = useInundationPoints(mapInstance, {
+    debugMode: true,
+    defaultVisible: false
+  });
+  
   const selectedLayer = useMemo(() => {
     return ALL_LAYERS.find(l => l.value === selectedWaveForecast) || null;
   }, [ALL_LAYERS, selectedWaveForecast]);
@@ -158,7 +168,7 @@ const ForecastApp = ({
       };
     }
     
-    if (varLower.includes('tm02')) {
+    if (varLower.includes('tm02') || varLower.includes('tm') || (varLower.includes('mean') && varLower.includes('period'))) {
       // DYNAMIC DATA RANGE - Updates with actual mean period data
       const minVal = colorRange?.min ?? 0;
       const maxVal = colorRange?.max ?? 20;
@@ -173,7 +183,7 @@ const ForecastApp = ({
       };
     }
     
-    if (varLower.includes('tpeak')) {
+    if (varLower.includes('tpeak') || varLower.includes('tp') || (varLower.includes('peak') && varLower.includes('period'))) {
       // DYNAMIC DATA RANGE - Updates with actual peak period data
       const minVal = colorRange?.min ?? 10.0;
       const maxVal = colorRange?.max ?? 13.7;
@@ -377,11 +387,19 @@ const ForecastApp = ({
       return ranges;
     }
 
-    if (variable.includes('tm02')) {
+    if (
+      variable.includes('tm02') ||
+      variable.includes('tm') ||
+      (variable.includes('mean') && variable.includes('period'))
+    ) {
       return MEAN_PERIOD_METADATA.map(range => ({ ...range }));
     }
 
-    if (variable.includes('tpeak')) {
+    if (
+      variable.includes('tpeak') ||
+      variable.includes('tp') ||
+      (variable.includes('peak') && variable.includes('period'))
+    ) {
       return PEAK_PERIOD_METADATA.map(range => ({ ...range }));
     }
 
@@ -572,6 +590,17 @@ const ForecastApp = ({
             size={90} 
             responsive={true}
             mapRotation={0} 
+          />
+          
+          {/* Inundation Points Control */}
+          <InundationControl
+            loadPoints={inundationPoints.loadPoints}
+            isVisible={inundationPoints.isVisible}
+            onToggle={inundationPoints.toggleVisibility}
+            stats={inundationPoints.stats}
+            isLoading={inundationPoints.isLoading}
+            error={inundationPoints.error}
+            position="topright"
           />
           
           {selectedLegendLayer && (
@@ -815,13 +844,13 @@ const ForecastApp = ({
           title={UI_CONFIG.SECTIONS.DISPLAY_OPTIONS.title}
           ariaLabel={UI_CONFIG.SECTIONS.DISPLAY_OPTIONS.ariaLabel}
         >
-          <OpacityControl
-            opacity={opacity}
-            onOpacityChange={setOpacity}
-            formatPercent={UI_CONFIG.FORMATS.opacityPercent}
-            ariaLabel={UI_CONFIG.ARIA_LABELS.overlayOpacity}
-          />
-        </ControlGroup>
+        <OpacityControl
+          opacity={opacity}
+          onOpacityChange={setOpacity}
+          formatPercent={UI_CONFIG.FORMATS.opacityPercent}
+          ariaLabel={UI_CONFIG.ARIA_LABELS.overlayOpacity}
+        />
+      </ControlGroup>
 
         <ControlGroup
           icon={<FancyIcon icon={Info} animationType="pulse" color="#2196f3" />}

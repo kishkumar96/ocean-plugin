@@ -2,6 +2,7 @@
 
 .world-class-legend {
   background: rgba(0, 0, 0, 0.75);
+  -webkit-backdrop-filter: blur(15px);
   backdrop-filter: blur(15px);
   border: 1px solid #00d4ff;
   border-radius: 12px;
@@ -185,6 +186,9 @@
 
 .legend-gradient__tick {
   white-space: nowrap;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
   user-select: none;
 }
 

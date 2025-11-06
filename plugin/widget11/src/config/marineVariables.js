@@ -16,6 +16,7 @@ export const MARINE_CONFIG = {
   
   // Slider initialization configuration
   DEFAULT_SLIDER_INDEX: 1,  // Start at index 1 (first forecast timestep after skipping 0-hour)
+  SLIDER_LOOKBACK_DAYS: 7,   // Default to last available forecast minus 7 days
   
   // Time dimension configuration
   DEFAULT_STEP_HOURS: 6,    // Default timestep for marine forecasts

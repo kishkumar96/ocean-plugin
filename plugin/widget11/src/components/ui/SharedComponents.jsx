@@ -55,6 +55,17 @@ export const AccessibleSlider = ({
   const displayValue = formatValue ? formatValue(value) : value;
   const sliderId = `slider-${label.replace(/\s+/g, '-').toLowerCase()}`;
 
+  // Debug: Log slider HTML attributes for Time slider only
+  if (label === 'Time') {
+    console.log(`🎚️ AccessibleSlider (${label}) rendering with:`, {
+      value,
+      min,
+      max,
+      step,
+      visualPosition: max > min ? ((value - min) / (max - min) * 100).toFixed(1) + '%' : '0%'
+    });
+  }
+
   return (
     <div className={`slider-control ${className}`}>
       <label htmlFor={sliderId} className="slider-label">
