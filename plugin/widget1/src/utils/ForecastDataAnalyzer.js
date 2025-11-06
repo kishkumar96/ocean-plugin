@@ -2,6 +2,8 @@
  * Forecast Data Analyzer - Analyzes WMS GetFeatureInfo responses to optimize color ranges
  */
 
+import L from 'leaflet';
+
 export class ForecastDataAnalyzer {
   constructor() {
     this.sampledData = new Map(); // Store sampled data by layer

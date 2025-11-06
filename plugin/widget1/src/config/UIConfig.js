@@ -20,7 +20,85 @@ export const UI_CONFIG = {
       icon: 'ℹ️',
       title: 'Data Info',
       ariaLabel: 'Data source and model information'
+    },
+    FORECAST_VARIABLES: {
+      icon: '📊',
+      title: 'Forecast Variables',
+      ariaLabel: 'Marine forecast variables and data'
+    },
+    FORECAST_TIME: {
+      icon: '⏰',
+      title: 'Forecast Time',
+      ariaLabel: 'Forecast time controls'
+    },
+    DISPLAY_OPTIONS: {
+      icon: '🎨',
+      title: 'Display Options',
+      ariaLabel: 'Display and visualization options'
+    },
+    DATA_INFO: {
+      icon: 'ℹ️',
+      title: 'Data Info',
+      ariaLabel: 'Data source and model information'
     }
+  },
+
+  // Section headers (alternative naming for backwards compatibility)
+  SECTIONS: {
+    FORECAST_VARIABLES: {
+      icon: '📊',
+      title: 'Forecast Variables',
+      ariaLabel: 'Marine forecast variables and data'
+    },
+    FORECAST_TIME: {
+      icon: '⏰',
+      title: 'Forecast Time',
+      ariaLabel: 'Forecast time controls'
+    },
+    DISPLAY_OPTIONS: {
+      icon: '🎨',
+      title: 'Display Options',
+      ariaLabel: 'Display and visualization options'
+    },
+    DATA_INFO: {
+      icon: 'ℹ️',
+      title: 'Data Info',
+      ariaLabel: 'Data source and model information'
+    }
+  },
+
+  // ARIA labels for accessibility
+  ARIA_LABELS: {
+    variableButton: 'Select marine forecast variable',
+    overlayOpacity: 'Adjust overlay opacity',
+    timeSlider: 'Select forecast time',
+    playButton: 'Play/pause animation'
+  },
+
+  // Variable labels
+  VARIABLE_LABELS: {
+    'Significant Wave Height': 'Wave Height',
+    'Inundation Depth': 'Inundation',
+    'Peak Wave Period': 'Wave Period',
+    'Mean Wave Period': 'Mean Period',
+    'Zero-crossing Period': 'Zero Period',
+    'Mean Wave Direction': 'Mean Dir',
+    'Peak Wave Direction': 'Peak Dir',
+    'Wave Direction': 'Wave Dir'
+  },
+
+  // Format functions
+  FORMATS: {
+    opacityPercent: (value) => `${Math.round(value * 100)}%`
+  },
+
+  // Data source information
+  DATA_SOURCE: {
+    source: 'Pacific Community (SPC)',
+    model: 'SCHISM + WaveWatch III',
+    resolution: 'Unstructured Mesh',
+    updateFrequency: '4x Daily',
+    coverage: 'Niue'
   },
 
   // Control labels and accessibility text
