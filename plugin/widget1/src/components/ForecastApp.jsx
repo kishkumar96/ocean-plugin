@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import './ForecastApp.css';
 import '../styles/MapMarker.css';
 import useMapInteraction from '../hooks/useMapInteraction';
-import UI_CONFIG from '../config/uiConfig';
+import { UI_CONFIG } from '../config/UIConfig';
 import { MARINE_CONFIG } from '../config/marineVariables';
 import CompassRose from './CompassRose';
 import { 

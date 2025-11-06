@@ -11,7 +11,7 @@ import TokenError from './components/TokenError';
 import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
 
 function App() {
-  // Authentication enabled
+  // Authentication enabled for production
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorType, setErrorType] = useState(null);
