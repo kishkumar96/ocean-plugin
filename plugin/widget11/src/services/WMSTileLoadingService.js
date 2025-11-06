@@ -594,15 +594,21 @@ class WMSTileLoadingService {
     const layerName = errorInfo?.layerName || layerId || 'marine forecast';
     console.error(`🌊 ${layerName}: Failed to load tile after ${this.retryConfig.maxRetries} attempts`);
     
-    // Show user-friendly production error message
-    const userFriendlyMessage = this.getUserFriendlyErrorMessage(layerName);
-    
-    this.showUserNotification(layerId, {
-      type: 'error',
-      message: userFriendlyMessage,
-      duration: 8000,
-      persistent: false // Don't make it persistent to avoid cluttering UI
-    });
+    // Check if we've already notified about this layer to prevent duplicates
+    const notifState = this.notificationState.get(layerId);
+    if (notifState && !notifState.serverErrorNotified) {
+      notifState.serverErrorNotified = true;
+      
+      // Show user-friendly production error message
+      const userFriendlyMessage = this.getUserFriendlyErrorMessage(layerName);
+      
+      this.showUserNotification(layerId, {
+        type: 'error',
+        message: userFriendlyMessage,
+        duration: 8000,
+        persistent: false // Don't make it persistent to avoid cluttering UI
+      });
+    }
     
     // Mark layer as problematic
     if (errorInfo) errorInfo.recoveryAttempts = -1; // Mark as failed
