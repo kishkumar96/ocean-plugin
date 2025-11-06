@@ -5,23 +5,19 @@ import './App.css';
 import Header from './components/header';
 import './utils/NotificationManager'; // Initialize notification system
 import { initConsoleErrorSuppressor } from './utils/ConsoleErrorSuppressor';
-// TEMP: Commented out for auth bypass
-// import TokenError from './components/TokenError';
-// import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
+import TokenError from './components/TokenError';
+import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
 
 function App() {
-  // TEMPORARILY DISABLED: Authentication enabled
-  // const [isAuthenticated, setIsAuthenticated] = useState(true); // TEMP: Set to true to bypass auth
-  // const [isLoading, setIsLoading] = useState(false); // TEMP: Set to false to skip loading
-  // const [errorType, setErrorType] = useState(null);
-  // eslint-disable-next-line no-unused-vars
+  // Authentication enabled
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorType, setErrorType] = useState(null);
   const [widgetData, setWidgetData] = useState(null);
-  // eslint-disable-next-line no-unused-vars
   const [validCountries, setValidCountries] = useState(['COK']); // Cook Islands by default
 
   useEffect(() => {
-    // TEMPORARILY DISABLED: Authentication enabled
-    /*
+    // Authentication enabled
     const initializeApp = async () => {
       console.log('Initializing app with token and country validation...');
       
@@ -75,15 +71,9 @@ function App() {
     };
 
     initializeApp();
-    */
-    
-    // TEMP: Initialize console error suppressor only
-    initConsoleErrorSuppressor();
-    console.log('TEMPORARY: Authentication bypassed - app running without token validation');
   }, []);
 
-  // TEMPORARILY DISABLED: Show loading state while validating token
-  /*
+  // Show loading state while validating token
   if (isLoading) {
     return (
       <div style={{
@@ -113,7 +103,6 @@ function App() {
   if (!isAuthenticated || errorType) {
     return <TokenError errorType={errorType || 'invalid_token'} />;
   }
-  */
 
   return (
     <Router 
