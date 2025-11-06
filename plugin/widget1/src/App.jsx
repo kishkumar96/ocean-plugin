@@ -4,24 +4,19 @@ import Home from './pages/Home';
 import './App.css';
 // LEGACY HEADER REMOVED - ModernHeader is now used in Home.jsx
 // import Header from './components/header';
-// TEMPORARILY DISABLED FOR DEVELOPMENT
-// import TokenError from './components/TokenError';
-// import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
+import TokenError from './components/TokenError';
+import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
 
 function App() {
-  // TEMPORARILY DISABLED FOR DEVELOPMENT
-  // const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // Authentication enabled
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  // const [errorType, setErrorType] = useState(null);
-  const [widgetData] = useState(null);
-  const [validCountries] = useState([]);
+  const [errorType, setErrorType] = useState(null);
+  const [widgetData, setWidgetData] = useState(null);
+  const [validCountries, setValidCountries] = useState([]);
 
   useEffect(() => {
-    // TEMPORARILY DISABLED FOR DEVELOPMENT - Skip token validation
-    console.log('Token validation temporarily disabled for development');
-    setIsLoading(false);
-    
-    /* ORIGINAL TOKEN VALIDATION CODE - COMMENTED OUT FOR DEVELOPMENT
+    // Authentication enabled
     const initializeApp = async () => {
       console.log('Initializing app with token and country validation...');
       
@@ -38,16 +33,16 @@ function App() {
       try {
         const validationResult = await validateTokenOnLoad(
           () => {
-            // console.log('Authentication successful - app can load');
+            console.log('Authentication successful - app can load');
             setIsAuthenticated(true);
           },
           () => {
-            // console.log('Authentication failed - app will not load');
+            console.log('Authentication failed - app will not load');
             setIsAuthenticated(false);
             setErrorType('invalid_token');
           },
           () => {
-            // console.log('Country validation failed - page should not load');
+            console.log('Country validation failed - page should not load');
             // Country validation failed, so we should not show the app
             setIsAuthenticated(false);
             setErrorType('invalid_country');
@@ -72,7 +67,6 @@ function App() {
     };
 
     initializeApp();
-    */
   }, []);
 
   // Show loading state while validating token
@@ -102,10 +96,9 @@ function App() {
   }
 
   // Show error message if not authenticated
-  // TEMPORARILY DISABLED FOR DEVELOPMENT
-  // if (!isAuthenticated || errorType) {
-  //   return <TokenError errorType={errorType || 'invalid_token'} />;
-  // }
+  if (!isAuthenticated || errorType) {
+    return <TokenError errorType={errorType || 'invalid_token'} />;
+  }
 
   // Use PUBLIC_URL for production, but allow root access in development
   const basename = process.env.NODE_ENV === 'production' ? process.env.PUBLIC_URL : '';

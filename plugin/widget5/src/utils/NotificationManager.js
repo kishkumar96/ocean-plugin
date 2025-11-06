@@ -5,6 +5,7 @@
 class NotificationManager {
   constructor() {
     this.notifications = new Set();
+    this.activeMessages = new Map(); // Track active messages to prevent duplicates
     this.container = null;
     this.initContainer();
   }
@@ -32,10 +33,18 @@ class NotificationManager {
   show(message, type = 'info', duration = 5000) {
     if (typeof window === 'undefined') return;
     
-    const notificationId = `${type}-${Date.now()}`;
-    if (this.notifications.has(notificationId)) return;
+    // Create a unique key based on message content and type
+    const messageKey = `${type}-${message}`;
+    
+    // Check if this exact message is already being shown
+    if (this.activeMessages.has(messageKey)) {
+      console.log('Duplicate notification prevented:', message);
+      return this.activeMessages.get(messageKey);
+    }
 
+    const notificationId = `${type}-${Date.now()}`;
     this.notifications.add(notificationId);
+    this.activeMessages.set(messageKey, notificationId);
 
     const notification = document.createElement('div');
     notification.id = notificationId;
@@ -97,6 +106,14 @@ class NotificationManager {
           notification.parentNode.removeChild(notification);
         }
         this.notifications.delete(notificationId);
+        
+        // Remove from activeMessages map by finding the key
+        for (const [key, id] of this.activeMessages.entries()) {
+          if (id === notificationId) {
+            this.activeMessages.delete(key);
+            break;
+          }
+        }
       }, 300);
     }
   }

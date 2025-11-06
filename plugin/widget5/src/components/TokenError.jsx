@@ -9,12 +9,12 @@ const TokenError = ({ errorType = 'invalid_token' }) => {
           message: 'No authentication token was found in the URL parameters.',
           details: 'Please ensure you have a valid token in the URL (e.g., ?token=your_token_here)'
         };
-             case 'invalid_token':
-         return {
-          //  title: 'Access Denied',
-           message: 'The provided authentication token is invalid or has expired.',
-           details: 'Please contact your administrator for a valid token.'
-         };
+      case 'invalid_token':
+        return {
+          title: 'Access Denied',
+          message: 'The provided authentication token is invalid or has expired.',
+          details: 'Please contact your administrator for a valid token.'
+        };
              case 'network_error':
          return {
            title: 'Connection Error',
