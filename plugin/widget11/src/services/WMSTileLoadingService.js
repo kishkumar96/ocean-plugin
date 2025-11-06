@@ -541,19 +541,19 @@ class WMSTileLoadingService {
       
       tempImage.onload = () => {
         if (timeoutId) clearTimeout(timeoutId);
+        tempImage.onload = null;
+        tempImage.onerror = null;
         tile.src = url;
         resolve();
       };
       
       tempImage.onerror = (error) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        tempImage.onload = null;
+        tempImage.onerror = null;
         reject(error);
       };
-      
-      // Set timeout for loading
-      setTimeout(() => {
-        reject(new Error('Tile load timeout'));
-      }, 10000);
-      
+
       tempImage.src = url;
     });
   }

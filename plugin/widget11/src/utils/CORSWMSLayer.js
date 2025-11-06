@@ -129,11 +129,17 @@ export const createCORSWMSLayer = (url, options = {}) => {
     _tileOnError: function(done, tile, e) {
       // Enhanced error logging for debugging
       const url = tile.src || 'unknown';
-      console.error(`🌊 Tile load failed: ${url.substring(url.lastIndexOf('/')+1)}`);
       
-      // For THREDDS servers, try alternative time formats
+      // For THREDDS servers, extract and show the time parameter
       if (url.includes('thredds') && url.includes('time=')) {
-        console.warn('⚠️ THREDDS time format may be incorrect. Consider checking time parameter format.');
+        const timeMatch = url.match(/time=([^&]+)/);
+        if (timeMatch) {
+          const requestedTime = decodeURIComponent(timeMatch[1]);
+          console.error(`❌ THREDDS tile failed for time: ${requestedTime}`);
+          console.warn(`⚠️ Timestamp may not exist in THREDDS dataset. Check WMS GetCapabilities for available time range.`);
+        }
+      } else {
+        console.error(`🌊 Tile load failed: ${url.substring(url.lastIndexOf('/')+1)}`);
       }
       
       done(e, tile);

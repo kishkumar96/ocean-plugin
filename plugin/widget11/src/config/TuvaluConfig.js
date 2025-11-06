@@ -20,62 +20,71 @@ export const bounds = L.latLngBounds(
   TUVALU_BOUNDS.northEast
 );
 
-// Tuvalu's 9 atolls with their approximate coordinates
+// Tuvalu's 9 atolls with their approximate coordinates and WMS endpoints
 export const TUVALU_ATOLLS = [
   {
     name: 'Nanumea',
     lat: -5.6883,
     lon: 176.1367,
-    dataset: 'nanumea_forecast'
-  },
-  {
-    name: 'Niutao',
-    lat: -6.1067,
-    lon: 177.3433,
-    dataset: 'niutao_forecast'
+    dataset: 'nanumea_forecast',
+    wmsUrl: 'https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/TUV/P1_Nanumea.nc'
   },
   {
     name: 'Nanumaga',
     lat: -6.2867,
     lon: 176.3200,
-    dataset: 'nanumaga_forecast'
+    dataset: 'nanumaga_forecast',
+    wmsUrl: 'https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/TUV/P2_Nanumanga.nc'
+  },
+  {
+    name: 'Niutao',
+    lat: -6.1067,
+    lon: 177.3433,
+    dataset: 'niutao_forecast',
+    wmsUrl: 'https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/TUV/P3_Niutao.nc'
   },
   {
     name: 'Nui',
     lat: -7.2400,
     lon: 177.1483,
-    dataset: 'nui_forecast'
+    dataset: 'nui_forecast',
+    wmsUrl: 'https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/TUV/P4_Nui.nc'
   },
   {
     name: 'Vaitupu',
     lat: -7.4767,
     lon: 178.6750,
-    dataset: 'vaitupu_forecast'
+    dataset: 'vaitupu_forecast',
+    wmsUrl: 'https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/TUV/P5_Vaitupu.nc'
   },
   {
     name: 'Nukufetau',
     lat: -8.0000,
     lon: 178.5000,
-    dataset: 'nukufetau_forecast'
+    dataset: 'nukufetau_forecast',
+    wmsUrl: 'https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/TUV/P6_Nukufetau.nc'
   },
   {
     name: 'Funafuti',
     lat: -8.5167,
     lon: 179.1967,
     dataset: 'funafuti_forecast',
-    isCapital: true
+    isCapital: true,
+    wmsUrl: 'https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/TUV/P7_Fongafale.nc'
   },
   {
     name: 'Nukulaelae',
     lat: -9.3817,
     lon: 179.8517,
-    dataset: 'nukulaelae_forecast'
+    dataset: 'nukulaelae_forecast',
+    wmsUrl: 'https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/TUV/P8_Nukulaelae.nc'
   },
   {
     name: 'Niulakita',
     lat: -10.7833,
     lon: 179.4833,
-    dataset: 'niulakita_forecast'
+    dataset: 'niulakita_forecast',
+    wmsUrl: 'https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/TUV/P9_Niulakita.nc'
   }
 ];
 
@@ -110,7 +119,7 @@ export const WAVE_VARIABLES = {
   DIRECTION: 'dirm'
 };
 
-export default {
+const TuvaluConfig = {
   TUVALU_BOUNDS,
   bounds,
   TUVALU_ATOLLS,
@@ -119,3 +128,5 @@ export default {
   INUNDATION_DATA_URL,
   WAVE_VARIABLES
 };
+
+export default TuvaluConfig;

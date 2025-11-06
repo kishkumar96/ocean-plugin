@@ -10,7 +10,7 @@ import { useLegendManagement } from './useLegendManagement';
  * This is a thin orchestrator that delegates to focused, testable hooks
  */
 export const useForecast = (config) => {
-  const { WAVE_FORECAST_LAYERS, STATIC_LAYERS, addWMSTileLayer, bounds } = config;
+  const { WAVE_FORECAST_LAYERS, STATIC_LAYERS, addWMSTileLayer, bounds, selectedIsland } = config;
 
   // 1. Layer Management (selection, active layers, dynamic configs)
   const layerManagement = useLayerManagement(WAVE_FORECAST_LAYERS, STATIC_LAYERS);
@@ -63,10 +63,13 @@ export const useForecast = (config) => {
     dynamicLayers,
     staticLayers: STATIC_LAYERS,
     currentSliderDateStr,
+    sliderIndex,
+    totalSteps,
     wmsOpacity,
     addWMSTileLayer,
     handleShow: openBottomCanvas,
-    bounds
+    bounds,
+    selectedIsland
   });
   const { mapRef, mapInstance } = mapRendering;
 

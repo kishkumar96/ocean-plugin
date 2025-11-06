@@ -124,7 +124,7 @@ export const useTimeAnimation = (capTime) => {
   useEffect(() => {
     if (!capTime.loading && totalSteps > 0) {
       const MS_IN_DAY = 24 * 60 * 60 * 1000;
-      const offsetDays = 7; // Default offset
+      const offsetDays = 7; // Default offset - 7 days back from latest forecast
       let initialIndex = 0;
 
       try {
@@ -166,11 +166,9 @@ export const useTimeAnimation = (capTime) => {
         initialIndex = Math.min(MARINE_CONFIG.DEFAULT_SLIDER_INDEX, totalSteps);
       }
 
-  setSliderIndex(initialIndex);
-  setMinIndex(initialIndex); // Prevent sliding earlier than last-7-days
-      setIsPlaying(false);
-
-      // Reset performance tracking and buffer
+      setSliderIndex(initialIndex);
+      setMinIndex(initialIndex); // Prevent sliding earlier than last-7-days
+      setIsPlaying(false);      // Reset performance tracking and buffer
       frameLoadTimes.current = [];
       frameBuffer.current.clear();
       animationQuality.current = 'high';

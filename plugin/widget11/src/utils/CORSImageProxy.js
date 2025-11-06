@@ -85,7 +85,7 @@ class CORSImageProxy {
       img.onload = () => {
         // Convert image to blob URL
         const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         canvas.width = img.width;
         canvas.height = img.height;
         ctx.drawImage(img, 0, 0);

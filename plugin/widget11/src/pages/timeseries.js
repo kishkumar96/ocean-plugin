@@ -81,11 +81,14 @@ function Timeseries({ perVariableData }) {
       return;
     }
 
-    // Same variables as Widget 1
+    // Tuvalu available variables (all 6 variables from THREDDS)
     const layers = [
-      { key: "hs", label: "Significant Wave Height", colorIdx: 0, yaxis: 'y1', type: 'scatter', mode: 'lines+markers' },
-      { key: "tpeak", label: "Peak Wave Period", colorIdx: 1, yaxis: 'y2', type: 'scatter', mode: 'lines+markers' },
-      { key: "dirp", label: "Mean Wave Direction", colorIdx: 2, yaxis: 'y3', type: 'scatter', mode: 'markers' },
+      { key: "hs", label: "Significant Wave Height (m)", colorIdx: 0, yaxis: 'y1', type: 'scatter', mode: 'lines+markers' },
+      { key: "tpeak", label: "Peak Wave Period (s)", colorIdx: 1, yaxis: 'y2', type: 'scatter', mode: 'lines+markers' },
+      { key: "tm02", label: "Mean Wave Period (s)", colorIdx: 3, yaxis: 'y2', type: 'scatter', mode: 'lines+markers' },
+      { key: "dirm", label: "Wave Direction (°)", colorIdx: 2, yaxis: 'y3', type: 'scatter', mode: 'markers' },
+      { key: "wind", label: "Wind Speed (m/s)", colorIdx: 4, yaxis: 'y4', type: 'scatter', mode: 'lines+markers' },
+      { key: "dirwind", label: "Wind Direction (°)", colorIdx: 2, yaxis: 'y3', type: 'scatter', mode: 'markers' },
     ];
     let newLabels = [];
     const traces = [];
@@ -182,6 +185,20 @@ function Timeseries({ perVariableData }) {
       overlaying: 'y',
       side: 'right',
       position: 1,
+      showgrid: false,
+      tickfont: { color: isDarkMode ? '#f1f5f9' : '#1e293b' },
+      zerolinecolor: isDarkMode ? '#44454a' : '#e2e8f0'
+    },
+    yaxis4: {
+      title: { 
+        text: 'Wind Speed (m/s)', 
+        font: { color: isDarkMode ? '#f1f5f9' : '#1e293b' },
+        standoff: 10,
+        x: -0.15
+      },
+      overlaying: 'y',
+      side: 'left',
+      position: 0,
       showgrid: false,
       tickfont: { color: isDarkMode ? '#f1f5f9' : '#1e293b' },
       zerolinecolor: isDarkMode ? '#44454a' : '#e2e8f0'

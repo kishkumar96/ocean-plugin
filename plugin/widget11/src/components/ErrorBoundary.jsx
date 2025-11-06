@@ -46,7 +46,7 @@ class ErrorBoundary extends React.Component {
     }
   }
 
-  reportError(error, errorInfo) {
+  reportError() {
     // Placeholder for error reporting service (Sentry, LogRocket, etc.)
     // window.errorTracker?.captureException(error, { extra: errorInfo });
   }

@@ -5,23 +5,14 @@ import Tabular from "./tabular.js";
 import Timeseries from "./timeseries.js";
 
 
-// ---- Variables & config for Tuvalu (adapted from Widget 5) ----
+// ---- Variables & config for Tuvalu (all available variables) ----
 const variableDefs = [
-  { key: "hs", label: "Wave{0-5/Bu/1}" },
-  { key: "tm02", label: "Mean Period{0-20/Rd/0}" },
-  { key: "tpeak", label: "Wave Period{0-20/Rd/0}" },
-  { key: "dirm", label: "Mean Wave Dir{0/dir}" },
-  { key: "dirp", label: "Wave direction{0/dir}" },
-  { key: "transp_x", label: "Wave Energy{calc/0-100/jet/0}" },
-  { key: "hs_p2", label: "Swell(m){0-5/Bu/1}" },
-  { key: "tp_p2", label: "Swell Period{0-25/Rd/0}" },
-  { key: "dirp_p2", label: "Swell Dir{0/dir}" },
-  { key: "hs_p3", label: "2.Swell (m) {0-5/Bu/1}" },
-  { key: "tp_p3", label: "2.Swell Period{0-25/Rd/0}" },
-  { key: "dirp_p3", label: "2. Swell Dir{0-5/dir}" },
-  { key: "hs_p1", label: "Wind wave(m){0-5/Bu/1}" },
-  { key: "tp_p1", label: "Wind wave period{0-25/Rd/0}" },
-  { key: "dirp_p1", label: "Wind wave dir{0-4/dir}" }
+  { key: "hs", label: "Wave Height{0-5/Bu/1}" },
+  { key: "tpeak", label: "Peak Period{0-20/Rd/0}" },
+  { key: "tm02", label: "Mean Period{0-20/YlGnBu/0}" },
+  { key: "dirm", label: "Wave Direction{0/dir}" },
+  { key: "wind", label: "Wind Speed{0-25/jet/1}" },
+  { key: "dirwind", label: "Wind Direction{0/dir}" }
 ];
 
 const SERVER_LAYER_MAP = {
@@ -29,18 +20,8 @@ const SERVER_LAYER_MAP = {
   tm02: "Tm",
   tpeak: "Tp",
   dirm: "Dir",
-  dirp: "Dir",
-  transp_x: "transp_x",
-  transp_y: "transp_y",
-  hs_p2: "Hs_p2",
-  tp_p2: "Tp_p2",
-  dirp_p2: "Dir_p2",
-  hs_p3: "Hs_p3",
-  tp_p3: "Tp_p3",
-  dirp_p3: "Dir_p3",
-  hs_p1: "Hs_p1",
-  tp_p1: "Tp_p1",
-  dirp_p1: "Dir_p1"
+  wind: "Wind",
+  dirwind: "DirWind"
 };
 
 // ---- Centralized fetching helpers (Tuvalu) ----
@@ -124,7 +105,7 @@ async function fetchLayerTimeseries(layer, data, serverLayerOverride) {
     `&STYLES=default/default` +
     `&VERSION=1.1.1` +
     (timeParam ? `&TIME=${encodeURIComponent(timeParam)}` : "") +
-    `&INFO_FORMAT=application/json`;
+    `&INFO_FORMAT=text/json`;  // THREDDS requires text/json, not application/json
   try {
     const response = await fetch(url);
     if (!response.ok) {
@@ -243,22 +224,10 @@ function BottomOffCanvas({ show, onHide, data }) {
     setFetchError("");
     (async () => {
       const out = {};
-      let transpX, transpY;
-      const transpYLayer = SERVER_LAYER_MAP["transp_y"] || "transp_y";
       for (let i = 0; i < variableDefs.length; i++) {
         const { key } = variableDefs[i];
         const serverLayer = SERVER_LAYER_MAP[key] || key;
-        if (key === "transp_x") {
-          // Only fetch both transp_x and transp_y ONCE
-          transpX = await fetchLayerTimeseries("transp_x", data, serverLayer);
-          transpY = await fetchLayerTimeseries("transp_y", data, transpYLayer);
-          out["transp_x"] = transpX;
-          out["transp_y"] = transpY;
-        } else if (key === "transp_y") {
-          continue;
-        } else {
-          out[key] = await fetchLayerTimeseries(key, data, serverLayer);
-        }
+        out[key] = await fetchLayerTimeseries(key, data, serverLayer);
       }
       if (!isMounted) return;
       setPerVariableData(out);

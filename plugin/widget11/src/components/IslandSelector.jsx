@@ -1,70 +1,42 @@
 /**
- * World-Class Island Selector Component
+ * Island Selector Component
  * 
- * Provides sophisticated island selection and comparison UI
+ * Provides island selection UI
  */
 
 import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
-import { Dropdown, Button, Badge, ListGroup, Card } from 'react-bootstrap';
+import { Dropdown, Badge, Card } from 'react-bootstrap';
 import multiIslandManager from '../services/MultiIslandManager';
 import logger from '../utils/logger';
 import './IslandSelector.css';
 
-const IslandSelector = ({ onIslandChange, onComparisonChange, currentIsland }) => {
+const IslandSelector = ({
+  onIslandChange,
+  currentIsland,
+  islandManager = multiIslandManager // Dependency injection with default
+}) => {
   const [islands, setIslands] = useState([]);
   const [selectedIsland, setSelectedIsland] = useState(null);
-  const [comparisonMode, setComparisonMode] = useState(false);
-  const [comparisonIslands, setComparisonIslands] = useState([]);
   const [showProfiles, setShowProfiles] = useState(false);
 
   useEffect(() => {
-    const allIslands = multiIslandManager.getAllIslands();
+    const allIslands = islandManager.getAllIslands();
     setIslands(allIslands);
     
     if (currentIsland) {
-      const island = multiIslandManager.getIslandByName(currentIsland);
+      const island = islandManager.getIslandByName(currentIsland);
       setSelectedIsland(island);
     }
-  }, [currentIsland]);
+  }, [currentIsland, islandManager]);
 
   const handleIslandSelect = (island) => {
-    multiIslandManager.setCurrentIsland(island.name);
+    islandManager.setCurrentIsland(island.name);
     setSelectedIsland(island);
     logger.island(island.name, 'Selected');
     
     if (onIslandChange) {
       onIslandChange(island);
-    }
-  };
-
-  const handleToggleComparison = () => {
-    const newMode = multiIslandManager.toggleComparisonMode();
-    setComparisonMode(newMode);
-    
-    if (!newMode) {
-      multiIslandManager.clearComparison();
-      setComparisonIslands([]);
-    }
-  };
-
-  const handleAddToComparison = (island) => {
-    if (multiIslandManager.addToComparison(island.name)) {
-      setComparisonIslands([...multiIslandManager.getComparisonIslands()]);
-      
-      if (onComparisonChange) {
-        onComparisonChange(multiIslandManager.getComparisonIslands());
-      }
-    }
-  };
-
-  const handleRemoveFromComparison = (island) => {
-    if (multiIslandManager.removeFromComparison(island.name)) {
-      setComparisonIslands([...multiIslandManager.getComparisonIslands()]);
-      
-      if (onComparisonChange) {
-        onComparisonChange(multiIslandManager.getComparisonIslands());
-      }
     }
   };
 
@@ -119,72 +91,11 @@ const IslandSelector = ({ onIslandChange, onComparisonChange, currentIsland }) =
           <Dropdown.Item onClick={() => setShowProfiles(!showProfiles)}>
             📊 {showProfiles ? 'Hide' : 'Show'} Island Profiles
           </Dropdown.Item>
-        </Dropdown.Menu>
-      </Dropdown>
+      </Dropdown.Menu>
+    </Dropdown>
 
-      {/* Comparison Mode Toggle */}
-      <Button
-        variant={comparisonMode ? 'success' : 'outline-secondary'}
-        size="sm"
-        className="ms-2"
-        onClick={handleToggleComparison}
-      >
-        {comparisonMode ? '✓ Comparison ON' : 'Compare Islands'}
-      </Button>
-
-      {/* Comparison Selection */}
-      {comparisonMode && (
-        <div className="comparison-panel mt-3">
-          <Card>
-            <Card.Header>
-              <strong>Island Comparison</strong>
-              <Badge bg="info" className="ms-2">{comparisonIslands.length} selected</Badge>
-            </Card.Header>
-            <Card.Body>
-              <ListGroup variant="flush">
-                {comparisonIslands.map((island) => (
-                  <ListGroup.Item 
-                    key={island.name}
-                    className="d-flex justify-content-between align-items-center"
-                  >
-                    <span>{island.name}</span>
-                    <Button
-                      variant="outline-danger"
-                      size="sm"
-                      onClick={() => handleRemoveFromComparison(island)}
-                    >
-                      Remove
-                    </Button>
-                  </ListGroup.Item>
-                ))}
-              </ListGroup>
-
-              {comparisonIslands.length < islands.length && (
-                <>
-                  <Dropdown.Divider />
-                  <Dropdown className="mt-2">
-                    <Dropdown.Toggle variant="outline-primary" size="sm">
-                      + Add Island to Compare
-                    </Dropdown.Toggle>
-                    <Dropdown.Menu>
-                      {islands
-                        .filter(i => !comparisonIslands.find(ci => ci.name === i.name))
-                        .map((island) => (
-                          <Dropdown.Item
-                            key={island.name}
-                            onClick={() => handleAddToComparison(island)}
-                          >
-                            {island.name}
-                          </Dropdown.Item>
-                        ))}
-                    </Dropdown.Menu>
-                  </Dropdown>
-                </>
-              )}
-            </Card.Body>
-          </Card>
-        </div>
-      )}
+    
+  
 
       {/* Island Profiles */}
       {showProfiles && selectedIsland && (
@@ -210,8 +121,12 @@ const IslandSelector = ({ onIslandChange, onComparisonChange, currentIsland }) =
 
 IslandSelector.propTypes = {
   onIslandChange: PropTypes.func,
-  onComparisonChange: PropTypes.func,
-  currentIsland: PropTypes.string
+  currentIsland: PropTypes.string,
+  islandManager: PropTypes.shape({
+    getAllIslands: PropTypes.func,
+    getIslandByName: PropTypes.func,
+    setCurrentIsland: PropTypes.func
+  })
 };
 
 export default IslandSelector;

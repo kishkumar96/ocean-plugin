@@ -4,21 +4,7 @@ import WMSTileLoadingService from '../services/WMSTileLoadingService.js';
 import createCORSWMSLayer from '../utils/CORSWMSLayer.js';
 
 /**
- * Adds a    const handleTileError = (event) => {
-        const tile = event.tile;
-        consecutiveErrors++;
-        
-        // Store original WMS URL before Leaflet replaces it with a data URL
-        // Get the URL from the tile element's dataset or reconstruct from WMS layer
-        if (!tile._originalWMSUrl) {
-            if (tile.src && !tile.src.startsWith('data:')) {
-                tile._originalWMSUrl = tile.src;
-            } else {
-                // Reconstruct the base WMS URL from the layer parameters
-                const baseUrl = url + '?' + new URLSearchParams(finalOptions).toString();
-                tile._originalWMSUrl = baseUrl;
-            }
-        }e layer to a Leaflet map.
+    // Handle tuvalu_inundation layer configuration
  *
  * @param {L.Map} map - The Leaflet map instance to which the WMS layer will be added.
  * @param {string} url - The URL of the WMS service.

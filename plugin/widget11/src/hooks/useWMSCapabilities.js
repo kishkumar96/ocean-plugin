@@ -36,7 +36,6 @@ export const useWMSCapabilities = (selectedLayer, allLayers) => {
         }
         
         console.log(`🔍 Fetching capabilities for layer: ${selectedLayer}`);
-        console.log(`🔍 Layer config:`, selectedLayerConfig);
         
         // Skip capabilities fetch for static layers
         if (selectedLayerConfig?.isStatic) {
@@ -80,26 +79,51 @@ export const useWMSCapabilities = (selectedLayer, allLayers) => {
           throw new Error(`WMS URL not defined for layer: ${selectedLayer}`);
         }
         
-        let urlForCaps = capsLayer.wmsUrl;
-        const isThreddsServer = urlForCaps.includes('thredds');
+        const isThreddsServer = capsLayer.wmsUrl.includes('thredds');
+        const buildCapabilitiesUrl = (baseUrl) => {
+          if (!baseUrl) return baseUrl;
+          let normalizedUrl = baseUrl;
+          
+          if (!normalizedUrl.toLowerCase().includes('request=getcapabilities')) {
+            normalizedUrl += (normalizedUrl.includes('?') ? '&' : '?') + 'SERVICE=WMS&REQUEST=GetCapabilities&VERSION=1.3.0';
+          }
+          return normalizedUrl;
+        };
         
-        if (!urlForCaps.toLowerCase().includes("request=getcapabilities")) {
-          urlForCaps += (urlForCaps.includes("?") ? "&" : "?") + "SERVICE=WMS&REQUEST=GetCapabilities&VERSION=1.3.0";
+        // BYPASS PROXY: Always use direct THREDDS URL
+        const directCapabilitiesUrl = buildCapabilitiesUrl(capsLayer.wmsUrl);
+        const urlCandidates = [directCapabilitiesUrl];
+        console.log(`📋 Using direct THREDDS capabilities URL (proxy bypassed):`, directCapabilitiesUrl);
+        
+        let xml = null;
+        let lastFetchError = null;
+        
+        for (const candidateUrl of urlCandidates.filter(Boolean)) {
+          try {
+            if (isThreddsServer) {
+              console.log(`🌐 Fetching THREDDS capabilities from: ${candidateUrl}`);
+            } else {
+              console.log(`🌐 Fetching capabilities from: ${candidateUrl}`);
+            }
+            
+            const res = await fetch(candidateUrl, { mode: 'cors' });
+            if (!res.ok) {
+              throw new Error(`Failed to fetch capabilities: ${res.status} ${res.statusText}`);
+            }
+            
+            xml = await res.text();
+            console.log(`✅ Successfully fetched capabilities from: ${candidateUrl}`);
+            break; // Success
+          } catch (error) {
+            console.error(`⚠️ Capabilities request failed for ${candidateUrl}: ${error.message}`);
+            lastFetchError = error;
+          }
         }
         
-        // THREDDS servers may need different handling
-        if (isThreddsServer) {
-          console.log(`🌐 Using THREDDS server for capabilities: ${urlForCaps}`);
+        if (!xml) {
+          throw lastFetchError || new Error('Failed to fetch WMS capabilities from THREDDS server.');
         }
         
-        console.log(`🌐 Fetching capabilities from: ${urlForCaps}`);
-        
-        const res = await fetch(urlForCaps);
-        if (!res.ok) {
-          throw new Error(`Failed to fetch capabilities: ${res.status} ${res.statusText}`);
-        }
-        
-        const xml = await res.text();
         console.log(`📄 Capabilities XML length: ${xml.length} characters`);
         
         const timeDim = parseTimeDimensionFromCapabilities(xml, capsLayer.value);
@@ -138,11 +162,7 @@ export const useWMSCapabilities = (selectedLayer, allLayers) => {
           console.log(`📅 Last timestamp: ${availableTimestamps[availableTimestamps.length - 1]?.toISOString()}`);
         }
         
-        console.log(`⏰ Time Range Parsed:`);
-        console.log(`   Original Start (Model Run): ${originalStart?.toISOString()}`);
-        console.log(`   Adjusted Start (After Skips): ${start?.toISOString()}`);
-        console.log(`   End: ${end?.toISOString()}`);
-        console.log(`   Total Steps: ${newTotalSteps}`);
+        console.log(`⏰ Time Range: ${start?.toISOString()} to ${end?.toISOString()}, Total Steps: ${newTotalSteps}`);
         
         setCapTime({
           loading: false,
@@ -161,6 +181,17 @@ export const useWMSCapabilities = (selectedLayer, allLayers) => {
 
     if (selectedLayer) {
       fetchCapabilities();
+    } else {
+      // Reset capTime when no layer is selected
+      setCapTime({
+        loading: false,
+        start: new Date(),
+        end: new Date(),
+        stepHours: 1,
+        totalSteps: 0,
+        availableTimestamps: [],
+        originalStart: new Date()
+      });
     }
   }, [selectedLayer, allLayers]);
 
@@ -265,9 +296,11 @@ const getTimeRangeFromDimension = (timeDimString) => {
   const ENABLE_WARMUP_SKIP = MARINE_CONFIG.ENABLE_WARMUP_SKIP;
   
   try {
+    const normalizedString = timeDimString.replace(/\s+/g, ' ').trim();
+
     // Handle comma-separated individual timestamps
-    if (timeDimString.includes(',')) {
-      const timestamps = timeDimString.split(',').map(t => t.trim()).filter(Boolean);
+    if (normalizedString.includes(',')) {
+      const timestamps = normalizedString.split(',').map(t => t.trim()).filter(Boolean);
       const validTimestamps = timestamps
         .map(t => new Date(t))
         .filter(d => !isNaN(d.getTime()))
@@ -336,8 +369,8 @@ const getTimeRangeFromDimension = (timeDimString) => {
     }
     
     // Handle range format (start/end/step)
-    if (timeDimString.includes('/')) {
-      const parts = timeDimString.split('/');
+    if (normalizedString.includes('/')) {
+      const parts = normalizedString.split('/').map(part => part.trim());
       if (parts.length >= 2) {
         const originalStart = new Date(parts[0]);
         const end = new Date(parts[1]);
@@ -409,11 +442,12 @@ const getTimeRangeFromDimension = (timeDimString) => {
 
 const getStepHours = (stepString) => {
   if (!stepString) return 6; // Default to 6 hours since data is available every 6 hours
+  const cleaned = stepString.trim();
   
   try {
     // Parse ISO 8601 duration (e.g., PT1H, PT3H, PT6H)
-    if (stepString.startsWith('PT') && stepString.endsWith('H')) {
-      const hours = parseInt(stepString.slice(2, -1));
+    if (cleaned.startsWith('PT') && cleaned.endsWith('H')) {
+      const hours = parseInt(cleaned.slice(2, -1), 10);
       return isNaN(hours) ? 6 : hours;
     }
     

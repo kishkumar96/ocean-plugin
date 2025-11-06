@@ -84,21 +84,14 @@ function parseLabelConfig(label) {
   return { ...config, cleanLabel };
 }
 
-// Variables & labels with config strings for Tuvalu
+// Variables & labels with config strings for Tuvalu (all 6 available variables)
 const variableDefs = [
   { key: "hs", label: "Wave Height{0-5/Bu/1}" },
   { key: "tpeak", label: "Peak Period{0-20/Rd/0}" },
-  { key: "tm02", label: "Mean Period{0-20/Rd/0}" },
+  { key: "tm02", label: "Mean Period{0-20/YlGnBu/0}" },
   { key: "dirm", label: "Wave Direction{0/dir}" },
-  { key: "hs_p1", label: "Wind Wave(m){0-5/Bu/1}" },
-  { key: "tp_p1", label: "Wind Wave Period{0-25/Rd/0}" },
-  { key: "dirp_p1", label: "Wind Wave Dir{0/dir}" },
-  { key: "hs_p2", label: "Swell(m){0-5/Bu/1}" },
-  { key: "tp_p2", label: "Swell Period{0-25/Rd/0}" },
-  { key: "dirp_p2", label: "Swell Dir{0/dir}" },
-  { key: "hs_p3", label: "2nd Swell(m){0-5/Bu/1}" },
-  { key: "tp_p3", label: "2nd Swell Period{0-25/Rd/0}" },
-  { key: "dirp_p3", label: "2nd Swell Dir{0/dir}" }
+  { key: "wind", label: "Wind Speed{0-25/jet/1}" },
+  { key: "dirwind", label: "Wind Direction{0/dir}" }
 ];
 
 function extractCoverageTimeseries(json, variable) {

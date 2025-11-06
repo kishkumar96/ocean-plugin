@@ -20,6 +20,14 @@ export const TimeControl = ({
   const timeConfig = getControlConfig('timeSlider');
   const playConfig = getControlConfig('playButton');
 
+  // Debug slider values
+  console.log(`🎚️ TimeControl Render - Slider values:`, {
+    sliderIndex,
+    minIndex,
+    totalSteps,
+    calculatedPosition: totalSteps > 0 ? ((sliderIndex - minIndex) / (totalSteps - minIndex) * 100).toFixed(1) + '%' : '0%'
+  });
+
   const forecastInfo = [
     {
       content: (

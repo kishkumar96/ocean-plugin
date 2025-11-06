@@ -5,7 +5,7 @@
  * to maintain uniformity across widgets.
  */
 
-import React from 'react';
+import React, { useId } from 'react';
 
 /**
  * Control Group Container with consistent header styling
@@ -72,44 +72,52 @@ export const TimeControl = ({
   playIcon = '▶️',
   pauseIcon = '⏸️',
   minIndex = 0
-}) => (
-  <div className="time-control">
-    <div className="forecast-info">
-      <div>Forecast Hour: <span>+{sliderIndex * stepHours}h</span></div>
-      <div>Valid DateTime: <span>{formatDateTime(currentSliderDate)}</span></div>
-    </div>
-    
-    <div className="time-slider-container">
-      <input
-        title="Forecast Time"
-        aria-label="Forecast Time"
-        type="range"
-        className="time-slider"
-        min={minIndex}
-        max={totalSteps}
-        value={sliderIndex}
-        onChange={(e) => onSliderChange(e.target.value)}
-        disabled={capTime.loading}
-      />
+}) => {
+  const sliderId = useId();
+
+  return (
+    <div className="time-control">
+      <div className="forecast-info">
+        <div>Forecast Hour: <span>+{sliderIndex * stepHours}h</span></div>
+        <div>Valid DateTime: <span>{formatDateTime(currentSliderDate)}</span></div>
+      </div>
       
-      <div className="playback-controls">
-        <button 
-          type="button"
-          className="play-btn"
-          onClick={onPlayToggle}
+      <div className="time-slider-container">
+        <label htmlFor={sliderId} className="sr-only">
+          Forecast Time
+        </label>
+        <input
+          id={sliderId}
+          title="Forecast Time"
+          aria-label="Forecast Time"
+          type="range"
+          className="time-slider"
+          min={minIndex}
+          max={totalSteps}
+          value={sliderIndex}
+          onChange={(e) => onSliderChange(e.target.value)}
           disabled={capTime.loading}
-          aria-label={isPlaying ? 'Pause forecast animation' : 'Play forecast animation'}
-        >
-          <span>{isPlaying ? <>{pauseIcon} Pause</> : <>{playIcon} Play</>}</span>
-        </button>
+        />
+        
+        <div className="playback-controls">
+          <button 
+            type="button"
+            className="play-btn"
+            onClick={onPlayToggle}
+            disabled={capTime.loading}
+            aria-label={isPlaying ? 'Pause forecast animation' : 'Play forecast animation'}
+          >
+            <span>{isPlaying ? <>{pauseIcon} Pause</> : <>{playIcon} Play</>}</span>
+          </button>
+        </div>
+      </div>
+      
+      <div className="forecast-info">
+        <div>Forecast Length: <strong>{totalSteps + 1} hours</strong></div>
       </div>
     </div>
-    
-    <div className="forecast-info">
-      <div>Forecast Length: <strong>{totalSteps + 1} hours</strong></div>
-    </div>
-  </div>
-);
+  );
+};
 
 /**
  * Opacity Control
@@ -119,23 +127,28 @@ export const OpacityControl = ({
   onOpacityChange,
   formatPercent,
   ariaLabel = "overlay-opacity"
-}) => (
-  <div className="opacity-control">
-    <label>
-      Overlay Opacity: <span>{formatPercent(opacity)}</span>
-    </label>
-    <input
-      aria-label={ariaLabel}
-      title={ariaLabel}
-      type="range"
-      className="opacity-slider"
-      min="0"
-      max="100"
-      value={Math.round(opacity * 100)}
-      onChange={(e) => onOpacityChange(e.target.value / 100)}
-    />
-  </div>
-);
+}) => {
+  const sliderId = useId();
+
+  return (
+    <div className="opacity-control">
+      <label htmlFor={sliderId}>
+        Overlay Opacity: <span>{formatPercent(opacity)}</span>
+      </label>
+      <input
+        id={sliderId}
+        aria-label={ariaLabel}
+        title={ariaLabel}
+        type="range"
+        className="opacity-slider"
+        min="0"
+        max="100"
+        value={Math.round(opacity * 100)}
+        onChange={(e) => onOpacityChange(e.target.value / 100)}
+      />
+    </div>
+  );
+};
 
 /**
  * Data Information Display

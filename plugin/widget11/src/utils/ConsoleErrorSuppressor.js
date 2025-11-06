@@ -16,7 +16,16 @@ class ConsoleErrorSuppressor {
       /net::ERR_HTTP2_PROTOCOL_ERROR.*gem-ncwms-hpc\.spc\.int/i,
       /net::ERR_HTTP2_PROTOCOL_ERROR/i,
       /Failed to load resource.*net::ERR_HTTP2_PROTOCOL_ERROR/i,
-      /\[INUNDATION\] No inundation data available for display/i
+      /\[INUNDATION\] No inundation data available for display/i,
+      /\[ISLAND_STATS\] No valid values found for (Dir|Tm|Hs) in bounding box/i,
+      /\[ISLAND_STATS\] No wave statistics available for/i,
+      /InundationPoints: Map not ready yet/i,
+      /InundationPoints: Map not initialized in service yet/i,
+      /InundationPoints: Map exists but not loaded yet/i,
+      // WMS GetMap/GetFeatureInfo 400 errors - these are expected for out-of-bounds requests
+      /P2_Nanumanga\.nc.*GetMap.*400.*Bad Request/i,
+      /P2_Nanumanga\.nc.*GetFeatureInfo.*400.*Bad Request/i,
+      /thredds\/wms.*P2_Nanumanga.*400/i
     ];
     
     // Track error frequencies to avoid spam

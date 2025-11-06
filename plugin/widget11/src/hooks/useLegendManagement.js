@@ -24,11 +24,23 @@ export const useLegendManagement = ({
       
       for (const layer of layers) {
         if (layer?.value === selectedWaveForecast) {
-          return layer;
+          if (layer.legendUrl) {
+            return layer;
+          }
+
+          if (layer?.composite && Array.isArray(layer.layers)) {
+            const childWithLegend = layer.layers.find(subLayer => subLayer?.legendUrl);
+            if (childWithLegend) {
+              return childWithLegend;
+            }
+          }
         }
+
         if (layer?.composite && Array.isArray(layer.layers)) {
-          const match = layer.layers.find(subLayer => subLayer?.value === selectedWaveForecast);
-          if (match) return match;
+          const nested = findLayerConfig(layer.layers);
+          if (nested) {
+            return nested;
+          }
         }
       }
       return null;

@@ -41,6 +41,8 @@
 .left-panel {
   grid-area: left-panel;
   background: linear-gradient(135deg, #0a2463 0%, #1e3a5f 40%, #2e5266 70%, #3e7b69 100%);
+  -webkit-backdrop-filter: blur(20px);
+
   backdrop-filter: blur(20px);
   border-right: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
@@ -139,6 +141,8 @@
   justify-content: center;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  -webkit-backdrop-filter: blur(10px);
+
   backdrop-filter: blur(10px);
 }
 
@@ -166,6 +170,8 @@
 .bottom-panel {
   grid-area: bottom-panel;
   background: rgba(10, 36, 99, 0.95);
+  -webkit-backdrop-filter: blur(20px);
+
   backdrop-filter: blur(20px);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
@@ -188,6 +194,9 @@
   align-items: center;
   justify-content: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
   user-select: none;
 }
 
@@ -294,6 +303,8 @@
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 16px;
+  -webkit-backdrop-filter: blur(10px);
+
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
