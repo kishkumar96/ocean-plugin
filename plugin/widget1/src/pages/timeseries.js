@@ -28,8 +28,6 @@ function extractCoverageTimeseries(json, variable) {
 
 function Timeseries({ perVariableData }) {
   const [plotData, setPlotData] = useState([]);
-  // eslint-disable-next-line no-unused-vars
-  const [labels, setLabels] = useState([]); // TODO: Use labels or remove
   const [error, setError] = useState("");
   const [parentHeight, setParentHeight] = useState(undefined);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -66,11 +64,11 @@ function Timeseries({ perVariableData }) {
     let isMounted = true;
     if (!perVariableData) {
       setPlotData([]);
-      setLabels([]);
       setError("No timeseries data available.");
       return;
     }
 
+    // Same variables as Widget 5
     const layers = [
       { key: "hs", label: "Significant Wave Height", colorIdx: 0, yaxis: 'y1', type: 'scatter', mode: 'lines+markers' },
       { key: "tpeak", label: "Peak Wave Period", colorIdx: 1, yaxis: 'y2', type: 'scatter', mode: 'lines+markers' },
@@ -102,7 +100,6 @@ function Timeseries({ perVariableData }) {
       }
     }
     if (!isMounted) return;
-    setLabels(newLabels);
     setPlotData(traces);
     if (traces.length === 0) setError("No timeseries data returned.");
     else setError("");
