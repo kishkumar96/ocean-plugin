@@ -99,7 +99,6 @@ function Timeseries({ perVariableData }) {
       { key: "tpeak", label: "Peak Wave Period", colorIdx: 1, yaxis: 'y2', type: 'scatter', mode: 'lines+markers' },
       { key: "dirp", label: "Mean Wave Direction", colorIdx: 2, yaxis: 'y3', type: 'scatter', mode: 'markers' },
     ];
-    let newLabels = [];
     const traces = [];
     for (let idx = 0; idx < layers.length; idx++) {
       const { key, label, colorIdx, yaxis, type, mode } = layers[idx];
@@ -116,14 +115,13 @@ function Timeseries({ perVariableData }) {
           const filteredTimes = validIndices.map(i => ts.times[i]);
           const filteredValues = validIndices.map(i => ts.values[i]);
           
-          if (newLabels.length === 0) {
-            newLabels = filteredTimes.map(v =>
-              typeof v === "string" && v.length > 15 ? v.substring(0, 16).replace("T", " ") : v
-            );
-          }
+          // Format times for this specific trace
+          const formattedLabels = filteredTimes.map(v =>
+            typeof v === "string" && v.length > 15 ? v.substring(0, 16).replace("T", " ") : v
+          );
           
           traces.push({
-            x: newLabels,
+            x: formattedLabels,
             y: filteredValues,
             name: label,
             type,
@@ -231,8 +229,6 @@ function Timeseries({ perVariableData }) {
       style={{ 
         width: "100%", 
         height: validHeight,
-        minHeight: validHeight,
-        maxHeight: validHeight,
         overflow: 'hidden',
         position: 'relative'
       }}
