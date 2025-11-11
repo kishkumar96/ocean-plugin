@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Plot from 'react-plotly.js';
 
 const fixedColors = [
@@ -29,8 +29,10 @@ function extractCoverageTimeseries(json, variable) {
 function Timeseries({ perVariableData }) {
   const [plotData, setPlotData] = useState([]);
   const [error, setError] = useState("");
-  const [parentHeight, setParentHeight] = useState(undefined);
+  const [parentHeight, setParentHeight] = useState(400);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const containerRef = useRef(null);
+  const parentHeightRef = useRef(400); // Track current height without causing re-renders
 
   // Check for dark mode
   useEffect(() => {
@@ -49,16 +51,39 @@ function Timeseries({ perVariableData }) {
   }, []);
 
   useEffect(() => {
-    const el = document.querySelector('.offcanvas-body');
-    if (el) {
-      setParentHeight(el.clientHeight - 36);
-    }
+    // Use container ref instead of searching DOM
+    const updateHeight = () => {
+      const el = containerRef.current?.parentElement;
+      if (el) {
+        const height = el.clientHeight - 36;
+        // Only update if height is valid and significantly different
+        // Use ref to avoid stale closure and dependency array issues
+        if (height > 0 && isFinite(height) && Math.abs(height - parentHeightRef.current) > 5) {
+          parentHeightRef.current = height;
+          setParentHeight(height);
+        }
+      }
+    };
+    
+    // Initial measurement
+    updateHeight();
+    
+    let resizeTimeout;
+    const el = containerRef.current?.parentElement;
     const observer = el
-      ? new ResizeObserver(() => setParentHeight(el.clientHeight - 36))
+      ? new ResizeObserver(() => {
+          // Debounce resize updates to prevent loop
+          clearTimeout(resizeTimeout);
+          resizeTimeout = setTimeout(updateHeight, 150);
+        })
       : null;
     if (observer && el) observer.observe(el);
-    return () => observer && observer.disconnect();
-  }, [perVariableData]);
+    return () => {
+      clearTimeout(resizeTimeout);
+      observer && observer.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency - only set up once to avoid resize loop
 
   useEffect(() => {
     let isMounted = true;
@@ -82,21 +107,32 @@ function Timeseries({ perVariableData }) {
       const tsJson = perVariableData[key];
       const ts = extractCoverageTimeseries(tsJson, key);
       if (ts && ts.times && ts.values) {
-        if (newLabels.length === 0) {
-          newLabels = ts.times.map(v =>
-            typeof v === "string" && v.length > 15 ? v.substring(0, 16).replace("T", " ") : v
-          );
+        // Filter out invalid values (null, undefined, NaN, Infinity)
+        const validIndices = ts.values
+          .map((v, i) => (v != null && isFinite(v) ? i : -1))
+          .filter(i => i !== -1);
+        
+        if (validIndices.length > 0) {
+          const filteredTimes = validIndices.map(i => ts.times[i]);
+          const filteredValues = validIndices.map(i => ts.values[i]);
+          
+          if (newLabels.length === 0) {
+            newLabels = filteredTimes.map(v =>
+              typeof v === "string" && v.length > 15 ? v.substring(0, 16).replace("T", " ") : v
+            );
+          }
+          
+          traces.push({
+            x: newLabels,
+            y: filteredValues,
+            name: label,
+            type,
+            mode,
+            marker: { color },
+            line: { color },
+            yaxis,
+          });
         }
-        traces.push({
-          x: newLabels,
-          y: ts.values,
-          name: label,
-          type,
-          mode,
-          marker: { color },
-          line: { color },
-          yaxis,
-        });
       }
     }
     if (!isMounted) return;
@@ -112,9 +148,14 @@ function Timeseries({ perVariableData }) {
   if (error) return <div style={{ color: "red" }}>{error}</div>;
   if (plotData.length === 0) return <div>No timeseries data.</div>;
 
+  // Ensure valid height to prevent Infinity errors in Plotly
+  const validHeight = parentHeight && isFinite(parentHeight) && parentHeight > 0 
+    ? parentHeight 
+    : 400;
+
   const layout = {
     autosize: true,
-    height: parentHeight || 400,
+    height: validHeight,
     margin: { t: 40, l: 60, r: 60, b: 60 },
     paper_bgcolor: isDarkMode ? '#2e2f33' : '#ffffff',
     plot_bgcolor: isDarkMode ? '#2e2f33' : '#ffffff',
@@ -150,28 +191,29 @@ function Timeseries({ perVariableData }) {
       title: { 
         text: 'Period (s)', 
         font: { color: isDarkMode ? '#f1f5f9' : '#1e293b' },
-        standoff: 30,
-        x: 1.15
+        standoff: 15
       },
       overlaying: 'y',
       side: 'right',
       showgrid: false,
       tickfont: { color: isDarkMode ? '#f1f5f9' : '#1e293b' },
-      zerolinecolor: isDarkMode ? '#44454a' : '#e2e8f0'
+      zerolinecolor: isDarkMode ? '#44454a' : '#e2e8f0',
+      anchor: 'free',
+      position: 0.95
     },
     yaxis3: {
       title: { 
         text: 'Direction (°)', 
         font: { color: isDarkMode ? '#f1f5f9' : '#1e293b' },
-        standoff: 10,
-        x: 1.25
+        standoff: 15
       },
       overlaying: 'y',
       side: 'right',
-      position: 1,
       showgrid: false,
       tickfont: { color: isDarkMode ? '#f1f5f9' : '#1e293b' },
-      zerolinecolor: isDarkMode ? '#44454a' : '#e2e8f0'
+      zerolinecolor: isDarkMode ? '#44454a' : '#e2e8f0',
+      anchor: 'free',
+      position: 1.0
     },
     showlegend: true,
   };
@@ -184,11 +226,21 @@ function Timeseries({ perVariableData }) {
   });
 
   return (
-    <div style={{ width: "100%", height: parentHeight ? `${parentHeight}px` : "100%" }}>
+    <div 
+      ref={containerRef}
+      style={{ 
+        width: "100%", 
+        height: validHeight,
+        minHeight: validHeight,
+        maxHeight: validHeight,
+        overflow: 'hidden',
+        position: 'relative'
+      }}
+    >
       <Plot
         data={plotData}
         layout={layout}
-        useResizeHandler={true}
+        useResizeHandler={false}
         style={{ width: '100%', height: '100%' }}
         config={{ responsive: true }}
       />
