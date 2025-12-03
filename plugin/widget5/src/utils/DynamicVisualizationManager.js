@@ -13,7 +13,7 @@ export class DynamicVisualizationManager {
     this.dataCache = new Map();
     this.styleManager = new WMSStyleManager();
     this.adaptiveRanges = {
-      'cook_forecast/hs': { min: 0, max: 4, unit: 'm' },
+      'cook_forecast/hs': { min: 0, max: 2, unit: 'm' },
       'cook_forecast/tm02': { min: 0, max: 20, unit: 's' },
       'cook_forecast/tpeak': { min: 0, max: 20, unit: 's' },
       'cook_forecast/dirm': { min: 0, max: 360, unit: '°' }
@@ -144,7 +144,7 @@ export class DynamicVisualizationManager {
    * Get default range for a layer when data fetching fails
    */
   getDefaultRange(layerName) {
-    return this.adaptiveRanges[layerName] || { min: 0, max: 4, unit: 'm' };
+    return this.adaptiveRanges[layerName] || { min: 0, max: 2, unit: 'm' };
   }
 
   /**
@@ -300,7 +300,7 @@ export class DynamicVisualizationManager {
    * Fallback WMS parameters when advanced analysis fails
    */
   getFallbackWMSParams(layerName) {
-    const defaultConfig = this.adaptiveRanges[layerName] || { min: 0, max: 4, unit: 'm' };
+    const defaultConfig = this.adaptiveRanges[layerName] || { min: 0, max: 2, unit: 'm' };
     
     return {
       style: 'default-scalar/psu-viridis',

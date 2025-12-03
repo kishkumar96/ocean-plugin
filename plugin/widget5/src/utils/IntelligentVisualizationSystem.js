@@ -91,7 +91,7 @@ export class IntelligentVisualizationSystem {
     const defaults = {
       'cook_forecast/hs': {
         colorScheme: { palette: 'psu-viridis', style: 'default-scalar/psu-viridis' },
-        adaptiveRanges: { min: 0, max: 4, unit: 'm' },
+        adaptiveRanges: { min: 0, max: 2, unit: 'm' },
         weatherPattern: { type: 'UNKNOWN', confidence: 0 },
         temporalContext: { trend: 'stable', variability: 'normal' }
       },

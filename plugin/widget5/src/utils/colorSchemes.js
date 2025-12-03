@@ -32,7 +32,7 @@ const lerpColor = (a, b, amount) => {
 };
 
 // Enhanced color functions for marine data visualization matching WMS map palettes
-export const jetColor = (value, min = 0, max = 4) => {
+export const jetColor = (value, min = 0, max = 2) => {
   let v = Math.max(min, Math.min(max, value));
   v = (v - min) / (max - min);
   let r = Math.floor(255 * Math.max(Math.min(1.5 - Math.abs(4 * v - 3), 1), 0));

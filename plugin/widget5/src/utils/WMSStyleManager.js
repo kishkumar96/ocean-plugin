@@ -139,7 +139,7 @@ export class WMSStyleManager {
    * @param {number} max - Maximum value
    * @returns {Object} Color scale configuration
    */
-  getContinuousColorScale(dataType, min = 0, max = 4) {
+  getContinuousColorScale(dataType, min = 0, max = 2) {
     const preset = this.getPresetForDataType(dataType);
     
     // For wave height, create optimal color breaks like QGIS

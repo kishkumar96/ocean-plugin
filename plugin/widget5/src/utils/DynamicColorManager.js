@@ -40,7 +40,7 @@ export class DynamicColorManager {
    */
   analyzeForecastRange(forecastData) {
     if (!forecastData || forecastData.length === 0) {
-      return { min: 0, max: 4, range: "0,4", adaptiveStyle: "viridis-default" };
+      return { min: 0, max: 2, range: "0,2", adaptiveStyle: "viridis-default" };
     }
 
     const values = forecastData.filter(v => v !== null && !isNaN(v));

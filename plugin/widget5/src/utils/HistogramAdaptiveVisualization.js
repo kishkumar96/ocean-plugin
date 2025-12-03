@@ -529,7 +529,7 @@ export class HistogramAdaptiveVisualization {
         palette: 'psu-viridis',
         numColorBands: 250
       },
-      adaptiveRanges: { min: 0, max: 4 }
+      adaptiveRanges: { min: 0, max: 2 }
     };
   }
 }

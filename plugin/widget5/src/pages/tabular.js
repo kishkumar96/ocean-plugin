@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 
 // Jet colormap: returns rgb string for value in [min, max]
-function jetColor(value, min = 0, max = 4) {
+function jetColor(value, min = 0, max = 2) {
   let v = Math.max(min, Math.min(max, value));
   v = (v - min) / (max - min);
   let r = Math.floor(255 * Math.max(Math.min(1.5 - Math.abs(4 * v - 3), 1), 0));
@@ -22,7 +22,7 @@ function redColor(value, min = 0, max = 20) {
   return `rgb(${r},${g},${b})`;
 }
 
-function blueColor(value, min = 0, max = 4) {
+function blueColor(value, min = 0, max = 2) {
   let v = Math.max(min, Math.min(max, value));
   v = (v - min) / (max - min);
   const start = { r: 232, g: 244, b: 255 };
