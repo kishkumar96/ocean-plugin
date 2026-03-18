@@ -7,6 +7,7 @@ import './utils/NotificationManager'; // Initialize notification system
 import { initConsoleErrorSuppressor } from './utils/ConsoleErrorSuppressor';
 import TokenError from './components/TokenError';
 import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
+import { PlatformPlaceholder } from 'ocean-widget-platform';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -14,6 +15,9 @@ function App() {
   const [errorType, setErrorType] = useState(null);
   const [widgetData, setWidgetData] = useState(null);
   const [validCountries, setValidCountries] = useState(['TUV']); // Tuvalu by default
+  const platformMessage = widgetData?.name
+    ? `${widgetData.name} authenticated for ${validCountries.join(', ')}`
+    : `Widget 5 authenticated for ${validCountries.join(', ')}`;
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -110,6 +114,9 @@ function App() {
         transition: 'background-color 0.3s ease'
       }}>
         <Header />
+        <div style={{ padding: '12px 16px', maxWidth: '1200px', margin: '0 auto' }}>
+          <PlatformPlaceholder widgetName="Widget 5" message={platformMessage} />
+        </div>
         <Routes>
           <Route path="/" element={<Home />} />
           {/* <Route path="/link1" element={<Link1 />} />
