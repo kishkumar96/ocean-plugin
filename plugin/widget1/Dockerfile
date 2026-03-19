@@ -2,11 +2,11 @@
 FROM node:18-alpine AS builder
 
 # Set working directory
-WORKDIR /app
+WORKDIR /app/widget1
 
 # Copy package files first (for better caching)
-COPY package*.json ./
-
+COPY widget1/package*.json ./
+COPY platform ../platform
 
 # Install all dependencies including devDependencies (craco is in devDependencies)
 RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
@@ -16,7 +16,7 @@ RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
   fi
 
 # Copy all source files
-COPY . .
+COPY widget1 .
 
 # Build the React application
 RUN npm run build
@@ -25,10 +25,10 @@ RUN npm run build
 FROM nginx:alpine
 
 # Copy built files from builder stage
-COPY --from=builder /app/build /usr/share/nginx/html
+COPY --from=builder /app/widget1/build /usr/share/nginx/html
 
 # Copy nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY widget1/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port 80
 EXPOSE 80
