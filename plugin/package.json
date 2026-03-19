@@ -1,10 +1,4 @@
 {
   "name": "ocean-plugin-workspace",
-  "private": true,
-  "workspaces": [
-    "platform",
-    "widget1",
-    "widget5",
-    "widget11"
-  ]
+  "private": true
 }

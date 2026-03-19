@@ -1,1 +1,1 @@
-export { PlatformPlaceholder } from './components/PlatformPlaceholder.js';
+export * from './src/index.js';
