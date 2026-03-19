@@ -7,6 +7,7 @@ import './utils/NotificationManager'; // Initialize notification system
 import { initConsoleErrorSuppressor } from './utils/ConsoleErrorSuppressor';
 import TokenError from './components/TokenError';
 import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
+import { PlatformPlaceholder } from 'ocean-widget-platform';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -110,6 +111,7 @@ function App() {
         transition: 'background-color 0.3s ease'
       }}>
         <Header />
+        <PlatformPlaceholder />
         <Routes>
           <Route path="/" element={<Home />} />
           {/* <Route path="/link1" element={<Link1 />} />
