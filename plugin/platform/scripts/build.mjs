@@ -26,6 +26,29 @@ if (exportedFunctions.length === 0) {
   throw new Error('No named exports found in PlatformPlaceholder.js');
 }
 
+
+const indexSource = await readFile(path.join(srcDir, 'index.js'), 'utf8');
+const indexNamedExports = new Set(
+  [...indexSource.matchAll(/export\s*\{\s*([^}]+)\}/g)]
+    .flatMap((match) =>
+      match[1]
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean)
+        .map((name) => {
+          const parts = name.split(/\s+as\s+/i);
+          return (parts[1] || parts[0]).trim();
+        })
+    )
+);
+
+const missingFromCjs = [...indexNamedExports].filter((name) => !exportedFunctions.includes(name));
+if (missingFromCjs.length > 0) {
+  throw new Error(
+    `CJS build is missing exports present in src/index.js: ${missingFromCjs.join(', ')}. ` +
+    'Update plugin/platform/scripts/build.mjs to include these exports in the CJS artifact.'
+  );
+}
 const cjsComponent = componentSource
   .replace(/^import\s+React\s+from\s+['\"]react['\"];?\s*$/m, "const React = require('react');")
   .replace(/export\s+function\s+(\w+)\s*\(/g, 'function $1(')

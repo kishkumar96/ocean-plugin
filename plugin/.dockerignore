@@ -1,7 +1,8 @@
 **/node_modules
 **/build
 **/dist
-!platform/dist
+!platform/dist/
+!platform/dist/**
 **/.cache
 **/.DS_Store
 **/npm-debug.log*
