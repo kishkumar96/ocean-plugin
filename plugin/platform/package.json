@@ -3,15 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./dist/ocean-widget-platform.cjs",
-  "module": "./dist/ocean-widget-platform.js",
+  "module": "./src/index.js",
   "exports": {
-    ".": {
-      "import": "./dist/ocean-widget-platform.js",
-      "require": "./dist/ocean-widget-platform.cjs"
-    }
+    ".": "./src/index.js"
   },
   "files": [
+    "src",
     "dist"
   ],
   "scripts": {
