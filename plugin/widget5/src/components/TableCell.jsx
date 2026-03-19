@@ -2,7 +2,7 @@
  * Enhanced Table Cell Component with Accessibility and Performance Optimizations
  */
 import React, { useMemo } from 'react';
-import ArrowSVG from './ArrowSVG.jsx';
+import { ArrowSVG } from 'ocean-widget-platform';
 import { getColorFunction, isColorDark } from '../utils/colorSchemes.js';
 import { formatSmart } from '../utils/marineDataUtils.js';
 

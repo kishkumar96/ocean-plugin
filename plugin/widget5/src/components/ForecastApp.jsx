@@ -5,7 +5,7 @@ import useMapInteraction from '../hooks/useMapInteraction';
 import { UI_CONFIG } from '../config/UIConfig';
 import { MARINE_CONFIG } from '../config/marineVariables';
 import { getLayerBounds } from '../config/layerConfig';
-import CompassRose from './CompassRose';
+import { CompassRose } from 'ocean-widget-platform';
 import { 
   ControlGroup, 
   VariableButtons, 
