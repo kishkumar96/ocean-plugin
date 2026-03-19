@@ -1,9 +1,20 @@
 const React = require('react');
+let spinnerStylesInjected = false;
+
+function ensureSpinnerStyles() {
+  if (spinnerStylesInjected || typeof document === 'undefined') return;
+  const styleTag = document.createElement('style');
+  styleTag.setAttribute('data-owp-spinner', 'true');
+  styleTag.textContent = '@keyframes owp-spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }';
+  document.head.appendChild(styleTag);
+  spinnerStylesInjected = true;
+}
+
 function PlatformPlaceholder({ label = 'Ocean Widget Platform Ready' }) {
   return React.createElement('div', { 'data-testid': 'platform-placeholder', style: { display: 'none' } }, label);
 }
 
-function ArrowSVG({ angle, isDarkMode, size = 22, compassDirection = '', ariaLabel }) {
+function ArrowSVGBase({ angle, isDarkMode, size = 22, compassDirection = '', ariaLabel }) {
   const fillColor = isDarkMode ? '#f1f5f9' : '#000';
   const strokeColor = isDarkMode ? '#64748b' : '#666';
 
@@ -24,6 +35,12 @@ function ArrowSVG({ angle, isDarkMode, size = 22, compassDirection = '', ariaLab
       strokeWidth: '1'
     })
   );
+}
+
+const MemoizedArrowSVG = React.memo(ArrowSVGBase);
+
+function ArrowSVG(props) {
+  return React.createElement(MemoizedArrowSVG, props);
 }
 
 function CompassRose({ position = 'bottom-left', size = 100, mapRotation = 0, responsive = true }) {
@@ -66,7 +83,14 @@ function CompassRose({ position = 'bottom-left', size = 100, mapRotation = 0, re
   );
 }
 
-function ModernHeader() {
+function getDefaultLogoSrc() {
+  if (typeof process !== 'undefined' && process.env && typeof process.env.PUBLIC_URL === 'string') {
+    return `${process.env.PUBLIC_URL}/COSPPaC_white_crop2.png`;
+  }
+  return '/COSPPaC_white_crop2.png';
+}
+
+function ModernHeader({ logoSrc = getDefaultLogoSrc() }) {
   const [currentTime, setCurrentTime] = React.useState(new Date());
   React.useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -79,11 +103,11 @@ function ModernHeader() {
     React.createElement(
       'div',
       { style: { display: 'flex', alignItems: 'center', gap: '15px' } },
-      React.createElement('img', { src: process.env.PUBLIC_URL + '/COSPPaC_white_crop2.png', alt: 'COSPPaC Logo', height: '35', style: { filter: 'brightness(0) saturate(100%) invert(100%)' } }),
+      React.createElement('img', { src: logoSrc, alt: 'COSPPaC Logo', height: '35', style: { filter: 'brightness(0) saturate(100%) invert(100%)' } }),
       React.createElement(
         'div',
         null,
-        React.createElement('h1', { style: { margin: 0, color: '#00d4ff', fontSize: '1.5rem', fontWeight: '700' } }, 'Cook Islands Wave and Innundation Forecast System'),
+        React.createElement('h1', { style: { margin: 0, color: '#00d4ff', fontSize: '1.5rem', fontWeight: '700' } }, 'Cook Islands Wave and Inundation Forecast System'),
         React.createElement('p', { style: { margin: 0, color: 'rgba(255,255,255,0.8)', fontSize: '0.9rem', fontWeight: '300' } }, 'Marine Forecasting • Pacific Community (SPC) Data')
       )
     ),
@@ -92,12 +116,15 @@ function ModernHeader() {
 }
 
 function LoadingSpinner({ size = 28, color = '#3b82f6', label = 'Loading...' }) {
+  React.useEffect(() => {
+    ensureSpinnerStyles();
+  }, []);
+
   return React.createElement(
     'div',
     { style: { display: 'inline-flex', alignItems: 'center', gap: '10px' } },
     React.createElement('span', { style: { width: `${size}px`, height: `${size}px`, borderRadius: '50%', border: '3px solid rgba(148,163,184,0.35)', borderTopColor: color, animation: 'owp-spin 0.8s linear infinite', display: 'inline-block' } }),
-    React.createElement('span', null, label),
-    React.createElement('style', null, '@keyframes owp-spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }')
+    React.createElement('span', null, label)
   );
 }
 
@@ -120,8 +147,17 @@ function PanelContainer({ title, children, footer, className = '', style = {} })
   );
 }
 
-function ProfessionalLegend({ range = '0,4', className = '', style = {} }) {
-  const url = `https://ocean-plotter.spc.int/legend?layer=wave_height&range=${range}&palette=viridis`;
+const DEFAULT_RANGE = '0,4';
+
+function sanitizeRange(range) {
+  const value = typeof range === 'string' ? range : String(range);
+  const rangePattern = /^[+-]?\d+(\.\d+)?,[+-]?\d+(\.\d+)?$/;
+  return rangePattern.test(value) ? value : DEFAULT_RANGE;
+}
+
+function ProfessionalLegend({ range = DEFAULT_RANGE, className = '', style = {} }) {
+  const safeRange = sanitizeRange(range);
+  const url = `https://ocean-plotter.spc.int/legend?layer=wave_height&range=${encodeURIComponent(safeRange)}&palette=viridis`;
   return React.createElement('div', { className, style: { position: 'relative', borderRadius: '6px', overflow: 'hidden', background: '#fff', border: '1px solid #e2e8f0', ...style } },
     React.createElement('img', { src: url, alt: 'Legend for wave height', style: { maxWidth: '100%', height: 'auto' } })
   );
