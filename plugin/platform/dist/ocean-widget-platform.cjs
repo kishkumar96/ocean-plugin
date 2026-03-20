@@ -1,13 +1,64 @@
 const React = require('react');
 let spinnerStylesInjected = false;
+let compassRoseStylesInjected = false;
 
 function ensureSpinnerStyles() {
-  if (spinnerStylesInjected || typeof document === 'undefined') return;
+  if (typeof document === 'undefined') return;
+  const existingTag = document.head && document.head.querySelector('style[data-owp-spinner="true"]');
+  if (existingTag) {
+    spinnerStylesInjected = true;
+    return;
+  }
+  if (spinnerStylesInjected) return;
   const styleTag = document.createElement('style');
   styleTag.setAttribute('data-owp-spinner', 'true');
   styleTag.textContent = '@keyframes owp-spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }';
   document.head.appendChild(styleTag);
   spinnerStylesInjected = true;
+}
+
+function ensureCompassRoseStyles() {
+  if (typeof document === 'undefined') return;
+  const existingTag = document.head && document.head.querySelector('style[data-owp-compass-rose="true"]');
+  if (existingTag) {
+    compassRoseStylesInjected = true;
+    return;
+  }
+  if (compassRoseStylesInjected) return;
+  const styleTag = document.createElement('style');
+  styleTag.setAttribute('data-owp-compass-rose', 'true');
+  styleTag.textContent = `
+    .owp-compass-rose-container {
+      animation: owp-compass-fade-in 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+      user-select: none;
+      -webkit-user-select: none;
+      -ms-user-select: none;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .owp-compass-rose-svg {
+      transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), filter 0.2s ease-out;
+      backdrop-filter: blur(1px);
+      -webkit-backdrop-filter: blur(1px);
+      pointer-events: none;
+    }
+    .owp-compass-rose-container:hover .owp-compass-rose-svg {
+      filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.4));
+      transform: scale(1.03);
+    }
+    @keyframes owp-compass-fade-in {
+      from { opacity: 0; transform: scale(0.9) translateY(8px); }
+      to { opacity: 0.94; transform: scale(1) translateY(0); }
+    }
+    @media (max-width: 768px) {
+      .owp-compass-rose-container { transform: scale(0.85); transform-origin: bottom left; }
+    }
+    @media (max-width: 480px) {
+      .owp-compass-rose-container { transform: scale(0.75); transform-origin: bottom left; opacity: 0.88; }
+    }
+  `;
+  document.head.appendChild(styleTag);
+  compassRoseStylesInjected = true;
 }
 
 function PlatformPlaceholder({ label = 'Ocean Widget Platform Ready' }) {
@@ -47,6 +98,10 @@ function CompassRose({ position = 'bottom-left', size = 100, mapRotation = 0, re
   const [currentPosition, setCurrentPosition] = React.useState(position);
 
   React.useEffect(() => {
+    ensureCompassRoseStyles();
+  }, []);
+
+  React.useEffect(() => {
     if (!responsive || typeof window === 'undefined') return undefined;
     const handleResize = () => {
       const isMobile = window.innerWidth < 768;
@@ -68,10 +123,10 @@ function CompassRose({ position = 'bottom-left', size = 100, mapRotation = 0, re
 
   return React.createElement(
     'div',
-    { style: { position: 'absolute', zIndex: 1000, pointerEvents: 'none', opacity: 0.94, ...positionStyles[currentPosition], width: `${size}px`, height: `${size}px` } },
+    { className: 'owp-compass-rose-container', style: { position: 'absolute', zIndex: 1000, pointerEvents: 'none', opacity: 0.94, ...positionStyles[currentPosition], width: `${size}px`, height: `${size}px` } },
     React.createElement(
       'svg',
-      { width: size, height: size, viewBox: '0 0 120 120', style: { transform: mapRotation ? `rotate(${-mapRotation}deg)` : 'none', filter: 'drop-shadow(0 6px 12px rgba(0,0,0,0.35))' } },
+      { className: 'owp-compass-rose-svg', width: size, height: size, viewBox: '0 0 120 120', style: { transform: mapRotation ? `rotate(${-mapRotation}deg)` : 'none', filter: 'drop-shadow(0 6px 12px rgba(0,0,0,0.35))' } },
       React.createElement('circle', { cx: '60', cy: '60', r: '55', fill: 'rgba(15,23,42,0.95)', stroke: 'rgba(148,163,184,0.4)', strokeWidth: '1.5' }),
       React.createElement('path', { d: 'M 60,12 L 65,45 L 60,40 L 55,45 Z', fill: '#22d3ee', stroke: '#0e7490', strokeWidth: '1.2' }),
       React.createElement('path', { d: 'M 108,60 L 75,65 L 80,60 L 75,55 Z', fill: '#94a3b8', stroke: '#475569', strokeWidth: '0.8' }),
@@ -90,7 +145,13 @@ function getDefaultLogoSrc() {
   return '/COSPPaC_white_crop2.png';
 }
 
-function ModernHeader({ logoSrc = getDefaultLogoSrc() }) {
+function ModernHeader({
+  logoSrc = getDefaultLogoSrc(),
+  title = 'Cook Islands Wave and Inundation Forecast System',
+  subtitle = 'Marine Forecasting • Pacific Community (SPC) Data',
+  statusText = 'Live',
+  showClock = true
+}) {
   const [currentTime, setCurrentTime] = React.useState(new Date());
   React.useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -107,11 +168,11 @@ function ModernHeader({ logoSrc = getDefaultLogoSrc() }) {
       React.createElement(
         'div',
         null,
-        React.createElement('h1', { style: { margin: 0, color: '#00d4ff', fontSize: '1.5rem', fontWeight: '700' } }, 'Cook Islands Wave and Inundation Forecast System'),
-        React.createElement('p', { style: { margin: 0, color: 'rgba(255,255,255,0.8)', fontSize: '0.9rem', fontWeight: '300' } }, 'Marine Forecasting • Pacific Community (SPC) Data')
+        React.createElement('h1', { style: { margin: 0, color: '#00d4ff', fontSize: '1.5rem', fontWeight: '700' } }, title),
+        React.createElement('p', { style: { margin: 0, color: 'rgba(255,255,255,0.8)', fontSize: '0.9rem', fontWeight: '300' } }, subtitle)
       )
     ),
-    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '20px', fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)' } }, `Live ${currentTime.toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}`)
+    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '20px', fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)' } }, showClock ? `${statusText} ${currentTime.toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}` : statusText)
   );
 }
 
@@ -122,8 +183,8 @@ function LoadingSpinner({ size = 28, color = '#3b82f6', label = 'Loading...' }) 
 
   return React.createElement(
     'div',
-    { style: { display: 'inline-flex', alignItems: 'center', gap: '10px' } },
-    React.createElement('span', { style: { width: `${size}px`, height: `${size}px`, borderRadius: '50%', border: '3px solid rgba(148,163,184,0.35)', borderTopColor: color, animation: 'owp-spin 0.8s linear infinite', display: 'inline-block' } }),
+    { style: { display: 'inline-flex', alignItems: 'center', gap: '10px' }, role: 'status', 'aria-live': 'polite', 'aria-busy': true },
+    React.createElement('span', { style: { width: `${size}px`, height: `${size}px`, borderRadius: '50%', border: '3px solid rgba(148,163,184,0.35)', borderTopColor: color, animation: 'owp-spin 0.8s linear infinite', display: 'inline-block' }, 'aria-hidden': true }),
     React.createElement('span', null, label)
   );
 }
