@@ -3,6 +3,7 @@ import Offcanvas from "react-bootstrap/Offcanvas";
 import "./BottomOffCanvas.css";
 import Tabular from "./tabular.js";
 import Timeseries from "./timeseries.js";
+import { LoadingSpinner } from 'ocean-widget-platform';
 
 
 // ---- Variables & config for Cook Islands (adapted from Widget 1) ----
@@ -354,7 +355,7 @@ function BottomOffCanvas({ show, onHide, data }) {
       </div>
       <Offcanvas.Body style={{ paddingTop: 16 }}>
         {loading
-          ? <div style={{ textAlign: "center", padding: "2rem" }}>Loading data...</div>
+          ? <div style={{ textAlign: "center", padding: "2rem" }}><LoadingSpinner label="Loading data..." /></div>
           : fetchError
               ? <div style={{ color: "red", textAlign: "center" }}>{fetchError}</div>
               : <>

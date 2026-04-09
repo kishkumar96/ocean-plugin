@@ -3,6 +3,7 @@ import Offcanvas from "react-bootstrap/Offcanvas";
 import 'chart.js/auto';
 import Plot from 'react-plotly.js';
 import './BottomBuoyOffCanvas.css';
+import { LoadingSpinner } from 'ocean-widget-platform';
 
 // Fixed color palette for datasets
 const BUOY_COLORS = [
@@ -761,7 +762,11 @@ function BottomBuoyOffCanvas({ show, onHide, buoyId }) {
         </button>
       </div>
       <Offcanvas.Body style={{ paddingTop: 16, height: 'calc(100% - 60px)' }}>
-        {activeTab === "buoy" && loading && <div style={{ textAlign: "center", padding: "2rem" }}>Loading buoy data...</div>}
+        {activeTab === "buoy" && loading && (
+          <div style={{ textAlign: "center", padding: "2rem" }}>
+            <LoadingSpinner label="Loading buoy data..." />
+          </div>
+        )}
         {activeTab === "buoy" && fetchError && <div style={{ color: "red", textAlign: "center" }}>{fetchError}</div>}
         {activeTab === "buoy" && !loading && !fetchError && data?.waves?.length > 0 && (
           <div style={{ width: "100%", height: "100%", minHeight: '300px' }}>
@@ -790,7 +795,9 @@ function BottomBuoyOffCanvas({ show, onHide, buoyId }) {
           <div style={{ textAlign: "center", color: "#999" }}>No data available for this buoy.</div>
         )}
         {activeTab === "model" && modelLoading && (
-          <div style={{ textAlign: "center", padding: "2rem" }}>Loading model data...</div>
+          <div style={{ textAlign: "center", padding: "2rem" }}>
+            <LoadingSpinner label="Loading model data..." />
+          </div>
         )}
         {activeTab === "model" && modelError && (
           <div style={{ color: "red", textAlign: "center" }}>{modelError}</div>
