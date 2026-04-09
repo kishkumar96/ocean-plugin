@@ -4,7 +4,7 @@ import L from "leaflet";
 import addWMSTileLayer from "./addWMSTileLayer";
 import BottomOffCanvas from "./BottomOffCanvas";
 import BottomBuoyOffCanvas from "./BottomBuoyOffCanvas";
-import { useForecast } from "../hooks/useForecast";
+import { useForecast } from "ocean-widget-platform/hooks";
 import ForecastApp from "../components/ForecastApp";
 import { ModernHeader } from 'ocean-widget-platform';
 import WorldClassVisualization from "../utils/WorldClassVisualization";

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import './ForecastApp.css';
 import '../styles/MapMarker.css';
-import useMapInteraction from '../hooks/useMapInteraction';
+import { useMapInteraction } from 'ocean-widget-platform/hooks';
 import { UI_CONFIG } from '../config/UIConfig';
 import { MARINE_CONFIG } from '../config/marineVariables';
 import { getLayerBounds } from '../config/layerConfig';

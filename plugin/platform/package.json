@@ -9,7 +9,8 @@
     ".": {
       "import": "./dist/ocean-widget-platform.js",
       "require": "./dist/ocean-widget-platform.cjs"
-    }
+    },
+    "./hooks": "./src/hooks/index.js"
   },
   "files": [
     "src",
