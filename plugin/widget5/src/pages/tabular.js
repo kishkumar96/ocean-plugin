@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { ArrowSVG } from "ocean-widget-platform";
 
 // Jet colormap: returns rgb string for value in [min, max]
 function jetColor(value, min = 0, max = 4) {
@@ -45,18 +46,6 @@ function isColorDark(colorString) {
   const brightness = (r * 299 + g * 587 + b * 114) / 1000;
   return brightness < 128;
 }
-
-// Arrow SVG for direction
-const ArrowSVG = ({ angle, isDarkMode }) => (
-  <svg width="22" height="22" viewBox="0 0 22 22" style={{
-    display: 'inline-block',
-    transform: `rotate(${angle}deg)`,
-    verticalAlign: "middle"
-  }}>
-    <line x1="11" y1="18" x2="11" y2="4" stroke={isDarkMode ? "#f1f5f9" : "#222"} strokeWidth="2"/>
-    <polygon points="11,2 7,8 15,8" fill={isDarkMode ? "#f1f5f9" : "#222"} />
-  </svg>
-);
 
 // Parse label config, detect {calc}, color type, range, decimal places (default 0)
 function parseLabelConfig(label) {

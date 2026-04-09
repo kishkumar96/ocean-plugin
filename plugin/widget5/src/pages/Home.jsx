@@ -6,7 +6,7 @@ import BottomOffCanvas from "./BottomOffCanvas";
 import BottomBuoyOffCanvas from "./BottomBuoyOffCanvas";
 import { useForecast } from "../hooks/useForecast";
 import ForecastApp from "../components/ForecastApp";
-import ModernHeader from "../components/ModernHeader";
+import { ModernHeader } from 'ocean-widget-platform';
 import WorldClassVisualization from "../utils/WorldClassVisualization";
 import LegendCleanup from "../components/LegendCleanup";
 

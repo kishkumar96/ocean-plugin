@@ -1,0 +1,26 @@
+{
+  "name": "ocean-widget-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/ocean-widget-platform.cjs",
+  "module": "./dist/ocean-widget-platform.js",
+  "exports": {
+    ".": {
+      "import": "./dist/ocean-widget-platform.js",
+      "require": "./dist/ocean-widget-platform.cjs"
+    }
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\""
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

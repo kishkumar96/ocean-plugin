@@ -39,7 +39,9 @@ services:
     container_name: plugin-site2
 
   plugin-widget1:
-    build: ./plugin/widget1
+    build:
+      context: ./plugin
+      dockerfile: widget1/Dockerfile
     expose:
       - "80"
     container_name: plugin-widget1
@@ -59,12 +61,16 @@ services:
       - "80"
     container_name: plugin-widget4
   plugin-widget5:
-    build: ./plugin/widget5
+    build:
+      context: ./plugin
+      dockerfile: widget5/Dockerfile
     expose:
       - "80"
     container_name: plugin-widget5
   plugin-widget11:
-    build: ./plugin/widget11
+    build:
+      context: ./plugin
+      dockerfile: widget11/Dockerfile
     expose:
       - "80"
     container_name: plugin-widget11
