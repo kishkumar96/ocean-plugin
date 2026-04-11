@@ -14,6 +14,7 @@ export const useInundationPoints = (mapInstance, options = {}) => {
   const [error, setError] = useState(null);
   const [stats, setStats] = useState(null);
   const [isVisible, setIsVisible] = useState(options.defaultVisible !== false);
+  const [rawData, setRawData] = useState(null); // raw point array for deck.gl rendering
   const pendingLoadRef = useRef(false); // Track if load is pending map initialization
   const optionsRef = useRef(options);
 
@@ -21,7 +22,8 @@ export const useInundationPoints = (mapInstance, options = {}) => {
   useEffect(() => {
     if (!serviceRef.current) {
       serviceRef.current = new InundationPointsService({
-        debugMode: options.debugMode || false
+        debugMode: options.debugMode || false,
+        skipLeafletRendering: true, // deck.gl handles all marker rendering
       });
     }
   }, [options.debugMode]);
@@ -87,6 +89,9 @@ export const useInundationPoints = (mapInstance, options = {}) => {
       };
 
       setStats(combinedStats);
+      // Expose raw point data for deck.gl rendering
+      const rd = serviceRef.current.getRawData ? serviceRef.current.getRawData() : null;
+      if (rd) setRawData(rd);
       setIsLoading(false);
       pendingLoadRef.current = false;
       return combinedStats;
@@ -228,6 +233,7 @@ export const useInundationPoints = (mapInstance, options = {}) => {
     error,
     stats,
     isVisible,
+    rawData,
     service: serviceRef.current
   };
 };

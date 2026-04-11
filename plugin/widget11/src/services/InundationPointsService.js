@@ -17,6 +17,7 @@ class InundationPointsService {
 
   constructor(options = {}) {
     this.debugMode = options.debugMode || false;
+    this.skipLeafletRendering = options.skipLeafletRendering || false;
     this.mapInstance = null;
     this.pointsLayerGroup = null;
     this.activePopup = null;
@@ -721,8 +722,9 @@ class InundationPointsService {
       // Add markers in batches for better UI responsiveness
       let pointsAdded = 0;
       const coordGroups = Array.from(pointsByCoords.values());
-      
-      // Progressive rendering function
+
+      if (!this.skipLeafletRendering && !(options.skipLeafletRendering)) {
+        // Progressive rendering function
       const addBatch = (startIndex) => {
         return new Promise((resolve) => {
           requestAnimationFrame(() => {
@@ -800,6 +802,7 @@ class InundationPointsService {
       }
       
       this.log(`Added ${pointsAdded} markers for ${filteredData.length} inundation points (${pointsByCoords.size} unique locations)`);
+      } // end if (!skipLeafletRendering)
 
       
       // Calculate risk level statistics from ALL data (before filtering)
@@ -825,6 +828,7 @@ class InundationPointsService {
         displayed: filteredData.length,
         markers: pointsAdded,
         filtered: filteredData.length,
+        rawData: filteredData,
         ...riskStats
       };
       
@@ -923,6 +927,15 @@ class InundationPointsService {
     return stats;
   }
   
+  /**
+   * Return the raw cached data array for use by external renderers (e.g. deck.gl).
+   * Returns null if no data has been fetched yet.
+   * @returns {Array|null}
+   */
+  getRawData() {
+    return this.cachedData || null;
+  }
+
   /**
    * Cleanup resources
    */

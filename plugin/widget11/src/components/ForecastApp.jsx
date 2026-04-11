@@ -3,6 +3,8 @@ import './ForecastApp.css';
 import '../styles/MapMarker.css';
 import '../styles/InundationPoints.css';
 import useMapInteraction from '../hooks/useMapInteraction';
+import DeckGLParticleField from './DeckGLParticleField';
+import DeckGLInundationLayer from './DeckGLInundationLayer';
 import { UI_CONFIG } from '../config/UIConfig';
 import { MARINE_CONFIG } from '../config/marineVariables';
 import CompassRose from './CompassRose';
@@ -42,7 +44,12 @@ WAVE_FORECAST_LAYERS,
   isUpdatingVisualization,
   currentSliderDateStr,
   minIndex,
-  islandSelector
+  islandSelector,
+  // deck.gl overlay props
+  showParticles,
+  vectorField,
+  inundationPoints,
+  showInundationPoints,
 }) => {
   // Dynamic marine legend configuration - RESPONDS TO ACTUAL DATA
   const getLegendConfig = (variable, layerData) => {
@@ -271,6 +278,20 @@ WAVE_FORECAST_LAYERS,
       <div className="main-container">
         <div className="map-section">
           <div ref={mapRef} id="map" className="forecast-map"></div>
+          
+          {/* deck.gl WebGL wave-flow particle field */}
+          <DeckGLParticleField
+            mapInstance={mapInstance}
+            vectorField={vectorField}
+            showParticles={showParticles !== false}
+          />
+
+          {/* deck.gl WebGL inundation point rendering */}
+          <DeckGLInundationLayer
+            mapInstance={mapInstance}
+            pointsData={inundationPoints}
+            isVisible={showInundationPoints !== false && Array.isArray(inundationPoints) && inundationPoints.length > 0}
+          />
           
           {/* Enhanced Professional Compass Rose */}
           <CompassRose 

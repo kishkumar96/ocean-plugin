@@ -1,129 +1,160 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import DeckGL from '@deck.gl/react';
+import { ScatterplotLayer } from '@deck.gl/layers';
+import { MapView } from '@deck.gl/core';
 
-export default function RealtimeSearchMap({ buoyOptions = [], selectedStations = [], setSelectedStations, maxSelection = 8 }) {
-  const mapRef = useRef(null);
-  const groupRef = useRef(null);
-  
-  // Normalize longitude to [-180, 180]
-  const normalizeLongitude = (lon) => {
-    while (lon > 180) lon -= 360;
-    while (lon < -180) lon += 360;
-    return lon;
-  };
+// GPU colour palette keyed by station type (RGBA 0-255)
+const TYPE_COLORS = {
+  'Wave Buoy':  [102, 207, 109, 220],
+  'DART Buoy':  [67,  84,  183, 220],
+  'Tide Gauge': [254, 126,  15, 220],
+};
+const DEFAULT_COLOR  = [37, 99, 235, 220];
+const SELECTED_FILL  = [255, 255, 255, 255];
 
-  // Initialize map once
-  useEffect(() => {
-    if (mapRef.current) return; // already initialized
-  const map = L.map('realtime-search-map', { 
-    center: [-15, 170], 
-    zoom: 3, 
-    worldCopyJump: false, 
-    attributionControl: false, 
-    doubleClickZoom: false
+// Normalize longitude to [-180, 180]
+const normalizeLon = (lon) => {
+  while (lon > 180) lon -= 360;
+  while (lon < -180) lon += 360;
+  return lon;
+};
+
+export default function RealtimeSearchMap({
+  buoyOptions = [],
+  selectedStations = [],
+  setSelectedStations,
+  maxSelection = 8,
+}) {
+  const mapDivRef  = useRef(null);   // Leaflet DOM target
+  const leafletRef = useRef(null);   // Leaflet map instance
+  const deckRef    = useRef(null);   // deck.gl Deck instance (via forwardRef)
+
+  const [viewState, setViewState] = useState({
+    longitude: 170,
+    latitude: -15,
+    zoom: 3,
+    pitch: 0,
+    bearing: 0,
   });
-    mapRef.current = map;
 
-    const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
-    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
-    const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { 
-      maxZoom: 19,
-      pane: 'overlayPane'
+  // ---------- Leaflet basemap (tiles + controls) ----------
+  useEffect(() => {
+    if (leafletRef.current) return;
+
+    const map = L.map(mapDivRef.current, {
+      center: [-15, 170],
+      zoom: 3,
+      worldCopyJump: false,
+      attributionControl: false,
+      doubleClickZoom: false,
     });
-    
-    // Create satellite with labels as a layer group
-    const satelliteWithLabels = L.layerGroup([satellite, labels]);
-    
-    satelliteWithLabels.addTo(map); // default satellite with labels
+    leafletRef.current = map;
 
-    L.control.layers({ 'Satellite': satelliteWithLabels, 'OpenStreetMap': street }, null, { position: 'topright', collapsed: true }).addTo(map);
+    const street    = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+    const labels    = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, pane: 'overlayPane',
+    });
+    const satWithLabels = L.layerGroup([satellite, labels]);
+    satWithLabels.addTo(map);
+    L.control.layers({ 'Satellite': satWithLabels, 'OpenStreetMap': street }, null, {
+      position: 'topright', collapsed: true,
+    }).addTo(map);
 
     const footer = L.control({ position: 'bottomright' });
     footer.onAdd = () => {
       const div = L.DomUtil.create('div', 'custom-map-footer');
-      div.style.background = '#9d9f9f';
-      div.style.color = '#000000';
-      div.style.padding = '4px 8px';
-      div.style.fontSize = '11px';
-      div.style.borderRadius = '4px';
-      div.style.whiteSpace = 'nowrap';
-      div.style.margin = '0 0 2px 0';
-      div.innerHTML = '<a href="https://www.spc.int/" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:none;">SPC</a> | &copy; Pacific Community SPC | &copy; Pacific Community SPC';
+      div.style.cssText = 'background:#9d9f9f;color:#000;padding:4px 8px;font-size:11px;border-radius:4px;white-space:nowrap;margin:0 0 2px 0';
+      div.innerHTML = '<a href="https://www.spc.int/" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:none;">SPC</a> | &copy; Pacific Community SPC';
       return div;
     };
     footer.addTo(map);
 
-    groupRef.current = L.layerGroup().addTo(map);
+    // Sync deck.gl viewport whenever Leaflet moves
+    const syncViewport = () => {
+      const c = map.getCenter();
+      setViewState({ longitude: c.lng, latitude: c.lat, zoom: map.getZoom(), pitch: 0, bearing: 0 });
+    };
+    map.on('moveend', syncViewport);
+    map.on('zoomend', syncViewport);
+
+    // Route map clicks through deck.gl hit-testing
+    map.on('click', (e) => {
+      if (!deckRef.current || !setSelectedStations) return;
+      const cp   = map.latLngToContainerPoint(e.latlng);
+      const info = deckRef.current.pickObject({ x: cp.x, y: cp.y, radius: 10 });
+      if (!info?.object) return;
+      const b = info.object;
+      setSelectedStations(prev => {
+        if (prev.includes(b.spotter_id)) return prev.filter(id => id !== b.spotter_id);
+        if (prev.length >= maxSelection) return prev;
+        return [...prev, b.spotter_id];
+      });
+    });
+
+    // Update cursor on hover
+    map.on('mousemove', (e) => {
+      if (!deckRef.current) return;
+      const cp   = map.latLngToContainerPoint(e.latlng);
+      const info = deckRef.current.pickObject({ x: cp.x, y: cp.y, radius: 5 });
+      map.getContainer().style.cursor = info ? 'pointer' : '';
+    });
 
     return () => {
       map.remove();
-      mapRef.current = null;
-      groupRef.current = null;
+      leafletRef.current = null;
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update markers when data or selection changes
-  useEffect(() => {
-    if (!mapRef.current || !groupRef.current) return;
-    const group = groupRef.current;
-    group.clearLayers();
+  // ---------- deck.gl GPU layer ----------
+  const scatterLayer = new ScatterplotLayer({
+    id: 'buoy-layer',
+    data: buoyOptions,
+    getPosition: (d) => {
+      const [lng, lat] = d.coordinates || [0, 0];
+      return [normalizeLon(lng), lat];
+    },
+    getRadius: (d) => selectedStations.includes(d.spotter_id) ? 30000 : 18000,
+    radiusUnits: 'meters',
+    radiusMinPixels: 5,
+    radiusMaxPixels: 20,
+    getFillColor: (d) =>
+      selectedStations.includes(d.spotter_id)
+        ? SELECTED_FILL
+        : (TYPE_COLORS[d.type_value] || DEFAULT_COLOR),
+    getLineColor: (d) =>
+      selectedStations.includes(d.spotter_id)
+        ? (TYPE_COLORS[d.type_value] || DEFAULT_COLOR)
+        : [255, 255, 255, 150],
+    lineWidthMinPixels: 2,
+    stroked: true,
+    filled: true,
+    pickable: true,
+    autoHighlight: true,
+    highlightColor: [255, 230, 0, 120],
+    updateTriggers: {
+      getRadius:     [selectedStations],
+      getFillColor:  [selectedStations],
+      getLineColor:  [selectedStations],
+    },
+  });
 
-    const typeColors = {
-      'Wave Buoy': '#66cf6dff',
-      'DART Buoy': '#4354b7ff',
-      'Tide Gauge': '#fe7e0f'
-    };
+  return (
+    <div style={{ position: 'relative', height: '100%', width: '100%' }}>
+      {/* Leaflet basemap */}
+      <div ref={mapDivRef} style={{ height: '100%', width: '100%' }} />
 
-    buoyOptions.forEach(b => {
-      const [rawLng, lat] = b.coordinates || [];
-      if (typeof rawLng === 'number' && typeof lat === 'number') {
-        const normalizedLon = normalizeLongitude(rawLng);
-        const isSelected = selectedStations.includes(b.spotter_id);
-        const baseColor = typeColors[b.type_value] || '#2563eb';
-        
-        // Create marker at normalized position
-        const createMarker = (longitude) => {
-          const marker = L.circleMarker([lat, longitude], {
-            radius: isSelected ? 10 : 6,
-            color: isSelected ? '#ffffff' : baseColor,
-            weight: isSelected ? 3 : 2,
-            fillOpacity: isSelected ? 1 : 0.75,
-            fillColor: baseColor
-          }).bindPopup(`<strong>${b.label}</strong><br/>${b.type_value || ''}${isSelected ? '<br/><em>Selected</em>' : ''}`)
-            .addTo(group);
-
-          // Click toggles selection (better for touch devices)
-          if (setSelectedStations) {
-            marker.on('click', () => {
-              setSelectedStations(prev => {
-                const currentlySelected = prev.includes(b.spotter_id);
-                if (currentlySelected) {
-                  return prev.filter(id => id !== b.spotter_id);
-                }
-                if (prev.length >= maxSelection) {
-                  marker.setStyle({ color: '#ff0044', weight: 4 });
-                  setTimeout(() => marker.setStyle({ color: '#ffffff', weight: 3 }), 600);
-                  return prev; // no change
-                }
-                return [...prev, b.spotter_id];
-              });
-            });
-          }
-          return marker;
-        };
-        
-        // Create primary marker
-        createMarker(normalizedLon);
-        
-        // Create duplicate marker on opposite side of dateline for points near IDL
-        if (Math.abs(normalizedLon) > 150) {
-          const duplicateLon = normalizedLon > 0 ? normalizedLon - 360 : normalizedLon + 360;
-          createMarker(duplicateLon);
-        }
-      }
-    });
-  }, [buoyOptions, selectedStations, setSelectedStations, maxSelection]);
-
-  return <div id="realtime-search-map" style={{ height: '100%', width: '100%' }} />;
+      {/* deck.gl GPU overlay — pointer-events:none so Leaflet keeps pan/zoom */}
+      <DeckGL
+        ref={deckRef}
+        viewState={viewState}
+        views={new MapView({ repeat: true })}
+        controller={false}
+        layers={[scatterLayer]}
+        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+      />
+    </div>
+  );
 }

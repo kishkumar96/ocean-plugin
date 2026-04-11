@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import './ForecastApp.css';
 import '../styles/MapMarker.css';
 import useMapInteraction from '../hooks/useMapInteraction';
+import DeckGLParticleOverlay from './DeckGLParticleOverlay';
 import { UI_CONFIG } from '../config/UIConfig';
 import { MARINE_CONFIG } from '../config/marineVariables';
 import { getLayerBounds } from '../config/layerConfig';
@@ -372,6 +373,12 @@ const ForecastApp = ({
       <div className="main-container">
         <div className="map-section">
           <div ref={mapRef} id="map" className="forecast-map"></div>
+          
+          {/* deck.gl WebGL wave-flow particle overlay */}
+          <DeckGLParticleOverlay
+            mapInstance={mapInstance}
+            isActive={activeLayers.waveForecast !== false}
+          />
           
           {/* Enhanced Professional Compass Rose */}
           <CompassRose 

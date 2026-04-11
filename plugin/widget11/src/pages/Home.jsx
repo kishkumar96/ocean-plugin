@@ -133,9 +133,9 @@ function TuvaluForecast() {
   const [adaptiveColorScales, setAdaptiveColorScales] = useState(null);
   const [autoDetectedIsland, setAutoDetectedIsland] = useState(null); // Auto-detect island at high zoom
   
-  // 🌊 Wave Particle Flow Field (Windy-style visualization)
-  const [showParticles, setShowParticles] = useState(true); // Enable by default to see it immediately
-  const particleLayerRef = useRef(null);
+  // 🌊 Wave Particle Flow Field (deck.gl WebGL)
+  const [showParticles, setShowParticles] = useState(true);
+  const [vectorField, setVectorField] = useState(null);
 
   // World-class composite layer configuration for Tuvalu
   // NOTE: Dynamically switches between national-scale and island-specific data
@@ -515,12 +515,12 @@ function TuvaluForecast() {
     };
   }, [mapInstance]);
 
-  // 🌊 Fetch real wave direction data and update particle field
+  // 🌊 Fetch real wave direction data and update deck.gl particle field
   useEffect(() => {
     const map = mapInstance?.current;
-    if (!map || !showParticles || !particleLayerRef.current) return;
+    if (!map || !showParticles) return;
 
-    // Don't fetch if currently showing inundation (dirm not active)
+    // Only fetch when the composite direction layer is active
     const isDirmActive = selectedWaveForecast === 'tuvalu_composite_hs_dir';
 
     if (!isDirmActive) {
@@ -532,15 +532,13 @@ function TuvaluForecast() {
 
     const fetchWaveData = async () => {
       try {
-        const bounds = map.getBounds();
+        const mapBounds = map.getBounds();
         const size = map.getSize();
         
-        // Get active island or national WMS URL
         const activeIsland = selectedIsland || autoDetectedIsland;
         const baseWmsUrl = activeIsland?.wmsUrl || TuvaluConfig.WMS_BASE_URL;
         const wmsUrl = resolveThreddsUrl(baseWmsUrl);
         
-        // Find the wave direction layer
         const compositeLayer = WAVE_FORECAST_LAYERS.find(l => l.value === 'tuvalu_composite_hs_dir');
         if (!compositeLayer) return;
 
@@ -552,24 +550,24 @@ function TuvaluForecast() {
           time: currentSliderDate?.toISOString()
         });
 
-        const vectorField = await waveDirectionDataService.fetchVectorField({
+        const field = await waveDirectionDataService.fetchVectorField({
           wmsUrl,
           layerName: dirLayer.value,
           bounds: {
-            north: bounds.getNorth(),
-            south: bounds.getSouth(),
-            east: bounds.getEast(),
-            west: bounds.getWest()
+            north: mapBounds.getNorth(),
+            south: mapBounds.getSouth(),
+            east:  mapBounds.getEast(),
+            west:  mapBounds.getWest()
           },
-          width: size.x,
+          width:  size.x,
           height: size.y,
           time: currentSliderDate?.toISOString()
         });
 
-        if (isMounted && particleLayerRef.current) {
-          particleLayerRef.current.setVectorField(vectorField);
-          logger.info('WAVE_DATA', 'Wave direction field updated for particles', {
-            gridSize: `${vectorField.width}x${vectorField.height}`,
+        if (isMounted) {
+          setVectorField(field);
+          logger.info('WAVE_DATA', 'Wave direction field updated for deck.gl particles', {
+            gridSize: `${field.width}x${field.height}`,
             wmsUrl: baseWmsUrl
           });
         }
@@ -579,14 +577,9 @@ function TuvaluForecast() {
       }
     };
 
-    // Initial fetch
     fetchWaveData();
 
-    // Re-fetch when map moves or time changes
-    const handleMoveEnd = () => {
-      fetchWaveData();
-    };
-
+    const handleMoveEnd = () => { fetchWaveData(); };
     map.on('moveend', handleMoveEnd);
 
     return () => {
@@ -825,12 +818,6 @@ function TuvaluForecast() {
       
       <ForecastApp
         WAVE_FORECAST_LAYERS={dynamicLayers}
-        particleControls={{
-          showParticles,
-          onToggleParticles: () => setShowParticles(prev => !prev),
-          particleLayer: particleLayerRef.current
-        }}
-
         ALL_LAYERS={ALL_LAYERS}
         selectedWaveForecast={selectedWaveForecast}
         setSelectedWaveForecast={setSelectedWaveForecast}
@@ -851,6 +838,11 @@ function TuvaluForecast() {
         setShowBottomCanvas={setShowBottomCanvas}
         isUpdatingVisualization={isUpdatingVisualization}
         minIndex={minIndex}
+        // deck.gl overlay props
+        showParticles={showParticles}
+        vectorField={vectorField}
+        inundationPoints={inundationPoints.rawData}
+        showInundationPoints={inundationPoints.isVisible}
         islandSelector={(
           <IslandSelector 
             onIslandChange={handleIslandChange}
@@ -861,7 +853,6 @@ function TuvaluForecast() {
             variant="compact"
           />
         )}
-
       />
 
       <LegendCleanup 
