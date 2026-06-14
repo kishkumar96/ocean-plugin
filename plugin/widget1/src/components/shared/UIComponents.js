@@ -68,49 +68,80 @@ export const TimeControl = ({
   capTime,
   onSliderChange,
   onPlayToggle,
+  onPrevious,
+  onNext,
   formatDateTime,
   stepHours = 1,
   playIcon = '▶️',
   pauseIcon = '⏸️',
+  previousIcon = '⏮️',
+  nextIcon = '⏭️',
   minIndex = 0
-}) => (
-  <div className="time-control">
-    <div className="forecast-info">
-      <div>Forecast Hour: <span>+{sliderIndex * stepHours}h</span></div>
-      <div>Valid DateTime: <span>{formatDateTime(currentSliderDate)}</span></div>
-    </div>
-    
-    <div className="time-slider-container">
-      <input
-        title="Forecast Time"
-        aria-label="Forecast Time"
-        type="range"
-        className="time-slider"
-        min={minIndex}
-        max={totalSteps}
-        value={sliderIndex}
-        onChange={(e) => onSliderChange(e.target.value)}
-        disabled={capTime.loading}
-      />
-      
-      <div className="playback-controls">
-        <button 
-          type="button"
-          className="play-btn"
-          onClick={onPlayToggle}
-          disabled={capTime.loading}
-          aria-label={isPlaying ? 'Pause forecast animation' : 'Play forecast animation'}
-        >
-          <span>{isPlaying ? <>{pauseIcon} Pause</> : <>{playIcon} Play</>}</span>
-        </button>
+}) => {
+  const isLoading = Boolean(capTime?.loading);
+  const canGoPrevious = Number(sliderIndex) > Number(minIndex);
+  const canGoNext = Number(sliderIndex) < Number(totalSteps);
+
+  return (
+    <div className="time-control">
+      <div className="forecast-info">
+        {/* <div>Forecast Hour: <span>+{sliderIndex * stepHours}h</span></div> */}
+        <div>
+          Valid DateTime: <span>{formatDateTime(currentSliderDate)}</span>
+        </div>
+      </div>
+
+      <div className="time-slider-container">
+        <input
+          title="Forecast Time"
+          aria-label="Forecast Time"
+          type="range"
+          className="time-slider"
+          min={minIndex}
+          max={totalSteps}
+          value={sliderIndex}
+          onChange={(e) => onSliderChange(Number(e.target.value))}
+          disabled={isLoading}
+        />
+
+        <div className="playback-controls">
+          <button
+            type="button"
+            className="prev-btn"
+            onClick={onPrevious}
+            disabled={isLoading || !canGoPrevious}
+            aria-label="Previous forecast timestamp"
+            title="Previous forecast timestamp"
+          >
+            <span>{previousIcon} Previous</span>
+          </button>
+
+          <button
+            type="button"
+            className="play-btn"
+            onClick={onPlayToggle}
+            disabled={isLoading}
+            aria-label={isPlaying ? 'Pause forecast animation' : 'Play forecast animation'}
+            title={isPlaying ? 'Pause forecast animation' : 'Play forecast animation'}
+          >
+            <span>{isPlaying ? <>{pauseIcon} Pause</> : <>{playIcon} Play</>}</span>
+          </button>
+
+          <button
+            type="button"
+            className="next-btn"
+            onClick={onNext}
+            disabled={isLoading || !canGoNext}
+            aria-label="Next forecast timestamp"
+            title="Next forecast timestamp"
+          >
+            <span>Next {nextIcon}</span>
+          </button>
+        </div>
       </div>
     </div>
-    
-    <div className="forecast-info">
-      <div>Forecast Length: <strong>{totalSteps + 1} hours</strong></div>
-    </div>
-  </div>
-);
+  );
+};
 
 /**
  * Opacity Control

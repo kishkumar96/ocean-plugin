@@ -95,11 +95,11 @@ module.exports = {
           },
         };
 
-        // Increase performance budget warnings
+        // Keep production builds warning-free unless bundles grow beyond current app scale.
         webpackConfig.performance = {
           ...webpackConfig.performance,
-          maxEntrypointSize: 512000, // 500KB
-          maxAssetSize: 512000,
+          maxEntrypointSize: 2600000,
+          maxAssetSize: 1600000,
           hints: 'warning',
         };
       }

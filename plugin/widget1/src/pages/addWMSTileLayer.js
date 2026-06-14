@@ -29,8 +29,8 @@ const addWMSTileLayer = (map, url, options = {}, handleShow) => {
         tileSize: options.tileSize || 768, // Allow override via options
         // Reduced buffer to only load tiles near viewport (lazy loading)
         keepBuffer: 2, // Changed from 4 to 2
-        // Allow the browser to pipeline requests
-        crossOrigin: true,
+        // crossOrigin omitted — tiles load as <img> elements (no CORS needed for display)
+        // Setting crossOrigin:true would block requests to ncWMS which has no CORS headers
         // Wait until idle to update (reduces concurrent requests during pan/zoom)
         updateWhenIdle: true, // Changed from false to true
         updateInterval: 200, // Increased from 120ms
@@ -39,6 +39,60 @@ const addWMSTileLayer = (map, url, options = {}, handleShow) => {
         // Error tile fallback (transparent 1x1 pixel for 502 errors)
         errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
     };
+
+    if (options.tileUrl) {
+        const xyzLayer = L.tileLayer(options.tileUrl, {
+            ...performanceTuning,
+            tileSize: options.tileSize || 256,
+            opacity: options.opacity,
+            pane: options.pane || 'overlayPane',
+        });
+
+        xyzLayer.addTo(map);
+        xyzLayer.getFeatureInfo = function(latlng) {
+            if (typeof handleShow === "function") {
+                handleShow({
+                    id: options.id,
+                    latlng,
+                    layerName: options.layers,
+                    timeDimension: options.time || "",
+                    featureInfo: "Loading..."
+                });
+            }
+
+            if (!options.pointValueUrl) return;
+
+            const pointUrl = `${options.pointValueUrl}${options.pointValueUrl.includes('?') ? '&' : '?'}lon=${latlng.lng}&lat=${latlng.lat}`;
+            fetch(pointUrl)
+                .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+                .then(data => {
+                    const value = data.value == null ? "No Data" : Number(data.value).toFixed(2);
+                    if (typeof handleShow === "function") {
+                        handleShow({
+                            id: options.id,
+                            latlng,
+                            layerName: options.layers,
+                            timeDimension: data.time || options.time || "",
+                            featureInfo: value,
+                            units: data.units || "m"
+                        });
+                    }
+                })
+                .catch(() => {
+                    if (typeof handleShow === "function") {
+                        handleShow({
+                            id: options.id,
+                            latlng,
+                            layerName: options.layers,
+                            timeDimension: options.time || "",
+                            featureInfo: "Error fetching data"
+                        });
+                    }
+                });
+        };
+
+        return xyzLayer;
+    }
 
     // Create the WMS tile layer with throttling support
     const wmsLayer = L.tileLayer.wms(url, {
@@ -49,8 +103,8 @@ const addWMSTileLayer = (map, url, options = {}, handleShow) => {
         ...options,
     });
 
-    // Extract domain for throttling
-    const domain = new URL(url).hostname;
+    // Extract domain for throttling — handle relative URLs by resolving against current origin
+    const domain = new URL(url, window.location.origin).hostname;
 
     // Override createTile to add request throttling with priority
     const originalCreateTile = wmsLayer.createTile.bind(wmsLayer);
@@ -114,8 +168,6 @@ const addWMSTileLayer = (map, url, options = {}, handleShow) => {
     // Enhanced error handling with timeout
     const RETRY_LIMIT = 2; // Reduced from 3
     const RETRY_DELAY = 2000; // Reduced from 3000ms
-    const TILE_TIMEOUT = 8000; // 8 second timeout
-
     const handleTileError = (event) => {
         const tile = event.tile;
         const tileSrc = tile.src;

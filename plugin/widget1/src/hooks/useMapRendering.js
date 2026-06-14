@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import L from 'leaflet';
 
 /**
@@ -11,6 +11,8 @@ export const useMapRendering = ({
   dynamicLayers,
   staticLayers,
   currentSliderDateStr,
+  sliderIndex,
+  capTime,
   wmsOpacity,
   addWMSTileLayer,
   handleShow,
@@ -21,6 +23,38 @@ export const useMapRendering = ({
   const wmsLayerGroup = useRef(null);
   const wmsLayerRefs = useRef([]);
   const layerRefs = useRef({});
+
+  const getSafeLayerTime = useCallback((rawTime, layerConfig, isThreddsServer = false) => {
+    if (!rawTime) return null;
+
+    let parsed = new Date(rawTime);
+    if (!Number.isFinite(parsed.getTime())) return rawTime;
+
+    const timestamps = capTime?.availableTimestamps || [];
+    if (!isThreddsServer && timestamps.length > 0) {
+      let best = timestamps[0];
+      let bestDiff = Math.abs(parsed.getTime() - best.getTime());
+
+      for (const timestamp of timestamps) {
+        const diff = Math.abs(parsed.getTime() - timestamp.getTime());
+        if (diff < bestDiff) {
+          best = timestamp;
+          bestDiff = diff;
+        }
+      }
+
+      if (bestDiff > 0) {
+        console.warn(
+          `Snapping WMS time for ${layerConfig?.value || 'layer'} from ${parsed.toISOString()} to ${best.toISOString()}`
+        );
+      }
+      parsed = best;
+    }
+
+    return isThreddsServer
+      ? parsed.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      : parsed.toISOString();
+  }, [capTime]);
 
   // Initialize map with base layers
   useEffect(() => {
@@ -95,6 +129,7 @@ export const useMapRendering = ({
     const layersToAdd = selectedLayer.composite ? selectedLayer.layers : [selectedLayer];
 
     layersToAdd.forEach(layerConfig => {
+      const tileTimeIndex = Number.isFinite(sliderIndex) ? sliderIndex : 0;
       const commonOptions = {
         layers: layerConfig.value,
         format: "image/png",
@@ -120,12 +155,8 @@ export const useMapRendering = ({
         if (isWaveDirectionLayer) {
           // Skip time parameter for wave direction - let it use latest available data
           console.log('🌊 Skipping time parameter for wave direction layer');
-        } else if (isThreddsServer) {
-          // Format for THREDDS: Remove milliseconds and use simpler format
-          const threddsTime = new Date(currentSliderDateStr).toISOString().replace(/\.\d{3}Z$/, 'Z');
-          commonOptions.time = threddsTime;
         } else {
-          commonOptions.time = currentSliderDateStr;
+          commonOptions.time = getSafeLayerTime(currentSliderDateStr, layerConfig, isThreddsServer);
         }
       }
 
@@ -142,6 +173,9 @@ export const useMapRendering = ({
           abovemaxcolor: layerConfig.abovemaxcolor || (isWaveDirectionLayer ? "transparent" : "extend"),
           belowmincolor: layerConfig.belowmincolor || "transparent",
           numcolorbands: layerConfig.numcolorbands || "250",
+          // XYZ/FastAPI tile support for non-WMS raster services.
+          tileUrl: layerConfig.tileUrl?.replace('{timeIndex}', String(tileTimeIndex)),
+          pointValueUrl: layerConfig.pointValueUrl?.replace('{timeIndex}', String(tileTimeIndex)),
           // Use layer-specific opacity if defined, otherwise use global opacity
           opacity: layerConfig.opacity || wmsOpacity,
         },
@@ -156,10 +190,13 @@ export const useMapRendering = ({
     activeLayers.waveForecast, 
     selectedWaveForecast, 
     handleShow, 
-    currentSliderDateStr, 
+    currentSliderDateStr,
+    sliderIndex,
     wmsOpacity, 
     dynamicLayers,
     staticLayers,
+    capTime,
+    getSafeLayerTime,
     addWMSTileLayer
   ]);
 
@@ -180,13 +217,13 @@ export const useMapRendering = ({
         if (!isDirectionLayer && !isInundationLayer) {
           // Format time for THREDDS if needed
           const isThredds = layer._url && layer._url.includes('thredds');
-          const timeValue = isThredds 
-            ? new Date(currentSliderDateStr).toISOString().replace(/\.\d{3}Z$/, 'Z')
-            : currentSliderDateStr;
+          const timeValue = getSafeLayerTime(currentSliderDateStr, { value: layerName }, isThredds);
           
           // Update time parameter without full redraw
-          layer.setParams({ time: timeValue }, false);
-          console.log(`   ✅ Updated TIME for layer: ${layerName}`);
+          if (timeValue) {
+            layer.setParams({ time: timeValue }, false);
+            console.log(`   ✅ Updated TIME for layer: ${layerName}`);
+          }
         } else {
           console.log(`   ⏭️  Skipped TIME for static/direction layer: ${layerName}`);
         }
@@ -200,7 +237,7 @@ export const useMapRendering = ({
       }
     });
 
-  }, [currentSliderDateStr]);
+  }, [currentSliderDateStr, capTime, getSafeLayerTime]);
 
   // ✅ NEW: Update opacity for all active layers when opacity changes
   useEffect(() => {

@@ -1,19 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Home from './pages/Home';
 import './App.css';
 // LEGACY HEADER REMOVED - ModernHeader is now used in Home.jsx
 // import Header from './components/header';
-import TokenError from './components/TokenError';
-import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
 
 function App() {
   // AUTHENTICATION COMMENTED OUT
   // const [isAuthenticated, setIsAuthenticated] = useState(false);
   // const [isLoading, setIsLoading] = useState(true);
   // const [errorType, setErrorType] = useState(null);
-  const [widgetData, setWidgetData] = useState(null);
-  const [validCountries, setValidCountries] = useState([]);
+  const widgetData = null;
+  const validCountries = [];
 
   // AUTHENTICATION COMMENTED OUT - App now loads without token validation
   // useEffect(() => {

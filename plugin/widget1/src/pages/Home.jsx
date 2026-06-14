@@ -49,6 +49,8 @@ const variableConfigMap = {
 
 // Niue-specific WMS configuration - using ncWMS server like Cook Islands
 const NIUE_WMS_BASE = "https://gem-ncwms-hpc.spc.int/ncWMS/wms";
+const SUITABILITY_API_BASE = process.env.REACT_APP_SUITABILITY_BASE_URL || "/suitability";
+const NIUE_INUNDATION_API_BASE = process.env.REACT_APP_NIUE_INUNDATION_BASE_URL || `${SUITABILITY_API_BASE}/niue/inundation`;
 
 function Home({ widgetData, validCountries }) {
   // PERFORMANCE FIX: Define layers with useMemo and static legendUrl (like Widget5/11)
@@ -103,14 +105,17 @@ function Home({ widgetData, validCountries }) {
     {
       label: "Inundation Depth",
       value: "inundation",
-      wmsUrl: "https://gemthreddshpc.spc.int/thredds/wms/POP/model/country/spc/forecast/hourly/NIU/InundationNiue_latest.nc",
+      wmsUrl: NIUE_INUNDATION_API_BASE,
+      tileUrl: `${NIUE_INUNDATION_API_BASE}/tiles/{timeIndex}/{z}/{x}/{y}.png?vmin=0.05&vmax=3&render_mode=continuous`,
+      pointValueUrl: `${NIUE_INUNDATION_API_BASE}/point-value?time_index={timeIndex}&min_depth=0.05`,
+      timestepsUrl: `${NIUE_INUNDATION_API_BASE}/timesteps`,
       dataset: "niue_inundation",
       style: "default-scalar/x-Sst",
-      colorscalerange: "-0.05,9",
+      colorscalerange: "0.05,3",
       numcolorbands: 250,
       belowmincolor: "transparent",
       abovemaxcolor: "extend",
-      legendUrl: getWorldClassLegendUrl('inundation', '-0.05,9', 'm'),
+      legendUrl: getWorldClassLegendUrl('inundation', '0.05,3', 'm'),
     }
   ], []);
   // Buoy state management
@@ -285,7 +290,15 @@ function Home({ widgetData, validCountries }) {
 
   return (
     <>
-      <ModernHeader />
+      <ModernHeader
+        mapRef={mapRef}
+        timeIndex={sliderIndex ?? 0}
+        validTime={capTime?.start
+          ? new Date(capTime.start.getTime() + (sliderIndex ?? 0) * (capTime.stepHours ?? 1) * 3600000).toISOString()
+          : null}
+        runId={null}
+        suitabilityBaseUrl={SUITABILITY_API_BASE}
+      />
       <ForecastApp
         WAVE_FORECAST_LAYERS={dynamicLayers}
         ALL_LAYERS={ALL_LAYERS}

@@ -529,8 +529,19 @@ const ForecastApp = ({
   };
 
   const handleSliderChange = (value) => {
+    setIsPlaying(false);
     setSliderIndex(parseInt(value));
   };
+
+  const handlePreviousTimestamp = () => {
+  setIsPlaying(false);
+  setSliderIndex(prev => Math.max(Number(prev) - 1, minIndex));
+};
+
+const handleNextTimestamp = () => {
+  setIsPlaying(false);
+  setSliderIndex(prev => Math.min(Number(prev) + 1, totalSteps));
+};
 
   const formatDateTime = (date) => {
     if (!date) return 'Loading...';
@@ -775,7 +786,10 @@ const ForecastApp = ({
                 capTime={capTime}
                 onSliderChange={handleSliderChange}
                 onPlayToggle={handlePlayToggle}
+                onPrevious={handlePreviousTimestamp}
+                onNext={handleNextTimestamp}
                 formatDateTime={formatDateTime}
+                formatTime={formatDateTime}
                 stepHours={capTime.stepHours || 1}
                 playIcon={<FancyIcon icon={Navigation} animationType="bounce" size={16} color="#4caf50" />}
                 pauseIcon={<FancyIcon icon={Activity} animationType="pulse" size={16} color="#ff5722" />}

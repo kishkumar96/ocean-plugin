@@ -13,6 +13,8 @@ export const TimeControl = ({
   isPlaying,
   onSliderChange,
   onPlayToggle,
+  onPrevious,
+  onNext,
   disabled = false,
   formatTime,
   minIndex = 0
@@ -47,6 +49,9 @@ export const TimeControl = ({
     }
   ];
 
+  const canGoPrevious = sliderIndex > minIndex;
+  const canGoNext = sliderIndex < totalSteps;
+
   return (
     <div className="time-control">
       <InfoDisplay items={forecastInfo} className="forecast-info" />
@@ -66,6 +71,17 @@ export const TimeControl = ({
         
         <div className="playback-controls">
           <ActionButton
+            onClick={onPrevious}
+            disabled={disabled || !canGoPrevious}
+            variant="previous"
+            ariaLabel="Previous timestamp"
+            title="Go to previous timestamp"
+            className="prev-btn"
+          >
+            <span>⏮ Previous</span>
+          </ActionButton>
+          
+          <ActionButton
             onClick={onPlayToggle}
             disabled={disabled}
             variant="play"
@@ -74,6 +90,17 @@ export const TimeControl = ({
             className="play-btn"
           >
             <span>{isPlaying ? playConfig.pause.text : playConfig.play.text}</span>
+          </ActionButton>
+          
+          <ActionButton
+            onClick={onNext}
+            disabled={disabled || !canGoNext}
+            variant="next"
+            ariaLabel="Next timestamp"
+            title="Go to next timestamp"
+            className="next-btn"
+          >
+            <span>Next ⏭</span>
           </ActionButton>
         </div>
       </div>
@@ -90,8 +117,11 @@ TimeControl.propTypes = {
   isPlaying: PropTypes.bool.isRequired,
   onSliderChange: PropTypes.func.isRequired,
   onPlayToggle: PropTypes.func.isRequired,
+  onPrevious: PropTypes.func.isRequired,
+  onNext: PropTypes.func.isRequired,
   disabled: PropTypes.bool,
-  formatTime: PropTypes.func.isRequired
+  formatTime: PropTypes.func.isRequired,
+  minIndex: PropTypes.number
 };
 
 /**

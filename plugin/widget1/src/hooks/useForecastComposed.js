@@ -64,6 +64,8 @@ export const useForecast = (config) => {
     dynamicLayers,
     staticLayers: STATIC_LAYERS,
     currentSliderDateStr,
+    sliderIndex,
+    capTime,
     wmsOpacity,
     addWMSTileLayer,
     handleShow: openBottomCanvas,

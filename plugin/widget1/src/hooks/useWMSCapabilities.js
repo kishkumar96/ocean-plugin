@@ -72,6 +72,33 @@ export const useWMSCapabilities = (selectedLayer, allLayers) => {
             console.log(`🔄 Using preferred sub-layer for capabilities:`, capsLayer);
           }
         }
+        if (capsLayer?.timestepsUrl) {
+          console.log(`🌊 Fetching tile timesteps from: ${capsLayer.timestepsUrl}`);
+          const res = await fetch(capsLayer.timestepsUrl);
+          if (!res.ok) {
+            throw new Error(`Failed to fetch tile timesteps: ${res.status} ${res.statusText}`);
+          }
+          const payload = await res.json();
+          const availableTimestamps = (payload.timesteps || [])
+            .map(value => new Date(value))
+            .filter(value => Number.isFinite(value.getTime()));
+          const start = availableTimestamps[0] || new Date();
+          const end = availableTimestamps[availableTimestamps.length - 1] || start;
+          const stepHours = availableTimestamps.length > 1
+            ? Math.max(1, Math.round((availableTimestamps[1].getTime() - availableTimestamps[0].getTime()) / 36e5))
+            : 1;
+          setCapTime({
+            loading: false,
+            start,
+            end,
+            stepHours,
+            totalSteps: Math.max(0, availableTimestamps.length - 1),
+            availableTimestamps,
+            originalStart: start
+          });
+          return;
+        }
+
         if (!capsLayer?.wmsUrl) {
           console.error("Layer configuration missing wmsUrl:", {
             selectedLayer: selectedLayer,

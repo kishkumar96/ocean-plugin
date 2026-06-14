@@ -1,6 +1,7 @@
 import React from 'react';
+import ExportReportButton from './ExportReportButton';
 
-const ModernHeader = () => {
+const ModernHeader = ({ mapRef, timeIndex, validTime, runId, suitabilityBaseUrl }) => {
   const [currentTime, setCurrentTime] = React.useState(new Date());
 
   React.useEffect(() => {
@@ -82,6 +83,15 @@ const ModernHeader = () => {
         alignItems: 'center',
         gap: '20px'
       }}>
+        {/* Export PDF */}
+        <ExportReportButton
+          mapRef={mapRef}
+          timeIndex={timeIndex ?? 0}
+          validTime={validTime}
+          runId={runId}
+          suitabilityBaseUrl={suitabilityBaseUrl ?? '/suitability'}
+        />
+
         {/* Connection Status */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <div style={{
