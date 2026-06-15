@@ -221,16 +221,25 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  gap: 4px;
+  min-width: 0;
   height: 20px;
+  padding: 0 7px;
   border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   background: rgba(255, 255, 255, 0.05);
   color: rgba(248, 250, 252, 0.45);
   cursor: pointer;
-  padding: 0;
   flex-shrink: 0;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.suitability-overlay-toggle-label {
+  font-size: 0.63rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .suitability-overlay-toggle:hover {
@@ -247,4 +256,126 @@
   font-size: 0.75rem;
   color: rgba(248, 250, 252, 0.45);
   padding: 8px 0;
+}
+
+/* ── Leaflet map badge (topleft, below zoom controls) ─────────────────────── */
+
+.leaflet-suitability-badge {
+  background: rgba(10, 22, 40, 0.82);
+  border: 1px solid rgba(0, 212, 255, 0.25);
+  border-radius: 6px;
+  padding: 6px 10px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  color: rgba(248, 250, 252, 0.9);
+  line-height: 1.25;
+  max-width: min(220px, calc(100vw - 92px));
+  min-width: 132px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.suit-badge-vessel {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: rgba(248, 250, 252, 0.75);
+  letter-spacing: 0;
+  margin-bottom: 3px;
+  overflow-wrap: anywhere;
+}
+
+.suit-badge-status {
+  display: inline-block;
+  font-size: 0.70rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-bottom: 3px;
+}
+
+.suit-badge-status-suitable   { background: rgba(42, 157, 143, 0.3);  color: #5eead4; }
+.suit-badge-status-caution    { background: rgba(244, 162, 97,  0.3);  color: #fcd34d; }
+.suit-badge-status-avoid      { background: rgba(231, 111, 81,  0.3);  color: #fca5a5; }
+.suit-badge-status-unavailable { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
+
+.suit-badge-time {
+  font-size: 0.62rem;
+  color: rgba(248, 250, 252, 0.55);
+  font-family: 'Courier New', monospace;
+  white-space: nowrap;
+}
+
+/* ── Leaflet in-map suitability legend (bottomright) ─────────────────────── */
+
+.leaflet-suitability-legend {
+  background: rgba(10, 22, 40, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 6px 10px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  color: rgba(248, 250, 252, 0.9);
+  line-height: 1.25;
+  max-width: min(180px, calc(100vw - 32px));
+  pointer-events: none;
+  user-select: none;
+}
+
+.suit-legend-title {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: rgba(248, 250, 252, 0.55);
+  letter-spacing: 0;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+
+.suit-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  color: rgba(248, 250, 252, 0.80);
+  margin-bottom: 3px;
+}
+
+.suit-legend-item:last-child { margin-bottom: 0; }
+
+.suit-legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.suit-swatch-suitable { background: #2A9D8F; opacity: 0.85; }
+.suit-swatch-caution  { background: #F4A261; opacity: 0.85; }
+.suit-swatch-avoid    { background: #E76F51; opacity: 0.85; }
+
+@media (max-width: 520px) {
+  .suitability-overlay-toggle {
+    width: 24px;
+    padding: 0;
+  }
+
+  .suitability-overlay-toggle-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .leaflet-suitability-badge {
+    padding: 5px 8px;
+    min-width: 116px;
+  }
+
+  .leaflet-suitability-legend {
+    padding: 5px 8px;
+  }
 }

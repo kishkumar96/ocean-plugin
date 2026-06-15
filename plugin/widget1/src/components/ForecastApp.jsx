@@ -861,6 +861,7 @@ const handleNextTimestamp = () => {
                 onSelectedVesselChange={onSelectedSuitabilityVesselChange}
                 overlayVisible={suitabilityOverlayVisible}
                 onOverlayToggle={onSuitabilityOverlayToggle}
+                mapInstance={mapInstance}
               />
             </ControlGroup>
           </div>

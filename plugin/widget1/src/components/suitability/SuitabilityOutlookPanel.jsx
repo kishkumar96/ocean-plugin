@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import L from 'leaflet';
 import { Eye, EyeOff } from 'lucide-react';
 import {
   VESSEL_CLASSES,
@@ -10,19 +11,22 @@ import './SuitabilityOutlook.css';
 
 const DEFAULT_MAX_STEPS = 73;
 
+const STATUS_LABEL = {
+  [STATUS.SUITABLE]:    'Suitable',
+  [STATUS.CAUTION]:     'Caution',
+  [STATUS.AVOID]:       'Avoid',
+  [STATUS.UNAVAILABLE]: 'N/A',
+};
+
 function findNearestByTimeIndex(series, targetTimeIndex) {
   if (!series.length) return null;
-
   const target = Number(targetTimeIndex);
   if (!Number.isFinite(target)) return series[0] ?? null;
-
   return series.reduce((best, item) => {
     const itemIndex = Number(item.timeIndex);
     const bestIndex = Number(best?.timeIndex);
-
     if (!Number.isFinite(itemIndex)) return best;
     if (!best || !Number.isFinite(bestIndex)) return item;
-
     return Math.abs(itemIndex - target) < Math.abs(bestIndex - target) ? item : best;
   }, null);
 }
@@ -33,12 +37,65 @@ function formatPct(value) {
   return `${n.toFixed(n % 1 === 0 ? 0 : 1)}%`;
 }
 
-const STATUS_LABEL = {
-  [STATUS.SUITABLE]:    'Suitable',
-  [STATUS.CAUTION]:     'Caution',
-  [STATUS.AVOID]:       'Avoid',
-  [STATUS.UNAVAILABLE]: 'N/A',
-};
+function formatUtcCompact(isoString) {
+  if (!isoString) return null;
+  const d = new Date(isoString);
+  if (!Number.isFinite(d.getTime())) return null;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const day = d.getUTCDate();
+  const mon = months[d.getUTCMonth()];
+  const hr  = String(d.getUTCHours()).padStart(2, '0');
+  const min = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${day} ${mon} ${hr}:${min} UTC`;
+}
+
+function appendTextNode(parent, className, text) {
+  if (!text) return null;
+  const el = L.DomUtil.create('div', className, parent);
+  el.textContent = text;
+  return el;
+}
+
+function buildSuitabilityBadge({ vesselLabel, status, timeLabel }) {
+  const div = L.DomUtil.create('div', 'leaflet-suitability-badge');
+  div.setAttribute('role', 'status');
+  div.setAttribute('aria-label', `${vesselLabel} suitability map overlay`);
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+
+  appendTextNode(div, 'suit-badge-vessel', `${vesselLabel} · Suitability map`);
+  if (status !== STATUS.UNAVAILABLE) {
+    appendTextNode(
+      div,
+      `suit-badge-status suit-badge-status-${status}`,
+      STATUS_LABEL[status].toUpperCase(),
+    );
+  }
+  appendTextNode(div, 'suit-badge-time', timeLabel);
+  return div;
+}
+
+function buildSuitabilityLegend() {
+  const div = L.DomUtil.create('div', 'leaflet-suitability-legend');
+  div.setAttribute('role', 'img');
+  div.setAttribute('aria-label', 'Suitability overlay legend: Suitable, Caution, Avoid');
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+
+  appendTextNode(div, 'suit-legend-title', 'Suitability overlay');
+  [
+    ['suit-swatch-suitable', 'Suitable'],
+    ['suit-swatch-caution', 'Caution'],
+    ['suit-swatch-avoid', 'Avoid'],
+  ].forEach(([swatchClass, label]) => {
+    const item = L.DomUtil.create('div', 'suit-legend-item', div);
+    const swatch = L.DomUtil.create('span', `suit-legend-swatch ${swatchClass}`, item);
+    swatch.setAttribute('aria-hidden', 'true');
+    const text = L.DomUtil.create('span', 'suit-legend-label', item);
+    text.textContent = label;
+  });
+  return div;
+}
 
 export default function SuitabilityOutlookPanel({
   timeIndex          = 0,
@@ -47,26 +104,24 @@ export default function SuitabilityOutlookPanel({
   onSelectedVesselChange,
   overlayVisible     = true,
   onOverlayToggle,
+  mapInstance,
 }) {
-  const [series,      setSeries]      = useState([]);
+  const [series,       setSeries]      = useState([]);
   const [activeVessel, setActiveVessel] = useState(selectedVessel);
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState(null);
+  const [loading,      setLoading]     = useState(false);
+  const [error,        setError]       = useState(null);
+
+  const mapBadgeRef  = useRef(null);
+  const mapLegendRef = useRef(null);
 
   const safeIdx = Number.isFinite(Number(timeIndex)) ? Number(timeIndex) : 0;
 
   // Fetch full timeseries once on mount (or when baseUrl changes).
-  // Individual timestep changes are handled by the currentSummary memo below.
   useEffect(() => {
     let alive = true;
     setLoading(true);
     setError(null);
-
-    fetchSuitabilityTimeseries({
-      startIndex: 0,
-      maxSteps:   DEFAULT_MAX_STEPS,
-      baseUrl:    suitabilityBaseUrl,
-    })
+    fetchSuitabilityTimeseries({ startIndex: 0, maxSteps: DEFAULT_MAX_STEPS, baseUrl: suitabilityBaseUrl })
       .then(data => { if (alive) { setSeries(data); setLoading(false); } })
       .catch(err => {
         if (alive) {
@@ -75,14 +130,11 @@ export default function SuitabilityOutlookPanel({
           setLoading(false);
         }
       });
-
     return () => { alive = false; };
   }, [suitabilityBaseUrl]);
 
   // Keep the active card highlight in sync if vessel is changed from outside.
-  useEffect(() => {
-    setActiveVessel(selectedVessel);
-  }, [selectedVessel]);
+  useEffect(() => { setActiveVessel(selectedVessel); }, [selectedVessel]);
 
   // Pick the summary that matches the current map timestep.
   const currentSummary = useMemo(() => {
@@ -91,12 +143,61 @@ export default function SuitabilityOutlookPanel({
     return exact || findNearestByTimeIndex(series, safeIdx);
   }, [series, safeIdx]);
 
+  const validTimeStr = useMemo(() => formatUtcCompact(currentSummary?.timeUtc), [currentSummary]);
+  const activeVesselLabel = useMemo(
+    () => VESSEL_CLASSES.find(vc => vc.code === activeVessel)?.label ?? activeVessel,
+    [activeVessel],
+  );
+  const activeVesselStatus = currentSummary?.vessels?.[activeVessel]?.status ?? STATUS.UNAVAILABLE;
+
   const handleVesselClick = code => {
     setActiveVessel(code);
     onSelectedVesselChange?.(code);
   };
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Leaflet map badge + legend ───────────────────────────────────────────────
+  // Both controls are created/destroyed together with the overlay state.
+  useEffect(() => {
+    const map = mapInstance?.current;
+    if (!map) return;
+
+    const removeCurrent = () => {
+      if (mapBadgeRef.current)  { try { map.removeControl(mapBadgeRef.current);  } catch {} mapBadgeRef.current  = null; }
+      if (mapLegendRef.current) { try { map.removeControl(mapLegendRef.current); } catch {} mapLegendRef.current = null; }
+    };
+
+    removeCurrent();
+    if (!overlayVisible) return;
+
+    // ── Badge (topleft) ──
+    const BadgeControl = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        return buildSuitabilityBadge({
+          vesselLabel: activeVesselLabel,
+          status: activeVesselStatus,
+          timeLabel: validTimeStr,
+        });
+      },
+    });
+
+    // ── Legend (bottomright) ──
+    const LegendControl = L.Control.extend({
+      options: { position: 'bottomright' },
+      onAdd() {
+        return buildSuitabilityLegend();
+      },
+    });
+
+    mapBadgeRef.current  = new BadgeControl();
+    mapLegendRef.current = new LegendControl();
+    mapBadgeRef.current.addTo(map);
+    mapLegendRef.current.addTo(map);
+
+    return removeCurrent;
+  }, [mapInstance, overlayVisible, activeVesselLabel, activeVesselStatus, validTimeStr]);
+
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   const headerRight = (
     <div className="suitability-header-right">
@@ -105,12 +206,18 @@ export default function SuitabilityOutlookPanel({
           type="button"
           className={`suitability-overlay-toggle${overlayVisible ? ' is-active' : ''}`}
           onClick={onOverlayToggle}
-          title={overlayVisible ? 'Hide map overlay' : 'Show map overlay'}
+          title={overlayVisible ? 'Hide suitability map overlay' : 'Show suitability map overlay'}
         >
           {overlayVisible ? <Eye size={11} /> : <EyeOff size={11} />}
+          <span className="suitability-overlay-toggle-label">Suitability map</span>
         </button>
       )}
-      <span className="suitability-time-chip">Step {safeIdx}</span>
+      <span
+        className="suitability-time-chip"
+        title={`Step ${safeIdx}`}
+      >
+        {validTimeStr || `Step ${safeIdx}`}
+      </span>
     </div>
   );
 
@@ -180,19 +287,19 @@ export default function SuitabilityOutlookPanel({
               <div className="suitability-card-stats">
                 <span className="suitability-stat">
                   <span className="suitability-stat-label">S</span>
-                  <span className={`suitability-stat-value suitability-stat-suitable`}>
+                  <span className="suitability-stat-value suitability-stat-suitable">
                     {formatPct(vd?.suitablePercent)}
                   </span>
                 </span>
                 <span className="suitability-stat">
                   <span className="suitability-stat-label">C</span>
-                  <span className={`suitability-stat-value suitability-stat-caution`}>
+                  <span className="suitability-stat-value suitability-stat-caution">
                     {formatPct(vd?.cautionPercent)}
                   </span>
                 </span>
                 <span className="suitability-stat">
                   <span className="suitability-stat-label">A</span>
-                  <span className={`suitability-stat-value suitability-stat-avoid`}>
+                  <span className="suitability-stat-value suitability-stat-avoid">
                     {formatPct(vd?.avoidPercent)}
                   </span>
                 </span>
