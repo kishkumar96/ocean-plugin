@@ -405,6 +405,17 @@ async function fetchSummary(timeIndex, baseUrl) {
   );
 }
 
+async function fetchSeaLevelTimeseries(baseUrl, startTime, endTime) {
+  const params = new URLSearchParams();
+  if (startTime) params.set('start_time', startTime);
+  if (endTime)   params.set('end_time', endTime);
+  const qs = params.toString();
+  return fetchJsonEndpoint(
+    `/niue/sea-level/timeseries${qs ? `?${qs}` : ''}`,
+    baseUrl,
+    'Sea-level timeseries',
+  );
+}
 
 
 // ── Capture map ───────────────────────────────────────────────────────────────
@@ -668,7 +679,7 @@ async function drawPage1(doc, { mapDataUrl, summary, validTime, runId, selectedV
 
 // ── Page 2 — Location table + next windows + sparkline bar chart ───────────
 
-async function drawPage2(doc, { summary, validTime, runId, timeSeriesData, vesselIcons = {} }) {
+async function drawPage2(doc, { summary, validTime, runId, timeSeriesData, vesselIcons = {}, baseUrl = '' }) {
   doc.addPage();
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
@@ -725,6 +736,20 @@ async function drawPage2(doc, { summary, validTime, runId, timeSeriesData, vesse
   const STRIP_H = 10.5;
   const MARKER_LABEL_GAP = 3.0;
   let y = MSG_Y + 9;
+
+  // Fetch sea-level context data (gracefully omit strip if unavailable)
+  let seaLevelData = null;
+  if (baseUrl && timeSeriesData?.length >= 2) {
+    try {
+      seaLevelData = await fetchSeaLevelTimeseries(
+        baseUrl,
+        timeSeriesData[0].time,
+        timeSeriesData[timeSeriesData.length - 1].time,
+      );
+    } catch {
+      // API unavailable — sea-level strip silently omitted
+    }
+  }
 
   VESSEL_CLASSES.forEach((vc) => {
     const vd = vessels[vc.code] ?? {};
@@ -862,6 +887,78 @@ async function drawPage2(doc, { summary, validTime, runId, timeSeriesData, vesse
           doc.text(label, xPos, AX_Y + 3.8, { align: 'center' });
         }
       });
+    }
+
+    // ── Sea-level context strip ──────────────────────────────────────────────
+    if (seaLevelData?.timesteps?.length >= 2) {
+      const SL_Y       = y + 0.5;        // y = 188 after 4 vessel rows
+      const SL_C_TOP   = SL_Y + 4;
+      const SL_CHART_H = 6.5;
+      const SL_C_BOT   = SL_C_TOP + SL_CHART_H;
+
+      rect(doc, ROW_X, SL_Y, ROW_W, SL_CHART_H + 4, [238, 242, 250], GRID_CLR, 0.1);
+
+      setFont(doc, TEXT_DK, 5.5, 'bold');
+      doc.text('Sea level context', ROW_X + 2.5, SL_Y + 2.8);
+      setFont(doc, TEXT_MD, 3.8);
+      doc.text('Context only; suitability above uses wind + waves.', ROW_X + ROW_W / 2, SL_Y + 2.8, { align: 'center' });
+      doc.text('Total = tide + inverse barometer + SLA', ROW_X + ROW_W - 2, SL_Y + 2.8, { align: 'right' });
+
+      const slPoints = [];
+      for (const step of seaLevelData.timesteps) {
+        const tMs = new Date(step.valid_time_utc).getTime();
+        if (tMs < t0ms || tMs > t1ms) continue;
+        slPoints.push({ x: STRIP_X + (tMs - t0ms) / tRangeMs * STRIP_W, v: step.total_sea_level_m });
+      }
+
+      if (slPoints.length >= 2) {
+        const vals    = slPoints.map(p => p.v);
+        const slMin   = Math.min(...vals);
+        const slMax   = Math.max(...vals);
+        const slRange = slMax - slMin || 0.001;
+        const toY     = (v) => SL_C_BOT - ((v - slMin) / slRange) * SL_CHART_H;
+
+        // Vertical grid lines aligned to vessel-row ticks
+        sixHourTicks.forEach(({ ms, x }) => {
+          const isMidnight = new Date(ms).getUTCHours() === 0;
+          setDraw(doc, isMidnight ? [150, 172, 208] : [182, 200, 220]);
+          doc.setLineWidth(isMidnight ? 0.18 : 0.1);
+          doc.setLineDashPattern([0.9, 0.9], 0);
+          doc.line(x, SL_C_TOP, x, SL_C_BOT);
+          doc.setLineDashPattern([], 0);
+        });
+
+        // Zero line (dashed)
+        if (slMin <= 0 && slMax >= 0) {
+          setDraw(doc, [180, 180, 180]);
+          doc.setLineWidth(0.1);
+          doc.setLineDashPattern([1.5, 1.5], 0);
+          doc.line(STRIP_X, toY(0), STRIP_X + STRIP_W, toY(0));
+          doc.setLineDashPattern([], 0);
+        }
+
+        // Line chart (blue)
+        setDraw(doc, [41, 98, 255]);
+        doc.setLineWidth(0.35);
+        for (let i = 1; i < slPoints.length; i++) {
+          doc.line(slPoints[i - 1].x, toY(slPoints[i - 1].v), slPoints[i].x, toY(slPoints[i].v));
+        }
+
+        // Y-axis H/L labels
+        setFont(doc, [150, 150, 150], 3.5);
+        doc.text(`H ${slMax.toFixed(2)}m`, ROW_X + 30.2, SL_C_TOP + 0.5, { align: 'right' });
+        doc.text(`L ${slMin.toFixed(2)}m`, ROW_X + 30.2, SL_C_BOT - 0.2, { align: 'right' });
+
+        // H/L marker dots on line
+        let hiIdx = 0, loIdx = 0;
+        vals.forEach((v, i) => { if (v > vals[hiIdx]) hiIdx = i; if (v < vals[loIdx]) loIdx = i; });
+        if (hiIdx !== loIdx) {
+          [hiIdx, loIdx].forEach(idx => {
+            setFill(doc, [41, 98, 255]);
+            doc.circle(slPoints[idx].x, toY(slPoints[idx].v), 0.7, 'F');
+          });
+        }
+      }
     }
   }
 
@@ -1797,6 +1894,11 @@ function drawPage6(doc, { validTime, runId }) {
   ly = infoBlock(COL_L_X, ly, 'FORECAST SCHEDULE', [
     'Runs every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC. Forecast horizon: 7 days.',
   ]);
+  ly = infoBlock(COL_L_X, ly, 'SEA-LEVEL CONTEXT', [
+    'Page 2 shows total sea level derived from astronomical tide, inverse barometer,',
+    'and sea-level anomaly. This is contextual water-level guidance only and is not',
+    'currently used in the wind/wave vessel suitability classification.',
+  ]);
 
   let ry2 = INFO_Y;
   ry2 = infoBlock(COL_R_X, ry2, 'LIMITATIONS & CAVEATS', [
@@ -1992,7 +2094,7 @@ export async function exportSuitabilityPDF({
   const effectiveRunId = runId ?? tsMeta?.run_id ?? tsMeta?.forecast_run_id ?? tsMeta?.issued_at ?? null;
 
   await drawPage1(doc, { mapDataUrl, summary, validTime: effectiveValidTime, runId: effectiveRunId, selectedVessel, timeSeriesData, vesselIcons });
-  await drawPage2(doc, { summary, validTime: effectiveValidTime, runId: effectiveRunId, timeSeriesData, vesselIcons });
+  await drawPage2(doc, { summary, validTime: effectiveValidTime, runId: effectiveRunId, timeSeriesData, vesselIcons, baseUrl: apiBaseUrl });
 
   progress('Finding best comparison timestep...');
   await drawPage3(doc, { baseUrl: apiBaseUrl, timeIndex: effectiveTimeIndex, runId: effectiveRunId, validTime: effectiveValidTime, domainBbox });
