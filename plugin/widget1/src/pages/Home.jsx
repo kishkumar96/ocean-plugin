@@ -51,6 +51,34 @@ const variableConfigMap = {
 const NIUE_WMS_BASE = "https://gem-ncwms-hpc.spc.int/ncWMS/wms";
 const SUITABILITY_API_BASE = process.env.REACT_APP_SUITABILITY_BASE_URL || "/suitability";
 const NIUE_INUNDATION_API_BASE = process.env.REACT_APP_NIUE_INUNDATION_BASE_URL || `${SUITABILITY_API_BASE}/niue/inundation`;
+const DEFAULT_SUITABILITY_VESSEL = "small_craft";
+
+function cleanBaseUrl(baseUrl) {
+  return String(baseUrl || "").replace(/\/+$/, "");
+}
+
+function buildSuitabilityMapUrl(baseUrl, vessel, timeIndex, bounds) {
+  const west = bounds.getWest();
+  const south = bounds.getSouth();
+  const east = bounds.getEast();
+  const north = bounds.getNorth();
+
+  const params = new URLSearchParams({
+    width: 900,
+    height: 650,
+    dpi: 150,
+    show_labels: false,
+    show_legend: false,
+    show_class_boundaries: true,
+    dissolve_classes: true,
+    lon_min: west,
+    lat_min: south,
+    lon_max: east,
+    lat_max: north,
+  });
+
+  return `${cleanBaseUrl(baseUrl)}/niue/suitability/operational-map/${vessel}/${timeIndex}?${params}`;
+}
 
 function Home({ widgetData, validCountries }) {
   // PERFORMANCE FIX: Define layers with useMemo and static legendUrl (like Widget5/11)
@@ -121,7 +149,11 @@ function Home({ widgetData, validCountries }) {
   // Buoy state management
   const [showBuoyCanvas, setShowBuoyCanvas] = useState(false);
   const [selectedBuoyId, setSelectedBuoyId] = useState(null);
+  const [selectedSuitabilityVessel, setSelectedSuitabilityVessel] = useState(DEFAULT_SUITABILITY_VESSEL);
+  const [suitabilityOverlayVisible, setSuitabilityOverlayVisible] = useState(true);
   const buoyMarkersRef = useRef([]);
+  const suitabilityOverlayRef = useRef(null);
+  const pendingOverlayRef = useRef(null);
 
   // Initialize Leaflet marker icons
   useEffect(() => {
@@ -218,6 +250,101 @@ function Home({ widgetData, validCountries }) {
       mapInstance.current.setZoom(15);
     }
   }, [selectedWaveForecast, mapInstance]);
+
+  useEffect(() => {
+    const map = mapInstance?.current;
+    if (!map || !niueBounds) return undefined;
+
+    if (!map.getPane("suitabilityPane")) {
+      map.createPane("suitabilityPane");
+      map.getPane("suitabilityPane").style.zIndex = 430;
+      map.getPane("suitabilityPane").style.pointerEvents = "none";
+    }
+
+    if (!suitabilityOverlayVisible) {
+      // Tear down everything and stay invisible.
+      if (pendingOverlayRef.current && map.hasLayer(pendingOverlayRef.current)) {
+        map.removeLayer(pendingOverlayRef.current);
+        pendingOverlayRef.current = null;
+      }
+      if (suitabilityOverlayRef.current && map.hasLayer(suitabilityOverlayRef.current)) {
+        map.removeLayer(suitabilityOverlayRef.current);
+        suitabilityOverlayRef.current = null;
+      }
+      return undefined;
+    }
+
+    // Cancel any in-flight (not yet displayed) incoming overlay.
+    if (pendingOverlayRef.current && map.hasLayer(pendingOverlayRef.current)) {
+      map.removeLayer(pendingOverlayRef.current);
+      pendingOverlayRef.current = null;
+    }
+
+    const timeIndex = Math.max(0, Math.trunc(Number(sliderIndex) || 0));
+    const url = buildSuitabilityMapUrl(
+      SUITABILITY_API_BASE,
+      selectedSuitabilityVessel || DEFAULT_SUITABILITY_VESSEL,
+      timeIndex,
+      niueBounds
+    );
+
+    // Start invisible; reveal only after image is ready so there is no blank flash.
+    const incoming = L.imageOverlay(url, niueBounds, {
+      opacity: 0,
+      pane: "suitabilityPane",
+      interactive: false,
+      crossOrigin: true,
+      alt: "Marine suitability operational map",
+    });
+
+    pendingOverlayRef.current = incoming;
+
+    incoming.on("load", () => {
+      // Bail if this request was superseded before the image arrived.
+      if (pendingOverlayRef.current !== incoming) return;
+      incoming.setOpacity(0.58);
+      if (suitabilityOverlayRef.current && map.hasLayer(suitabilityOverlayRef.current)) {
+        map.removeLayer(suitabilityOverlayRef.current);
+      }
+      suitabilityOverlayRef.current = incoming;
+      pendingOverlayRef.current = null;
+    });
+
+    incoming.on("error", () => {
+      if (map.hasLayer(incoming)) map.removeLayer(incoming);
+      if (pendingOverlayRef.current === incoming) pendingOverlayRef.current = null;
+    });
+
+    incoming.addTo(map);
+
+    return () => {
+      // Remove the in-flight overlay; keep the currently displayed one so there
+      // is no visible gap between steps during animation playback.
+      if (pendingOverlayRef.current === incoming) {
+        if (map.hasLayer(incoming)) map.removeLayer(incoming);
+        pendingOverlayRef.current = null;
+      }
+    };
+  }, [mapInstance, niueBounds, selectedSuitabilityVessel, sliderIndex, suitabilityOverlayVisible]);
+
+  // Remove the displayed overlay on component unmount.
+  useEffect(() => {
+    return () => {
+      // Reading mapInstance.current in cleanup is intentional here —
+      // this effect is unmount-only and we need the live ref value.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const map = mapInstance?.current;
+      if (!map) return;
+      if (suitabilityOverlayRef.current && map.hasLayer(suitabilityOverlayRef.current)) {
+        map.removeLayer(suitabilityOverlayRef.current);
+        suitabilityOverlayRef.current = null;
+      }
+      if (pendingOverlayRef.current && map.hasLayer(pendingOverlayRef.current)) {
+        map.removeLayer(pendingOverlayRef.current);
+        pendingOverlayRef.current = null;
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Buoy marker icons
   const blueIcon = new L.Icon({
@@ -322,6 +449,11 @@ function Home({ widgetData, validCountries }) {
         isUpdatingVisualization={isUpdatingVisualization}
         currentSliderDateStr={currentSliderDateStr}
         minIndex={minIndex}
+        suitabilityBaseUrl={SUITABILITY_API_BASE}
+        selectedSuitabilityVessel={selectedSuitabilityVessel}
+        onSelectedSuitabilityVesselChange={setSelectedSuitabilityVessel}
+        suitabilityOverlayVisible={suitabilityOverlayVisible}
+        onSuitabilityOverlayToggle={() => setSuitabilityOverlayVisible(v => !v)}
 
         // Extras retained from earlier wiring (safe if unused)
         BottomOffCanvas={BottomOffCanvas}

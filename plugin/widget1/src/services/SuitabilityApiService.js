@@ -223,13 +223,42 @@ export async function fetchSuitabilitySummary(timeIndex, baseUrl = DEFAULT_BASE_
   return normalizeSuitabilitySummary(raw, idx);
 }
 
+async function fetchSummariesBounded(indices, baseUrl, concurrency = 6) {
+  const results = new Array(indices.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < indices.length) {
+      const resultIndex = nextIndex;
+      nextIndex += 1;
+
+      try {
+        results[resultIndex] = await fetchSuitabilitySummary(indices[resultIndex], baseUrl);
+      } catch {
+        results[resultIndex] = null;
+      }
+    }
+  }
+
+  const workerCount = Math.min(concurrency, indices.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  const summaries = results.filter(Boolean);
+  if (!summaries.length && indices.length) {
+    throw new Error(`Suitability API returned no summaries for requested range ${indices[0]}-${indices[indices.length - 1]}`);
+  }
+
+  return summaries;
+}
+
 /**
  * Fetches a contiguous run of normalized summaries as an array.
  *
  * Strategy:
  *   1. Fetch timesteps to know the total count (fast single request).
  *   2. Clamp the requested range to what the API actually has.
- *   3. Fetch all summaries in parallel for minimum wall-clock time.
+ *   3. Fetch summaries with bounded concurrency so the outlook does not
+ *      flood the browser/proxy while map tiles are loading.
  *
  * Falls back to sequential-with-break if the timesteps endpoint is
  * unavailable, so the function degrades gracefully.
@@ -252,13 +281,10 @@ export async function fetchSuitabilityTimeseries({
   }
 
   if (totalSteps !== null) {
-    // Parallel path — known range, fire all requests simultaneously.
+    // Known range — fetch in a small pool and keep any successful summaries.
     const count   = Math.min(safeMax, Math.max(0, totalSteps - safeStart));
     const indices = Array.from({ length: count }, (_, i) => safeStart + i);
-    const results = await Promise.all(
-      indices.map(i => fetchSuitabilitySummary(i, baseUrl))
-    );
-    return results;
+    return fetchSummariesBounded(indices, baseUrl);
   }
 
   // Sequential fallback — stop on first missing future step.

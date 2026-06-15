@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import './ForecastApp.css';
+import SuitabilityOutlookPanel from './suitability/SuitabilityOutlookPanel';
 import '../styles/MapMarker.css';
 import useMapInteraction from '../hooks/useMapInteraction';
 import { UI_CONFIG } from '../config/UIConfig';
@@ -123,7 +124,7 @@ const DIRECTION_METADATA = [
   { value: 'NW (↖)', label: 'Northwest', description: 'Flowing toward the northwest', color: 'rgba(255, 255, 255, 0.3)' }
 ];
 
-const ForecastApp = ({ 
+const ForecastApp = ({
   WAVE_FORECAST_LAYERS,
   ALL_LAYERS,
   selectedWaveForecast,
@@ -142,7 +143,12 @@ const ForecastApp = ({
   mapInstance,
   setBottomCanvasData,
   setShowBottomCanvas,
-  minIndex
+  minIndex,
+  suitabilityBaseUrl = '',
+  selectedSuitabilityVessel = 'small_craft',
+  onSelectedSuitabilityVesselChange,
+  suitabilityOverlayVisible = true,
+  onSuitabilityOverlayToggle,
 }) => {
   // Dynamic marine legend configuration - RESPONDS TO ACTUAL DATA
   const getLegendConfig = (variable, layerData) => {
@@ -840,6 +846,21 @@ const handleNextTimestamp = () => {
                 /*resolution={UI_CONFIG.DATA_SOURCE.resolution}*/
                 updateFrequency={UI_CONFIG.DATA_SOURCE.updateFrequency}
                 /*coverage={UI_CONFIG.DATA_SOURCE.coverage}*/
+              />
+            </ControlGroup>
+
+            <ControlGroup
+              icon={<FancyIcon icon={Activity} animationType="shimmer" color="#2A9D8F" />}
+              title="Marine Suitability"
+              ariaLabel="Marine suitability outlook by vessel class"
+            >
+              <SuitabilityOutlookPanel
+                timeIndex={sliderIndex ?? 0}
+                suitabilityBaseUrl={suitabilityBaseUrl}
+                selectedVessel={selectedSuitabilityVessel}
+                onSelectedVesselChange={onSelectedSuitabilityVesselChange}
+                overlayVisible={suitabilityOverlayVisible}
+                onOverlayToggle={onSuitabilityOverlayToggle}
               />
             </ControlGroup>
           </div>
