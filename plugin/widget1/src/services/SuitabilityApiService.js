@@ -244,8 +244,18 @@ async function fetchSummariesBounded(indices, baseUrl, concurrency = 6) {
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   const summaries = results.filter(Boolean);
-  if (!summaries.length && indices.length) {
-    throw new Error(`Suitability API returned no summaries for requested range ${indices[0]}-${indices[indices.length - 1]}`);
+  const failedCount = results.length - summaries.length;
+
+  if (failedCount > 0) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(
+        `Suitability API loaded ${summaries.length}/${results.length} summaries. ` +
+        `${failedCount} timestep request(s) failed.`
+      );
+    }
+    if (!summaries.length && indices.length) {
+      throw new Error(`Suitability API returned no summaries for requested range ${indices[0]}-${indices[indices.length - 1]}`);
+    }
   }
 
   return summaries;

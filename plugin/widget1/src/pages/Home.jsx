@@ -288,6 +288,10 @@ function Home({ widgetData, validCountries }) {
       niueBounds
     );
 
+    if (process.env.NODE_ENV === 'development') {
+      console.debug('[suitability overlay] bounds:', niueBounds.toBBoxString(), '| url:', url);
+    }
+
     // Start invisible; reveal only after image is ready so there is no blank flash.
     const incoming = L.imageOverlay(url, niueBounds, {
       opacity: 0,
@@ -346,17 +350,17 @@ function Home({ widgetData, validCountries }) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Buoy marker icons
-  const blueIcon = new L.Icon({
+  // Buoy marker icons — memoized so Leaflet icon objects are not recreated on every render
+  const blueIcon = useMemo(() => new L.Icon({
     iconUrl: require("leaflet/dist/images/marker-icon.png"),
     shadowUrl: require("leaflet/dist/images/marker-shadow.png"),
     iconSize: [25, 41],
     iconAnchor: [12, 41],
     popupAnchor: [1, -34],
     shadowSize: [41, 41]
-  });
+  }), []);
 
-  const greenIcon = new L.Icon({
+  const greenIcon = useMemo(() => new L.Icon({
     iconUrl: 'data:image/svg+xml;base64,' + btoa(`
       <svg width="25" height="41" viewBox="0 0 25 41" xmlns="http://www.w3.org/2000/svg">
         <path d="M12.5,0C5.6,0,0,5.6,0,12.5c0,12.5,12.5,28.5,12.5,28.5s12.5-16,12.5-28.5C25,5.6,19.4,0,12.5,0z" fill="#22c55e"/>
@@ -368,7 +372,7 @@ function Home({ widgetData, validCountries }) {
     iconAnchor: [12, 41],
     popupAnchor: [1, -34],
     shadowSize: [41, 41]
-  });
+  }), []);
 
   // Buoy markers management (when topographic layer is active)
   useEffect(() => {
