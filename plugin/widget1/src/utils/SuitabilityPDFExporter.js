@@ -781,33 +781,87 @@ async function drawPage2(doc, { summary, validTime, runId, timeSeriesData, vesse
 
   if (timeSeriesData?.length >= 2) {
     const n2 = timeSeriesData.length;
-    const STRIP_X = ROW_X + 31;
-    const STRIP_W = ROW_W - 37;
-    const t0ms = new Date(timeSeriesData[0].time).getTime();
-    const t1ms = new Date(timeSeriesData[n2 - 1].time).getTime();
+    const STRIP_X  = ROW_X + 31;
+    const STRIP_W  = ROW_W - 37;
+    const t0ms     = new Date(timeSeriesData[0].time).getTime();
+    const t1ms     = new Date(timeSeriesData[n2 - 1].time).getTime();
     const tRangeMs = t1ms - t0ms;
-    const TICK_Y = H - 14.5;
-    const MONS_S = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const MONS_S   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const SIX_HOURS_MS = 6 * 3_600_000;
+    const ONE_HOUR_MS  = 3_600_000;
 
-    // First and last endpoint labels
-    setFont(doc, TEXT_MD, 5.5);
-    doc.text(formatUtcTiny(timeSeriesData[0].time), STRIP_X, TICK_Y + 3.8);
-    doc.text(formatUtcTiny(timeSeriesData[n2 - 1].time), STRIP_X + STRIP_W, TICK_Y + 3.8, { align: 'right' });
-
-    // Daily midnight UTC tick marks between endpoints
-    const firstMidnight = new Date(t0ms);
-    firstMidnight.setUTCHours(0, 0, 0, 0);
-    firstMidnight.setUTCDate(firstMidnight.getUTCDate() + 1);
-    for (let d = firstMidnight.getTime(); d < t1ms; d += 86400000) {
-      const xPos = STRIP_X + (d - t0ms) / tRangeMs * STRIP_W;
-      if (xPos > STRIP_X + 14 && xPos < STRIP_X + STRIP_W - 14) {
-        setDraw(doc, GRID_CLR);
-        doc.setLineWidth(0.2);
-        doc.line(xPos, TICK_Y, xPos, TICK_Y + 1.5);
-        const dayD = new Date(d);
-        setFont(doc, TEXT_MD, 4.5);
-        doc.text(`${dayD.getUTCDate()} ${MONS_S[dayD.getUTCMonth()]}`, xPos, TICK_Y + 5, { align: 'center' });
+    // Pre-compute 6-hour x-positions anchored to UTC 00/06/12/18.
+    const firstSixHour = Math.ceil(t0ms / SIX_HOURS_MS) * SIX_HOURS_MS;
+    const sixHourTicks = [];
+    for (let d = firstSixHour; d < t1ms; d += SIX_HOURS_MS) {
+      if (d <= t0ms) continue;
+      const x = STRIP_X + (d - t0ms) / tRangeMs * STRIP_W;
+      if (x > STRIP_X + 14 && x < STRIP_X + STRIP_W - 14) {
+        sixHourTicks.push({ ms: d, x });
       }
+    }
+
+    // Dashed vertical grid lines through each vessel-row strip.
+    // Drawn after bars so they overlay the colour fill — midnight lines slightly bolder.
+    sixHourTicks.forEach(({ ms, x }) => {
+      const isMidnight = new Date(ms).getUTCHours() === 0;
+      setDraw(doc, isMidnight ? [150, 172, 208] : [182, 200, 220]);
+      doc.setLineWidth(isMidnight ? 0.25 : 0.15);
+      doc.setLineDashPattern([0.9, 0.9], 0);
+      for (let ri = 0; ri < VESSEL_CLASSES.length; ri++) {
+        const sy = MSG_Y + 9 + ri * (ROW_H + GAP) + STRIP_Y_OFFSET;
+        doc.line(x, sy, x, sy + STRIP_H);
+      }
+      doc.setLineDashPattern([], 0);
+    });
+
+    // Per-row time axis drawn directly below each vessel strip.
+    // Each row is self-contained so the reader never has to look away from its bars.
+    const firstHour = Math.ceil(t0ms / ONE_HOUR_MS) * ONE_HOUR_MS;
+    for (let ri = 0; ri < VESSEL_CLASSES.length; ri++) {
+      const sy  = MSG_Y + 9 + ri * (ROW_H + GAP) + STRIP_Y_OFFSET;
+      const AX_Y = sy + STRIP_H + 0.5;   // baseline 0.5 mm below strip bottom
+
+      // Axis baseline
+      setDraw(doc, GRID_CLR);
+      doc.setLineWidth(0.15);
+      doc.line(STRIP_X, AX_Y, STRIP_X + STRIP_W, AX_Y);
+
+      // Endpoint labels — compact, no "UTC" suffix to save space
+      setFont(doc, TEXT_MD, 4.0);
+      doc.text(formatUtcTiny(timeSeriesData[0].time),      STRIP_X,           AX_Y + 3.8);
+      doc.text(formatUtcTiny(timeSeriesData[n2 - 1].time), STRIP_X + STRIP_W, AX_Y + 3.8, { align: 'right' });
+
+      // Hourly minor ticks (unlabelled)
+      for (let d = firstHour; d < t1ms; d += ONE_HOUR_MS) {
+        if (d <= t0ms || d % SIX_HOURS_MS === 0) continue;
+        const xPos = STRIP_X + (d - t0ms) / tRangeMs * STRIP_W;
+        if (xPos > STRIP_X + 5 && xPos < STRIP_X + STRIP_W - 5) {
+          setDraw(doc, [185, 190, 195]);
+          doc.setLineWidth(0.1);
+          doc.line(xPos, AX_Y, xPos, AX_Y + 0.8);
+        }
+      }
+
+      // 6-hour major ticks + labels.
+      // Midnight → "DD Mon" (dark), noon → "12Z" (grey), 06Z/18Z → tick only.
+      sixHourTicks.forEach(({ ms, x: xPos }) => {
+        const tickDate   = new Date(ms);
+        const utcHour    = tickDate.getUTCHours();
+        const isMidnight = utcHour === 0;
+        const isNoon     = utcHour === 12;
+        const tickH      = isMidnight ? 2.2 : isNoon ? 1.8 : 1.2;
+        setDraw(doc, isMidnight ? TEXT_DK : GRID_CLR);
+        doc.setLineWidth(isMidnight ? 0.25 : 0.15);
+        doc.line(xPos, AX_Y, xPos, AX_Y + tickH);
+        if (isMidnight || isNoon) {
+          setFont(doc, isMidnight ? TEXT_DK : TEXT_MD, isMidnight ? 4.0 : 3.5);
+          const label = isMidnight
+            ? `${tickDate.getUTCDate()} ${MONS_S[tickDate.getUTCMonth()]}`
+            : '12Z';
+          doc.text(label, xPos, AX_Y + 3.8, { align: 'center' });
+        }
+      });
     }
   }
 
