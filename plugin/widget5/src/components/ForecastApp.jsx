@@ -61,12 +61,6 @@ const ForecastApp = ({
   flood3DConfig,
   flood3dElevScale = 6,
   setFlood3dElevScale,
-  waveParticleMode = 'off',
-  setWaveParticleMode,
-  particleQuality = 'balanced',
-  setParticleQuality,
-  swellSourcesEnabled = false,
-  setSwellSourcesEnabled,
 }) => {
   const lastZoomedLayerRef = useRef(null);
   const [selectedIslandId, setSelectedIslandId] = useState(ISLAND_ZOOM_TARGETS[0]?.id || '');
@@ -78,7 +72,6 @@ const ForecastApp = ({
     return ALL_LAYERS.find(l => l.value === selectedWaveForecast) || null;
   }, [ALL_LAYERS, selectedWaveForecast]);
   const isRasterInundation = isRasterSourceLayer(selectedLayer);
-  const isSwanLayer = selectedLayer?.type === 'ugrid';
   const terrainAvailable = Array.isArray(terrainConfig?.tiles) && terrainConfig.tiles.some(Boolean);
   const flood3DAvailable = Boolean(flood3DConfig?.available);
 
@@ -604,90 +597,6 @@ const ForecastApp = ({
             formatPercent={UI_CONFIG.FORMATS.opacityPercent}
             ariaLabel={UI_CONFIG.ARIA_LABELS.overlayOpacity}
           />
-
-          {/* ── Wave motion ── only for SWAN UGRID layers */}
-          {isSwanLayer && (
-            <div className="map-display-option">
-              <div className="map-display-option__label">Wave motion</div>
-              <div className="map-display-option__segmented" role="radiogroup" aria-label="Wave motion mode">
-                {['off', 'particles', 'particles+raster', 'streamlines'].map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={`map-display-option__btn${waveParticleMode === mode ? ' map-display-option__btn--active' : ''}`}
-                    role="radio"
-                    aria-checked={waveParticleMode === mode}
-                    onClick={() => setWaveParticleMode?.(mode)}
-                  >
-                    {mode === 'off' ? 'Off'
-                      : mode === 'particles' ? 'Particles'
-                      : mode === 'particles+raster' ? 'Particles + raster'
-                      : 'Streamlines'}
-                  </button>
-                ))}
-              </div>
-              {waveParticleMode !== 'off' && (
-                <>
-                  <div className="map-display-option__segmented" role="radiogroup" aria-label="Detail level" style={{ marginTop: '0.4rem' }}>
-                    {['balanced', 'high'].map((q) => (
-                      <button
-                        key={q}
-                        type="button"
-                        className={`map-display-option__btn${particleQuality === q ? ' map-display-option__btn--active' : ''}`}
-                        role="radio"
-                        aria-checked={particleQuality === q}
-                        onClick={() => setParticleQuality?.(q)}
-                      >
-                        {q === 'balanced' ? 'Balanced' : 'High detail'}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="map-display-option__hint">
-                    {waveParticleMode === 'streamlines'
-                      ? 'Pre-computed flow paths animated as moving dashes. Path structure reveals wave direction; dash speed and colour encode wave height.'
-                      : waveParticleMode === 'particles'
-                      ? 'Direction particles only — raster dimmed. Trails follow mean wave direction and brighten with wave height.'
-                      : 'Direction particles overlaid on the wave height raster. Trails follow mean wave direction and brighten with wave height.'}
-                    {waveParticleMode === 'streamlines'
-                      ? (particleQuality === 'high' ? ' High detail traces ~1,450 paths.' : ' Balanced traces ~660 paths.')
-                      : (particleQuality === 'high' ? ' High detail uses ~102 k particles.' : ' Balanced uses ~66 k particles.')}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* ── Swell source arcs ── only for SWAN UGRID layers */}
-          {isSwanLayer && (
-            <div className="map-display-option">
-              <div className="map-display-option__label">Swell sources</div>
-              <div className="map-display-option__segmented" role="radiogroup" aria-label="Swell source arcs">
-                <button
-                  type="button"
-                  className={`map-display-option__btn${!swellSourcesEnabled ? ' map-display-option__btn--active' : ''}`}
-                  role="radio"
-                  aria-checked={!swellSourcesEnabled}
-                  onClick={() => setSwellSourcesEnabled?.(false)}
-                >
-                  Off
-                </button>
-                <button
-                  type="button"
-                  className={`map-display-option__btn${swellSourcesEnabled ? ' map-display-option__btn--active' : ''}`}
-                  role="radio"
-                  aria-checked={swellSourcesEnabled}
-                  onClick={() => setSwellSourcesEnabled?.(true)}
-                >
-                  On
-                </button>
-              </div>
-              <div className="map-display-option__hint">
-                {swellSourcesEnabled
-                  ? 'Click anywhere on the SWAN layer to draw swell arrival direction arcs. Arc width scales with height.'
-                  : 'Shows primary / secondary / tertiary swell directions for a clicked point.'}
-              </div>
-            </div>
-          )}
 
           <div className="map-display-option">
             <div className="map-display-option__label">Terrain</div>
