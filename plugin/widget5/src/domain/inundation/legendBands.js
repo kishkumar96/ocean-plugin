@@ -1,13 +1,15 @@
 const X_SST_GRADIENT_RGB = [
-  [0, 0, 128],
-  [0, 60, 200],
-  [0, 120, 255],
-  [0, 200, 220],
-  [100, 255, 100],
-  [255, 255, 0],
-  [255, 180, 0],
-  [255, 100, 0],
-  [200, 0, 0],
+  [8,   15,  120],
+  [10,  55,  210],
+  [0,   130, 225],
+  [20,  190, 200],
+  [45,  195, 145],
+  [90,  195, 70 ],
+  [175, 205, 35 ],
+  [225, 195, 30 ],
+  [230, 115, 20 ],
+  [215, 40,  20 ],
+  [130, 0,   5  ],
 ];
 
 const generateGradientBands = (paletteRGB, bands = 250) => {
@@ -37,6 +39,46 @@ const X_SST_250_BANDS = generateGradientBands(X_SST_GRADIENT_RGB, 250);
 export const X_SST_GRADIENT = `linear-gradient(to top, ${X_SST_250_BANDS.map((color, i) =>
   `${color} ${(i / (X_SST_250_BANDS.length - 1) * 100).toFixed(2)}%`
 ).join(', ')})`;
+
+/**
+ * Build a stepped legend config from explicit colorBreaks.
+ * colormapFn must be the same function used by the renderer so colours match exactly.
+ * Returns the same shape as getLegendConfig so the existing legend JSX works unchanged.
+ */
+export function buildBreakLegendConfig({ colorBreaks, colorLabels, colorRange, units = 'm', colormapFn }) {
+  const { min, max } = colorRange;
+  const range = max - min || 1;
+  const numBands = colorBreaks.length - 1;
+
+  // One colour per band, sampled at the band's normalised midpoint using the renderer's colormap
+  const bandCss = Array.from({ length: numBands }, (_, i) => {
+    const mid = (colorBreaks[i] + colorBreaks[i + 1]) / 2;
+    const t = Math.max(0, Math.min(1, (mid - min) / range));
+    const [r, g, b] = colormapFn ? colormapFn(t) : [128, 128, 128];
+    return `rgb(${r},${g},${b})`;
+  });
+
+  // Hard-stop CSS gradient: each band occupies its exact fraction of the bar
+  const stops = Array.from({ length: numBands }, (_, i) => {
+    const s = (((colorBreaks[i]     - min) / range) * 100).toFixed(2);
+    const e = (((colorBreaks[i + 1] - min) / range) * 100).toFixed(2);
+    return `${bandCss[i]} ${s}% ${e}%`;
+  });
+  const gradient = `linear-gradient(to top, ${stops.join(', ')})`;
+
+  // Ticks at every break value; tickBands maps each UPPER bound to the band below it.
+  // This ensures the swatch at each tick matches the gradient colour just below that tick,
+  // and the topmost tick gets a swatch + range label rather than rendering as an orphan.
+  const tickBands = {};
+  for (let i = 0; i < numBands; i++) {
+    tickBands[colorBreaks[i + 1]] = {
+      color: bandCss[i],
+      label: colorLabels?.[i] ?? `${colorBreaks[i]}–${colorBreaks[i+1]} ${units}`,
+    };
+  }
+
+  return { gradient, min, max, units, ticks: colorBreaks, tickBands };
+}
 
 export const parseLegendColorRange = (rangeString) => {
   if (!rangeString) return null;
