@@ -1,14 +1,13 @@
 /**
- * GPUParticleFlowLayer - Production-ready GPU-accelerated particle flow visualization
+ * GPUParticleFlowLayer - GPU-accelerated particle flow visualization
  * 
  * Based on proven shaders from /home/kishank/deckgl experiment/index_zarr.html
- * Renders 65k+ particles at 60fps with cubic temporal interpolation
+ * Renders 65k+ particles with cubic temporal interpolation
  * 
  * Features:
  * - Ping-pong particle state textures (GPU compute via FBO)
  * - 4-point cubic interpolation between timesteps
  * - Trail rendering with configurable fade
- * - Adaptive LOD based on FPS
  * - Multi-variable support (velocity field + color field)
  * - RK4 integration for smooth trajectories
  * 
@@ -25,8 +24,7 @@
  */
 
 import { Layer } from '@deck.gl/core';
-import { Model } from '@luma.gl/engine';
-// import GL from '@luma.gl/constants'; // Unused, keeping for reference
+import { getColormap } from '../lib/colormaps';
 
 // Shader sources ported from proven GPU implementation
 const vertQuad = `#version 300 es
@@ -158,8 +156,6 @@ void main(){
 }`;
 
 const vertDraw = `#version 300 es
-in vec2 position;
-
 uniform sampler2D u_particles_prev;
 uniform sampler2D u_particles_curr;
 uniform float u_particle_res;
@@ -173,9 +169,10 @@ uniform float u_speed_lo;
 uniform float u_speed_range;
 uniform float u_speed_decode;
 uniform float u_is_wave_mode;
-uniform highp sampler2D u_hs_tex;
+uniform sampler2D u_hs_tex;
 uniform float u_hs_lo;
 uniform float u_hs_range;
+uniform sampler2D u_color_ramp;
 
 out vec3 v_color;
 out float v_alpha;
@@ -197,18 +194,6 @@ vec3 speed_to_color(float s){
   if(s<18.) return mix(c3,c4,(s-12.)/6.);
   if(s<30.) return mix(c4,c5,(s-18.)/12.);
   return mix(c5,c6,clamp((s-30.)/15.,0.,1.));
-}
-
-vec3 wave_to_color(float t){
-  vec3 c0 = vec3(8,20,135)/255.;
-  vec3 c1 = vec3(5,145,185)/255.;
-  vec3 c2 = vec3(25,165,45)/255.;
-  vec3 c3 = vec3(225,215,15)/255.;
-  vec3 c4 = vec3(185,10,10)/255.;
-  if(t<0.25) return mix(c0,c1,t/0.25);
-  if(t<0.50) return mix(c1,c2,(t-0.25)/0.25);
-  if(t<0.75) return mix(c2,c3,(t-0.50)/0.25);
-  return mix(c3,c4,clamp((t-0.75)/0.25,0.,1.));
 }
 
 vec4 fetch(sampler2D tex, float idx){
@@ -261,7 +246,7 @@ void main(){
   if (u_is_wave_mode > 0.5) {
     float hs = texture(u_hs_tex, curr_s.rg).r;
     float hs_t = clamp((hs - u_hs_lo) / max(u_hs_range, 0.001), 0.0, 1.0);
-    v_color = wave_to_color(hs_t);
+    v_color = texture(u_color_ramp, vec2(hs_t, 0.5)).rgb;
   } else {
     v_color = speed_to_color(t_color * 42.0);
   }
@@ -284,9 +269,47 @@ const fragDraw = `#version 300 es
 precision highp float;
 in vec3 v_color;
 in float v_alpha;
+uniform float u_global_opacity;
 out vec4 fragColor;
 void main(){
-  fragColor = vec4(v_color, v_alpha * 0.8);
+  fragColor = vec4(v_color, v_alpha * 0.8 * u_global_opacity);
+}`;
+
+// ── Trail accumulation shaders ────────────────────────────────────────────────
+// Full-screen triangle (covers NDC -1→1 in both axes with 3 vertices).
+const vertScreen = `#version 300 es
+void main(){
+  float x = float(gl_VertexID == 1 ? 3 : -1);
+  float y = float(gl_VertexID == 2 ? 3 : -1);
+  gl_Position = vec4(x, y, 0.0, 1.0);
+}`;
+
+// Fade pass: draw semi-transparent black over the trail FBO to decay old content.
+const fragFade = `#version 300 es
+precision mediump float;
+uniform float u_fade;
+out vec4 fragColor;
+void main(){ fragColor = vec4(0.0, 0.0, 0.0, u_fade); }`;
+
+// Blit pass: composite the trail texture onto the main framebuffer.
+const vertBlit = `#version 300 es
+out vec2 v_uv;
+void main(){
+  float x = float(gl_VertexID == 1 ? 3 : -1);
+  float y = float(gl_VertexID == 2 ? 3 : -1);
+  v_uv = vec2(x, y) * 0.5 + 0.5;
+  gl_Position = vec4(x, y, 0.0, 1.0);
+}`;
+
+const fragBlit = `#version 300 es
+precision mediump float;
+in vec2 v_uv;
+uniform sampler2D u_trail;
+uniform float u_opacity;
+out vec4 fragColor;
+void main(){
+  vec4 t = texture(u_trail, v_uv);
+  fragColor = vec4(t.rgb, t.a * u_opacity);
 }`;
 
 export default class GPUParticleFlowLayer extends Layer {
@@ -296,7 +319,6 @@ export default class GPUParticleFlowLayer extends Layer {
     particleResolution: { type: 'number', value: 256, min: 64, max: 512 },
     windResolution: { type: 'number', value: 256, min: 64, max: 512 },
     speedFactor: { type: 'number', value: 5.0, min: 0.1, max: 50.0 },
-    fadeAmount: { type: 'number', value: 0.982, min: 0.8, max: 0.999 },
     dropRate: { type: 'number', value: 0.003, min: 0.001, max: 0.1 },
     maxAge: { type: 'number', value: 160, min: 50, max: 500 },
     lineWidth: { type: 'number', value: 2.0, min: 0.5, max: 10.0 },
@@ -312,14 +334,22 @@ export default class GPUParticleFlowLayer extends Layer {
     interpAlpha: { type: 'number', value: 0.0, min: 0.0, max: 1.0 },
     useWaveMode: { type: 'boolean', value: false },
     
+    // Opacity — applied as a multiplier in the fragment shader
+    globalOpacity: { type: 'number', value: 1.0, min: 0.0, max: 1.0 },
+    // Trail decay per frame (0.04 ≈ 0.5 s trail at 60 fps)
+    fadeAmount: { type: 'number', value: 0.04, min: 0.01, max: 0.3 },
+
     // Performance
     getPolygonOffset: { type: 'function', value: () => [0, -1] }
   };
 
   getShaders() {
+    // Minimal no-op shaders for deck.gl infrastructure.
+    // Actual rendering is handled by this.drawProgram (raw WebGL2).
     return {
-      vs: vertDraw,
-      fs: fragDraw
+      vs: `#version 300 es\nvoid main(){ gl_Position = vec4(2.,2.,0.,1.); }`,
+      fs: `#version 300 es\nprecision highp float;\nout vec4 c;\nvoid main(){ c=vec4(0.); }`,
+      modules: [],
     };
   }
 
@@ -330,9 +360,20 @@ export default class GPUParticleFlowLayer extends Layer {
     // This layer relies on raw WebGL2 APIs in addition to deck/luma abstractions.
     if (!gl || typeof gl.createVertexArray !== 'function' || typeof gl.createFramebuffer !== 'function') {
       console.error('GPUParticleFlowLayer requires WebGL2');
-      this.setState({ model: null, frameCount: 0, randSeed: 0, gpuReady: false });
+      this.setState({ model: null, gpuReady: false });
       return;
     }
+
+    if (!this.hasFloatRenderSupport(gl)) {
+      console.error('GPUParticleFlowLayer requires renderable floating-point textures');
+      this.setState({ model: null, gpuReady: false });
+      return;
+    }
+
+    this._frameCount = 0;
+    this._randSeed = 0;
+    this._lastFrameTime = null;
+    this._dtScale = 1;
 
     // Create particle state textures (ping-pong)
     this.particleTexture0 = this.createTexture(gl, particleResolution, particleResolution, null, gl.RGBA32F, gl.RGBA, gl.FLOAT);
@@ -352,6 +393,10 @@ export default class GPUParticleFlowLayer extends Layer {
     // Create color field texture (optional)
     this.colorTexture = this.createTexture(gl, windResolution, windResolution, null, gl.R32F, gl.RED, gl.FLOAT);
 
+    // Wave-mode color ramp — matches the x-sst palette used by the hs raster layer
+    // (colormaps.js) so particle colour reads as the same quantity as the raster.
+    this.colorRampTexture = this.createColorRampTexture(gl);
+
     // Create FBO for particle update
     this.updateFBO = gl.createFramebuffer();
 
@@ -361,39 +406,80 @@ export default class GPUParticleFlowLayer extends Layer {
     // Create update shader program
     this.createUpdateShader(gl, windResolution, maxAge);
 
-    // Create draw shader program (handled by deck.gl)
-    const attributeManager = this.getAttributeManager();
-    attributeManager.addInstanced({
-      instanceIndex: {
-        size: 1,
-        update: (attribute) => {
-          const { value } = attribute;
-          const count = particleResolution * particleResolution;
-          for (let i = 0; i < count; i++) {
-            value[i] = i;
-          }
-        }
-      }
-    });
+    // Create draw shader program (raw WebGL2)
+    this.createDrawShader(gl);
+
+    // Trail accumulation resources
+    this._trailW = 0;
+    this._trailH = 0;
+    this.trailTexture = null;
+    this.trailFBO = gl.createFramebuffer();
+    this._lastCx = null;
+
+    this.fadeProgram = this._buildProgram(gl, vertScreen, fragFade);
+    this.fadeUniforms = { u_fade: gl.getUniformLocation(this.fadeProgram, 'u_fade') };
+
+    this.blitProgram = this._buildProgram(gl, vertBlit, fragBlit);
+    this.blitUniforms = {
+      u_trail:   gl.getUniformLocation(this.blitProgram, 'u_trail'),
+      u_opacity: gl.getUniformLocation(this.blitProgram, 'u_opacity'),
+    };
 
     this.setState({
-      model: this.getModel(gl),
-      frameCount: 0,
-      randSeed: 0,
       gpuReady: true
     });
   }
 
-  createTexture(gl, width, height, data, internalFormat, format, type) {
+  hasFloatRenderSupport(gl) {
+    if (!gl.getExtension('EXT_color_buffer_float')) return false;
+
+    const texture = gl.createTexture();
+    const framebuffer = gl.createFramebuffer();
+    const prevTexture = gl.getParameter(gl.TEXTURE_BINDING_2D);
+    const prevFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 1, 1, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, prevFramebuffer);
+    gl.bindTexture(gl.TEXTURE_2D, prevTexture);
+    gl.deleteFramebuffer(framebuffer);
+    gl.deleteTexture(texture);
+    return ok;
+  }
+
+  createTexture(gl, width, height, data, internalFormat, format, type, filter = gl.NEAREST) {
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, format, type, data);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.bindTexture(gl.TEXTURE_2D, null);
     return texture;
+  }
+
+  createColorRampTexture(gl) {
+    const size = 256;
+    const colormap = getColormap('x-sst');
+    const lut = new Uint8Array(size * 4);
+    for (let i = 0; i < size; i++) {
+      const [r, g, b] = colormap(i / (size - 1));
+      lut[i * 4 + 0] = r;
+      lut[i * 4 + 1] = g;
+      lut[i * 4 + 2] = b;
+      lut[i * 4 + 3] = 255;
+    }
+    return this.createTexture(gl, size, 1, lut, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR);
   }
 
   initializeParticles(gl, resolution) {
@@ -471,29 +557,70 @@ export default class GPUParticleFlowLayer extends Layer {
     return shader;
   }
 
-  getModel() {
-    const { particleResolution } = this.props;
+  createDrawShader(gl) {
+    const vs = this.compileShader(gl, vertDraw, gl.VERTEX_SHADER);
+    const fs = this.compileShader(gl, fragDraw, gl.FRAGMENT_SHADER);
+    this.drawProgram = gl.createProgram();
+    gl.attachShader(this.drawProgram, vs);
+    gl.attachShader(this.drawProgram, fs);
+    gl.linkProgram(this.drawProgram);
+    if (!gl.getProgramParameter(this.drawProgram, gl.LINK_STATUS)) {
+      console.error('Draw shader link failed:', gl.getProgramInfoLog(this.drawProgram));
+    }
+    this.drawUniforms = {
+      u_particles_prev: gl.getUniformLocation(this.drawProgram, 'u_particles_prev'),
+      u_particles_curr: gl.getUniformLocation(this.drawProgram, 'u_particles_curr'),
+      u_hs_tex:         gl.getUniformLocation(this.drawProgram, 'u_hs_tex'),
+      u_particle_res:   gl.getUniformLocation(this.drawProgram, 'u_particle_res'),
+      u_domain_min:     gl.getUniformLocation(this.drawProgram, 'u_domain_min'),
+      u_domain_span:    gl.getUniformLocation(this.drawProgram, 'u_domain_span'),
+      u_canvas_size:    gl.getUniformLocation(this.drawProgram, 'u_canvas_size'),
+      u_center_merc:    gl.getUniformLocation(this.drawProgram, 'u_center_merc'),
+      u_world_size:     gl.getUniformLocation(this.drawProgram, 'u_world_size'),
+      u_line_width:     gl.getUniformLocation(this.drawProgram, 'u_line_width'),
+      u_speed_lo:       gl.getUniformLocation(this.drawProgram, 'u_speed_lo'),
+      u_speed_range:    gl.getUniformLocation(this.drawProgram, 'u_speed_range'),
+      u_speed_decode:   gl.getUniformLocation(this.drawProgram, 'u_speed_decode'),
+      u_is_wave_mode:   gl.getUniformLocation(this.drawProgram, 'u_is_wave_mode'),
+      u_hs_lo:          gl.getUniformLocation(this.drawProgram, 'u_hs_lo'),
+      u_hs_range:       gl.getUniformLocation(this.drawProgram, 'u_hs_range'),
+      u_color_ramp:     gl.getUniformLocation(this.drawProgram, 'u_color_ramp'),
+      u_global_opacity: gl.getUniformLocation(this.drawProgram, 'u_global_opacity'),
+    };
+    // Empty VAO — shader drives geometry via gl_VertexID / gl_InstanceID
+    this.drawVAO = gl.createVertexArray();
+  }
 
-    const positions = new Float32Array([
-      -1, -1,
-       1, -1,
-      -1,  1,
-      -1,  1,
-       1, -1,
-       1,  1
-    ]);
+  _buildProgram(gl, vsSrc, fsSrc) {
+    const p = gl.createProgram();
+    gl.attachShader(p, this.compileShader(gl, vsSrc, gl.VERTEX_SHADER));
+    gl.attachShader(p, this.compileShader(gl, fsSrc, gl.FRAGMENT_SHADER));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      console.error('Program link failed:', gl.getProgramInfoLog(p));
+    }
+    return p;
+  }
 
-    return new Model(this.context.device, {
-      id: `${this.props.id}-draw-model`,
-      vs: vertDraw,
-      fs: fragDraw,
-      topology: 'triangle-list',
-      vertexCount: 6,
-      instanceCount: particleResolution * particleResolution,
-      attributes: {
-        position: { size: 2, value: positions }
-      }
-    });
+  _ensureTrailTexture(gl, w, h) {
+    if (this._trailW === w && this._trailH === h) return;
+    if (this.trailTexture) gl.deleteTexture(this.trailTexture);
+    this.trailTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.trailTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    // Clear the new texture via the trail FBO
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.trailFBO);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.trailTexture, 0);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this._trailW = w;
+    this._trailH = h;
   }
 
   updateState({ props, oldProps, changeFlags }) {
@@ -552,79 +679,162 @@ export default class GPUParticleFlowLayer extends Layer {
     gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
-  draw({ uniforms }) {
-    const { gl } = this.context;
-    const { 
-      particleResolution, 
-      bounds, 
-      interpAlpha,
-      lineWidth,
-      useWaveMode,
-      colorField
-    } = this.props;
+  captureGLState(gl) {
+    return {
+      framebuffer: gl.getParameter(gl.FRAMEBUFFER_BINDING),
+      viewport: gl.getParameter(gl.VIEWPORT),
+      program: gl.getParameter(gl.CURRENT_PROGRAM),
+      vertexArray: gl.getParameter(gl.VERTEX_ARRAY_BINDING),
+      arrayBuffer: gl.getParameter(gl.ARRAY_BUFFER_BINDING),
+      activeTexture: gl.getParameter(gl.ACTIVE_TEXTURE),
+      texture2D: gl.getParameter(gl.TEXTURE_BINDING_2D),
+      blend: gl.isEnabled(gl.BLEND),
+      blendSrcRgb: gl.getParameter(gl.BLEND_SRC_RGB),
+      blendDstRgb: gl.getParameter(gl.BLEND_DST_RGB),
+      blendSrcAlpha: gl.getParameter(gl.BLEND_SRC_ALPHA),
+      blendDstAlpha: gl.getParameter(gl.BLEND_DST_ALPHA),
+      blendEquationRgb: gl.getParameter(gl.BLEND_EQUATION_RGB),
+      blendEquationAlpha: gl.getParameter(gl.BLEND_EQUATION_ALPHA),
+      depthMask: gl.getParameter(gl.DEPTH_WRITEMASK),
+      clearColor: gl.getParameter(gl.COLOR_CLEAR_VALUE),
+    };
+  }
 
-    const { model, frameCount, gpuReady } = this.state;
-    if (!gpuReady || !model || !this.updateProgram || !this.updateUniforms || !this.updateFBO) {
+  restoreGLState(gl, state) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, state.framebuffer);
+    gl.viewport(state.viewport[0], state.viewport[1], state.viewport[2], state.viewport[3]);
+    gl.useProgram(state.program);
+    gl.bindVertexArray(state.vertexArray);
+    gl.bindBuffer(gl.ARRAY_BUFFER, state.arrayBuffer);
+    gl.activeTexture(state.activeTexture);
+    gl.bindTexture(gl.TEXTURE_2D, state.texture2D);
+    if (state.blend) gl.enable(gl.BLEND); else gl.disable(gl.BLEND);
+    gl.blendFuncSeparate(state.blendSrcRgb, state.blendDstRgb, state.blendSrcAlpha, state.blendDstAlpha);
+    gl.blendEquationSeparate(state.blendEquationRgb, state.blendEquationAlpha);
+    gl.depthMask(state.depthMask);
+    gl.clearColor(state.clearColor[0], state.clearColor[1], state.clearColor[2], state.clearColor[3]);
+  }
+
+  draw() {
+    const { gl } = this.context;
+    const { particleResolution, bounds, interpAlpha, lineWidth, useWaveMode,
+            colorField, globalOpacity, fadeAmount } = this.props;
+    const { gpuReady } = this.state;
+
+    if (!gpuReady || !this.drawProgram || !this.updateProgram || !this.updateUniforms ||
+        !this.updateFBO || !this.fadeProgram || !this.blitProgram) {
       return;
     }
 
-    // Step 1: Update particles via FBO (GPU compute)
-    this.updateParticles(gl, interpAlpha);
+    const saved = this.captureGLState(gl);
 
-    const [minLon, minLat, maxLon, maxLat] = bounds;
-    const domainSpan = [maxLon - minLon, maxLat - minLat];
+    try {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      this._dtScale = this._lastFrameTime == null
+        ? 1
+        : Math.min(Math.max((now - this._lastFrameTime) / 16.6667, 0.25), 4);
+      this._lastFrameTime = now;
 
-    // Calculate Mercator projection params (from viewport)
-    const viewport = this.context.viewport;
-    const canvasWidth = viewport.width;
-    const canvasHeight = viewport.height;
-    
-    // Get map center in Mercator space
-    const centerLon = (viewport.longitude || 0);
-    const centerLat = (viewport.latitude || 0);
-    const centerMercX = centerLon / 360.0 + 0.5;
-    const sinLat = Math.sin(centerLat * Math.PI / 180.0);
-    const centerMercY = 0.5 - 0.25 * Math.log((1 + sinLat) / (1 - sinLat)) / Math.PI;
-    
-    // World size at current zoom
-    const zoom = viewport.zoom || 8;
-    const worldSize = 256 * Math.pow(2, zoom);
+      // 1. Update particle positions (ping-pong FBO)
+      this.updateParticles(gl, interpAlpha);
 
-    // Bind textures (luma.gl v9 requires setBindings for textures)
-    model.setBindings({
-      u_particles_prev: this.particleTexture0,
-      u_particles_curr: this.particleTexture1,
-      u_hs_tex: this.colorTexture
-    });
+      const [minLon, minLat, maxLon, maxLat] = bounds;
+      const viewport   = this.context.viewport;
+      const cw         = viewport.width;
+      const ch         = viewport.height;
+      const cx         = viewport.longitude || 0;
+      const cy         = viewport.latitude  || 0;
+      const cz         = viewport.zoom      || 8;
+      const mercX      = cx / 360.0 + 0.5;
+      const sinLat     = Math.sin(cy * Math.PI / 180.0);
+      const mercY      = 0.5 - 0.25 * Math.log((1 + sinLat) / (1 - sinLat)) / Math.PI;
+      const worldSize  = 256 * Math.pow(2, cz);
 
-    // Set scalar uniforms
-    model.setUniforms({
-      ...uniforms,
-      u_particle_res: particleResolution,
-      u_domain_min: [minLon, minLat],
-      u_domain_span: domainSpan,
-      u_canvas_size: [canvasWidth, canvasHeight],
-      u_center_merc: [centerMercX, centerMercY],
-      u_world_size: worldSize,
-      u_line_width: lineWidth * 0.001,
-      u_speed_lo: 0.0,
-      u_speed_range: 2.0,
-      u_speed_decode: 50.0,
-      u_is_wave_mode: useWaveMode ? 1.0 : 0.0,
-      u_hs_lo: colorField?.min || 0.0,
-      u_hs_range: (colorField?.max || 5.0) - (colorField?.min || 0.0)
-    });
+      // 2. Ensure trail texture matches canvas size (resize + clear if changed)
+      this._ensureTrailTexture(gl, cw, ch);
 
-    model.draw(this.context.renderPass);
+      // 3. Clear trail when map view changes to avoid geographic smearing
+      const moved = this._lastCx === null ||
+        Math.abs(cx - this._lastCx) > 0.01 ||
+        Math.abs(cy - this._lastCy) > 0.01 ||
+        Math.abs(cz - this._lastCz) > 0.05;
+      if (moved) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.trailFBO);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.trailTexture, 0);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
+      this._lastCx = cx; this._lastCy = cy; this._lastCz = cz;
 
-    // Ping-pong swap
-    [this.particleTexture0, this.particleTexture1] = [this.particleTexture1, this.particleTexture0];
+      gl.enable(gl.BLEND);
+      gl.blendEquation(gl.FUNC_ADD);
+      gl.depthMask(false);
 
-    // Update frame counter
-    this.setState({ 
-      frameCount: frameCount + 1,
-      randSeed: (frameCount * 0.01) % 1000
-    });
+      // 4. Bind trail FBO — all particle drawing goes here, not to screen
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.trailFBO);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.trailTexture, 0);
+      gl.viewport(0, 0, cw, ch);
+
+      // 5. Fade pass — apply the same visual half-life across refresh rates
+      const perFrameFade = fadeAmount ?? 0.04;
+      const effectiveFade = 1 - Math.pow(1 - perFrameFade, this._dtScale);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.useProgram(this.fadeProgram);
+      gl.uniform1f(this.fadeUniforms.u_fade, effectiveFade);
+      gl.bindVertexArray(this.drawVAO);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+      // 6. Draw current particle segments onto trail FBO (full opacity into accumulation buffer)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.useProgram(this.drawProgram);
+
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.particleTexture0);
+      gl.uniform1i(this.drawUniforms.u_particles_prev, 0);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.particleTexture1);
+      gl.uniform1i(this.drawUniforms.u_particles_curr, 1);
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.colorTexture);
+      gl.uniform1i(this.drawUniforms.u_hs_tex, 2);
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.colorRampTexture);
+      gl.uniform1i(this.drawUniforms.u_color_ramp, 3);
+
+      gl.uniform1f(this.drawUniforms.u_particle_res,  particleResolution);
+      gl.uniform2f(this.drawUniforms.u_domain_min,    minLon, minLat);
+      gl.uniform2f(this.drawUniforms.u_domain_span,   maxLon - minLon, maxLat - minLat);
+      gl.uniform2f(this.drawUniforms.u_canvas_size,   cw, ch);
+      gl.uniform2f(this.drawUniforms.u_center_merc,   mercX, mercY);
+      gl.uniform1f(this.drawUniforms.u_world_size,    worldSize);
+      gl.uniform1f(this.drawUniforms.u_line_width,    lineWidth);
+      gl.uniform1f(this.drawUniforms.u_speed_lo,      0.0);
+      gl.uniform1f(this.drawUniforms.u_speed_range,   2.0);
+      gl.uniform1f(this.drawUniforms.u_speed_decode,  50.0);
+      gl.uniform1f(this.drawUniforms.u_is_wave_mode,  useWaveMode ? 1.0 : 0.0);
+      gl.uniform1f(this.drawUniforms.u_hs_lo,         colorField?.min || 0.0);
+      gl.uniform1f(this.drawUniforms.u_hs_range,      (colorField?.max || 5.0) - (colorField?.min || 0.0));
+      gl.uniform1f(this.drawUniforms.u_global_opacity, 1.0); // full opacity into trail buffer
+
+      gl.bindVertexArray(this.drawVAO);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, particleResolution * particleResolution);
+
+      // 7. Restore main framebuffer
+      gl.bindFramebuffer(gl.FRAMEBUFFER, saved.framebuffer);
+      gl.viewport(saved.viewport[0], saved.viewport[1], saved.viewport[2], saved.viewport[3]);
+
+      // 8. Blit trail texture to screen with global opacity
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.useProgram(this.blitProgram);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.trailTexture);
+      gl.uniform1i(this.blitUniforms.u_trail,   0);
+      gl.uniform1f(this.blitUniforms.u_opacity, globalOpacity ?? 1.0);
+      gl.bindVertexArray(this.drawVAO);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+      // Ping-pong swap
+      [this.particleTexture0, this.particleTexture1] = [this.particleTexture1, this.particleTexture0];
+      this._frameCount += 1;
+      this._randSeed = (this._frameCount * 0.01) % 1000;
+    } finally {
+      this.restoreGLState(gl, saved);
+    }
   }
 
   updateParticles(gl, alpha) {
@@ -633,7 +843,8 @@ export default class GPUParticleFlowLayer extends Layer {
     }
 
     const { speedFactor, dropRate, bounds, normalizeVelocity, waveSpeedScale } = this.props;
-    const { frameCount, randSeed } = this.state;
+    const frameCount = this._frameCount || 0;
+    const randSeed = this._randSeed || 0;
 
     const [minLon, minLat, maxLon, maxLat] = bounds;
     const aspectRatio = (maxLat - minLat) / (maxLon - minLon);
@@ -679,7 +890,7 @@ export default class GPUParticleFlowLayer extends Layer {
     gl.uniform1f(this.updateUniforms.u_speed_x, speedFactor * 0.0001);
     gl.uniform1f(this.updateUniforms.u_speed_y, speedFactor * 0.0001 * aspectRatio);
     gl.uniform1f(this.updateUniforms.u_drop_rate, dropRate);
-    gl.uniform1f(this.updateUniforms.u_dt_scale, 1.0);
+    gl.uniform1f(this.updateUniforms.u_dt_scale, this._dtScale || 1.0);
     gl.uniform1f(this.updateUniforms.u_normalize_vel, normalizeVelocity ? 1.0 : 0.0);
     gl.uniform1f(this.updateUniforms.u_wave_speed_scale, waveSpeedScale);
     gl.uniform1f(this.updateUniforms.u_speed_decode, 50.0);
@@ -698,14 +909,21 @@ export default class GPUParticleFlowLayer extends Layer {
   finalizeState() {
     super.finalizeState();
     const { gl } = this.context;
-    
+
     if (this.particleTexture0) gl.deleteTexture(this.particleTexture0);
     if (this.particleTexture1) gl.deleteTexture(this.particleTexture1);
-    this.windTextures.forEach(tex => gl.deleteTexture(tex));
+    if (this.windTextures) this.windTextures.forEach(tex => gl.deleteTexture(tex));
     if (this.colorTexture) gl.deleteTexture(this.colorTexture);
+    if (this.colorRampTexture) gl.deleteTexture(this.colorRampTexture);
     if (this.updateFBO) gl.deleteFramebuffer(this.updateFBO);
     if (this.updateProgram) gl.deleteProgram(this.updateProgram);
     if (this.quadVBO) gl.deleteBuffer(this.quadVBO);
     if (this.quadVAO) gl.deleteVertexArray(this.quadVAO);
+    if (this.drawProgram) gl.deleteProgram(this.drawProgram);
+    if (this.drawVAO) gl.deleteVertexArray(this.drawVAO);
+    if (this.trailTexture) gl.deleteTexture(this.trailTexture);
+    if (this.trailFBO) gl.deleteFramebuffer(this.trailFBO);
+    if (this.fadeProgram) gl.deleteProgram(this.fadeProgram);
+    if (this.blitProgram) gl.deleteProgram(this.blitProgram);
   }
 }

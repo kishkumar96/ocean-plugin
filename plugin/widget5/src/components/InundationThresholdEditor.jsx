@@ -271,17 +271,20 @@ export default function InundationThresholdEditor({
                 <div className="ite-color-swatch" style={{ backgroundColor: cat.color }} />
               </div>
 
-              <input
-                type="number"
-                id={`ite-threshold-${cat.id}`}
-                name={`ite-threshold-${cat.id}`}
-                className="ite-number-input"
-                value={cat.thresholdM}
-                min={0}
-                step={0.05}
-                onChange={(e) => updateRow(cat.id, 'thresholdM', e.target.value)}
-                aria-label={`Depth for ${cat.label}`}
-              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                <input
+                  type="number"
+                  id={`ite-threshold-${cat.id}`}
+                  name={`ite-threshold-${cat.id}`}
+                  className="ite-number-input"
+                  value={cat.thresholdM}
+                  min={0}
+                  step={0.05}
+                  onChange={(e) => updateRow(cat.id, 'thresholdM', e.target.value)}
+                  aria-label={`Depth for ${cat.label} in metres`}
+                />
+                <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)', fontWeight: 600 }}>m</span>
+              </div>
 
               <input
                 type="text"
