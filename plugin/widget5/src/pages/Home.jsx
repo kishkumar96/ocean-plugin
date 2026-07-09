@@ -37,11 +37,6 @@ function CookIslandsForecast() {
   const [floodDisplayMode, setFloodDisplayMode] = useState('2d');
   const [flood3dElevScale, setFlood3dElevScale] = useState(FLOOD_3D_CONFIG.elevationScale ?? 6);
 
-  // ── wave particles + swell source arcs ──────────────────────────────────
-  const [waveParticleMode, setWaveParticleMode]       = useState('off');
-  const [particleQuality,  setParticleQuality]        = useState('balanced');
-  const [swellSourcesEnabled, setSwellSourcesEnabled] = useState(false);
-
   // ── canvas visibility ────────────────────────────────────────────────────
   const [showBottomCanvas, setShowBottomCanvas] = useState(false);
   const [bottomCanvasData, setBottomCanvasData] = useState(null);
@@ -94,9 +89,6 @@ function CookIslandsForecast() {
     flood3dEnabled: floodDisplayMode === '3d',
     flood3dConfig: FLOOD_3D_CONFIG,
     flood3dElevScale,
-    waveParticleMode,
-    particleQuality,
-    swellSourcesEnabled,
   });
 
   const totalSteps = Math.max(1, timeCount) - 1;
@@ -160,12 +152,6 @@ function CookIslandsForecast() {
         flood3DConfig={FLOOD_3D_CONFIG}
         flood3dElevScale={flood3dElevScale}
         setFlood3dElevScale={setFlood3dElevScale}
-        waveParticleMode={waveParticleMode}
-        setWaveParticleMode={setWaveParticleMode}
-        particleQuality={particleQuality}
-        setParticleQuality={setParticleQuality}
-        swellSourcesEnabled={swellSourcesEnabled}
-        setSwellSourcesEnabled={setSwellSourcesEnabled}
       />
 
       {overlayError && (

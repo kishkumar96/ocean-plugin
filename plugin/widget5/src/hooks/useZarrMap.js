@@ -6,9 +6,6 @@ import { ZarrOverlay } from '../lib/ZarrOverlay';
 import { UgridOverlay } from '../lib/UgridOverlay';
 import { SfincsRasterOverlay } from '../lib/SfincsRasterOverlay';
 import { SfincsColumnOverlay } from '../lib/SfincsColumnOverlay';
-import { GPUParticleOverlay } from '../lib/GPUParticleOverlay';
-import { StreamlineOverlay } from '../lib/StreamlineOverlay';
-import { SwellSourceArcOverlay } from '../lib/SwellSourceArcOverlay';
 import { findLayerById, RAROTONGA_ORTHO_2018_CONFIG } from '../lib/mapLayersConfig';
 import { ISLAND_ZOOM_TARGETS } from '../config/islandConfig';
 import {
@@ -103,10 +100,6 @@ export function useZarrMap({
   flood3dEnabled = false,
   flood3dConfig = null,
   flood3dElevScale = null,
-  // Wave particle + streamline + swell arc props
-  waveParticleMode = 'off',    // 'off' | 'particles' | 'particles+raster' | 'streamlines'
-  particleQuality  = 'balanced',
-  swellSourcesEnabled = false,
 }) {
   // mapRef  = DOM container div ref  (used as <div ref={mapRef}>)
   // mapInstance = actual MapLibre map ref (used for fitBounds, getZoom, etc.)
@@ -115,9 +108,6 @@ export function useZarrMap({
 
   const overlayRef = useRef(null);
   const columnOverlayRef = useRef(null);
-  const particleOverlayRef = useRef(null);
-  const streamlineOverlayRef = useRef(null);
-  const arcOverlayRef = useRef(null);
   const playIntervalRef = useRef(null);
   const pinMarkerRef = useRef(null);
   const riskLatestReqRef = useRef(0);
@@ -131,7 +121,7 @@ export function useZarrMap({
 
   // Keep latest callback params in refs to avoid stale closures in map event listeners
   const cbRef = useRef({});
-  cbRef.current = { setBottomCanvasData, setShowBottomCanvas, inundationCategories, rangeWindow, selectedLayerId, opacity, flood3dElevScale, sliderIndex, swellSourcesEnabled };
+  cbRef.current = { setBottomCanvasData, setShowBottomCanvas, inundationCategories, rangeWindow, selectedLayerId, opacity, flood3dElevScale, sliderIndex };
 
   const overlayRefR = useRef(overlayRef);
   overlayRefR.current = overlayRef;
@@ -217,12 +207,6 @@ export function useZarrMap({
 
     return () => {
       map.off('click', onMapClick);
-      particleOverlayRef.current?.destroy();
-      particleOverlayRef.current = null;
-      streamlineOverlayRef.current?.destroy();
-      streamlineOverlayRef.current = null;
-      arcOverlayRef.current?.destroy();
-      arcOverlayRef.current = null;
       map.remove();
       mapInstance.current = null;
     };
@@ -314,119 +298,17 @@ export function useZarrMap({
   }, [sliderIndex]);
 
   // ── opacity ───────────────────────────────────────────────────────────────
-  // In 'particles' mode, dim the raster but keep enough context to orient the user.
-  // In 'streamlines' mode, dim slightly so the paths stand out against the raster.
   useEffect(() => {
-    const effective = waveParticleMode === 'particles'
-      ? opacity * 0.2
-      : waveParticleMode === 'streamlines'
-      ? opacity * 0.45
-      : opacity;
     const ov = overlayRef.current;
-    if (ov && typeof ov.setOpacity === 'function') ov.setOpacity(effective);
+    if (ov && typeof ov.setOpacity === 'function') ov.setOpacity(opacity);
     columnOverlayRef.current?.setOpacity(opacity);
-    particleOverlayRef.current?.setOpacity(opacity);
-    particleOverlayRef.current?.setMode(waveParticleMode);
-    streamlineOverlayRef.current?.setOpacity(opacity);
-  }, [opacity, waveParticleMode]);
+  }, [opacity]);
 
   // ── thresholds (ZarrOverlay / UgridOverlay) ───────────────────────────────
   useEffect(() => {
     const ov = overlayRef.current;
     if (ov && typeof ov.setThresholds === 'function') ov.setThresholds(thresholds);
   }, [thresholds]);
-
-  // ── wave particle overlay lifecycle ──────────────────────────────────────
-  useEffect(() => {
-    const map   = mapInstance.current;
-    const layer = findLayerById(selectedLayerId);
-    const isUgrid = layer?.type === 'ugrid';
-    const wantParticles = waveParticleMode === 'particles' || waveParticleMode === 'particles+raster';
-    const wantStreamlines = waveParticleMode === 'streamlines';
-
-    // Destroy particle overlay when switching away from particle modes
-    if (particleOverlayRef.current && (!wantParticles || !isUgrid)) {
-      particleOverlayRef.current.destroy();
-      particleOverlayRef.current = null;
-    }
-    // Destroy streamline overlay when switching away from streamline mode
-    if (streamlineOverlayRef.current && (!wantStreamlines || !isUgrid)) {
-      streamlineOverlayRef.current.destroy();
-      streamlineOverlayRef.current = null;
-    }
-
-    if (!map || !isUgrid) return;
-
-    if (wantParticles && !particleOverlayRef.current) {
-      const pov = new GPUParticleOverlay(map, {
-        zarrBaseUrl:         layer.zarrBaseUrl,
-        datasetName:         layer.datasetName,
-        scalarVariable:      'hs',
-        directionVariable:   layer.directionVariable  || 'dirm',
-        directionConvention: layer.directionConvention,
-        quality:             particleQuality,
-        opacity:             cbRef.current.opacity,
-      });
-      pov.onErrorChange = (msg) => console.warn('[GPUParticleOverlay]', msg);
-      particleOverlayRef.current = pov;
-      pov.setTimeIndex(sliderIndex);
-    }
-
-    if (wantStreamlines && !streamlineOverlayRef.current) {
-      const sov = new StreamlineOverlay(map, {
-        zarrBaseUrl:         layer.zarrBaseUrl,
-        datasetName:         layer.datasetName,
-        scalarVariable:      'hs',
-        directionVariable:   layer.directionVariable  || 'dirm',
-        directionConvention: layer.directionConvention,
-        quality:             particleQuality,
-        opacity:             cbRef.current.opacity,
-      });
-      sov.onErrorChange = (msg) => console.warn('[StreamlineOverlay]', msg);
-      streamlineOverlayRef.current = sov;
-      sov.setTimeIndex(sliderIndex);
-    }
-
-    return () => {
-      // Explicit mode-change cleanup is handled by the destroy branches above.
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waveParticleMode, selectedLayerId]);
-
-  // ── sync particle quality without rebuilding the overlay ─────────────────
-  useEffect(() => {
-    particleOverlayRef.current?.setQuality(particleQuality);
-    streamlineOverlayRef.current?.setQuality(particleQuality);
-  }, [particleQuality]);
-
-  // ── sync particle / streamline time index ─────────────────────────────────
-  useEffect(() => {
-    particleOverlayRef.current?.setTimeIndex(sliderIndex);
-    streamlineOverlayRef.current?.setTimeIndex(sliderIndex);
-  }, [sliderIndex]);
-
-  // ── swell source arc overlay lifecycle ───────────────────────────────────
-  useEffect(() => {
-    const map   = mapInstance.current;
-    const layer = findLayerById(selectedLayerId);
-    const isUgrid = layer?.type === 'ugrid';
-
-    if (arcOverlayRef.current && (!swellSourcesEnabled || !isUgrid)) {
-      arcOverlayRef.current.destroy();
-      arcOverlayRef.current = null;
-    }
-
-    if (!map || !swellSourcesEnabled || !isUgrid) return;
-
-    if (!arcOverlayRef.current) {
-      arcOverlayRef.current = new SwellSourceArcOverlay(map);
-    }
-
-    return () => {
-      // Destroyed explicitly above when swellSourcesEnabled turns off
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [swellSourcesEnabled, selectedLayerId]);
 
   // ── sfincs config (rangeWindow / inundationCategories) ───────────────────
   useEffect(() => {
@@ -669,12 +551,6 @@ export function useZarrMap({
             selectedLayer: layerCfg,
             perVariableData,
           });
-          // Feed swell partition data to arc overlay if active
-          const arc = arcOverlayRef.current;
-          if (arc && cbRef.current.swellSourcesEnabled) {
-            const partitions = extractSwellPartitions(perVariableData, cbRef.current.sliderIndex);
-            arc.setSwellPoint({ lat: result.lat ?? result.node_lat ?? lat, lng: result.lon ?? result.node_lon ?? lng, partitions });
-          }
           return;
         }
         // InundationTimeseries expects [{time: string, depth_m: number}] objects.
@@ -713,7 +589,6 @@ export function useZarrMap({
 
   function removePinMarker() {
     if (pinMarkerRef.current) { pinMarkerRef.current.remove(); pinMarkerRef.current = null; }
-    arcOverlayRef.current?.clear();
   }
 
   // ── exposed fitBounds (island bounds are [lat,lng], convert for MapLibre) ──
@@ -763,27 +638,6 @@ export function useZarrMap({
     removePinMarker,
     setShowContours: (enabled) => { overlayRef.current?.setShowContours?.(enabled); },
   };
-}
-
-function extractSwellPartitions(perVariableData, sliderIndex) {
-  const getValue = (varName) => {
-    const cov = perVariableData?.[varName];
-    if (!cov) return null;
-    const vals = cov.ranges?.[varName]?.values;
-    if (!Array.isArray(vals)) return null;
-    const v = Number.isFinite(vals[sliderIndex]) ? vals[sliderIndex] : vals[0];
-    return Number.isFinite(v) ? v : null;
-  };
-  const partitions = [];
-  for (const suffix of ['p1', 'p2', 'p3']) {
-    const hs  = getValue(`hs_${suffix}`);
-    const dir = getValue(`dirp_${suffix}`);
-    const tp  = getValue(`tp_${suffix}`);
-    if (hs !== null && hs > 0.05 && dir !== null) {
-      partitions.push({ id: suffix, hs, dir, tp });
-    }
-  }
-  return partitions;
 }
 
 function toCoverageByVariable(result) {
