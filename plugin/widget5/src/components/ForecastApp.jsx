@@ -5,6 +5,7 @@ import { UI_CONFIG } from '../config/UIConfig';
 import { getLayerBounds, isRasterSourceLayer } from '../config/layerConfig';
 import { ISLAND_ZOOM_TARGETS, findIslandZoomTarget } from '../config/islandConfig';
 import CompassRose from './CompassRose';
+import BasemapSwitcher from './BasemapSwitcher';
 import ForecastTimeline from './ForecastTimeline';
 import {
   ControlGroup,
@@ -43,6 +44,7 @@ const ForecastApp = ({
   setActiveLayers,
   mapRef,
   mapInstance,
+  setBasemap,
   isUpdatingVisualization,
   currentSliderDateStr,
   minIndex = 0,
@@ -52,9 +54,14 @@ const ForecastApp = ({
   fitBounds,       // (islandBounds) → map.fitBounds with coord conversion — from useZarrMap
   setShowContours,
   terrainEnabled = false,
+  // Unused while the Terrain/Aerial imagery toggles are commented out below
+  // (moved to advanced-features branch).
+  // eslint-disable-next-line no-unused-vars
   setTerrainEnabled,
   terrainConfig,
+  // eslint-disable-next-line no-unused-vars
   showOrtho2018 = true,
+  // eslint-disable-next-line no-unused-vars
   setShowOrtho2018,
   floodDisplayMode = '2d',
   setFloodDisplayMode,
@@ -72,6 +79,9 @@ const ForecastApp = ({
     return ALL_LAYERS.find(l => l.value === selectedWaveForecast) || null;
   }, [ALL_LAYERS, selectedWaveForecast]);
   const isRasterInundation = isRasterSourceLayer(selectedLayer);
+  // Unused while the Terrain toggle is commented out below (moved to
+  // advanced-features branch).
+  // eslint-disable-next-line no-unused-vars
   const terrainAvailable = Array.isArray(terrainConfig?.tiles) && terrainConfig.tiles.some(Boolean);
   const flood3DAvailable = Boolean(flood3DConfig?.available);
 
@@ -200,6 +210,16 @@ const ForecastApp = ({
   const getLegendConfig = (variable, layerData) => {
     const varLower = variable.toLowerCase();
 
+    // Inundation must always reflect the live, user-editable threshold profile —
+    // layerData.colorBreaks below is just the seeded config default, and checking
+    // it first (as the generic branch does) permanently shadowed edited thresholds.
+    if (varLower.includes('inun') || varLower.includes('hmax') || varLower.includes('h_max')) {
+      return {
+        units: 'm',
+        ...inundationLegendBands,
+      };
+    }
+
     // Parse dynamic ranges from layer data
     const colorRange = layerData ? parseLegendColorRange(layerData.colorscalerange) : null;
     const dynamicMax = layerData?.activeBeaufortMax;
@@ -232,14 +252,6 @@ const ForecastApp = ({
       };
     }
 
-    if (varLower.includes('inun') || varLower.includes('hmax') || varLower.includes('h_max')) {
-      // Use the memoized bands — computed with lastValidCategories as an explicit dep.
-      return {
-        units: 'm',
-        ...inundationLegendBands,
-      };
-    }
-    
     if (varLower.includes('dirm')) {
       // Wave direction - Static compass (doesn't change with data)
       return {
@@ -335,7 +347,13 @@ const ForecastApp = ({
       <div className="main-container">
         <div className="map-section">
           <div ref={mapRef} id="map" className="forecast-map"></div>
-          
+
+          <BasemapSwitcher
+            mapInstance={mapInstance}
+            setBasemap={setBasemap}
+            position="top-left"
+          />
+
           {/* Enhanced Professional Compass Rose */}
           <CompassRose 
             position="top-right" 
@@ -598,6 +616,12 @@ const ForecastApp = ({
             ariaLabel={UI_CONFIG.ARIA_LABELS.overlayOpacity}
           />
 
+          {/* Terrain and Aerial imagery toggles — moved to the advanced-features
+              branch, disabled here on main. Restore by uncommenting this block
+              (terrainEnabled/setTerrainEnabled/terrainAvailable and
+              showOrtho2018/setShowOrtho2018 props are still threaded through
+              above, untouched, so re-enabling is just removing this comment).
+
           <div className="map-display-option">
             <div className="map-display-option__label">Terrain</div>
             <div className="map-display-option__segmented" role="radiogroup" aria-label="Terrain display mode">
@@ -661,6 +685,7 @@ const ForecastApp = ({
                 : 'Showing only the Esri World Imagery basemap. It still drapes over 3D terrain the same as the 2018 survey does.'}
             </div>
           </div>
+          */}
 
           {isRasterInundation && (
             <div className="map-display-option">

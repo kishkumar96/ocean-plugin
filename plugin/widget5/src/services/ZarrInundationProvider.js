@@ -71,7 +71,7 @@ export default class ZarrInundationProvider extends InundationProvider {
   constructor({ baseUrl, dataset, dataset48h }) {
     super();
     this._baseUrl = (baseUrl || '').replace(/\/$/, '');
-    this._dataset = dataset || 'sfincs_h_forecast.zarr';
+    this._dataset = dataset || 'sfincs_hmax_forecast.zarr';
     this._dataset48h = dataset48h || null;
     this._hArr = null;
     this._latValues = null;
@@ -125,7 +125,9 @@ export default class ZarrInundationProvider extends InundationProvider {
     if (this._load48Promise) return this._load48Promise;
     this._load48Promise = (async () => {
       const store = new HTTPStore(this._storeUrl(this._dataset48h));
-      this._h48Arr = await openArray({ store, path: 'h', mode: 'r' });
+      // sfincs_hmax_48h.zarr's array is named 'hmax', not 'h' — it's a separate
+      // pre-computed max-over-window product, not a slice of the hourly 'h' cube.
+      this._h48Arr = await openArray({ store, path: 'hmax', mode: 'r' });
     })();
     return this._load48Promise;
   }

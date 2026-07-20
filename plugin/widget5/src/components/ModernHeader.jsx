@@ -79,7 +79,6 @@ const ModernHeader = () => {
         alignItems: 'center',
         gap: '20px'
       }}>
-        {/* Theme toggle */}
         <ThemeToggle />
 
         {/* Connection Status */}

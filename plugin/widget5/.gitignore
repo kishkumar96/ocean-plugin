@@ -28,5 +28,7 @@ yarn-error.log*
 /public/terrain/
 /public/imagery/
 
-# browser network capture — can contain auth tokens/cookies, debug artifact only
-localhost.har
+# browser network capture — can contain auth tokens/cookies, debug artifact only.
+# Glob (not just the literal "localhost.har") since captures get renamed per
+# session, e.g. CookIslandslocalhost.har, Niue.har.
+*.har

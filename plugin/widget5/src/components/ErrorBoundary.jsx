@@ -1,4 +1,5 @@
 import React from 'react';
+import { reportError } from '../lib/errorReporting';
 
 export class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -11,7 +12,7 @@ export class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    console.error('Widget5 error boundary caught:', error, info.componentStack);
+    reportError(error, { type: 'react-error-boundary', componentStack: info.componentStack });
   }
 
   render() {

@@ -167,7 +167,7 @@ function PanelSpinner({ isDarkMode, message, slowMessage }) {
   );
 }
 
-function BottomOffCanvas({ show, onHide, data, currentSliderDate, onTimeSelect }) {
+function BottomOffCanvas({ show, onHide, data, currentSliderDate, onTimeSelect, onRiskThresholdsSaved }) {
   const offcanvasRef = useRef(null);
   const isRiskMode = data?.mode === "risk";
   const isInundationMode = data?.mode === "inundation";
@@ -613,7 +613,7 @@ function BottomOffCanvas({ show, onHide, data, currentSliderDate, onTimeSelect }
         aria-labelledby={(!isRiskMode && !isInundationMode) ? `tab-btn-${activeTab}` : undefined}
       >
         {isRiskMode ? (
-          <RiskDetailsPanel data={data} isDarkMode={isDarkMode} currentSliderDate={currentSliderDate} onTimeSelect={onTimeSelect} />
+          <RiskDetailsPanel data={data} isDarkMode={isDarkMode} currentSliderDate={currentSliderDate} onTimeSelect={onTimeSelect} onThresholdsSaved={onRiskThresholdsSaved} />
         ) : isInundationMode ? (
           data?.loading
             ? <PanelSpinner isDarkMode={isDarkMode} message="Loading depth timeseries…" />

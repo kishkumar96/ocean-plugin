@@ -67,8 +67,10 @@ function CookIslandsForecast() {
     error: overlayError,
     overlayStats,
     fitBounds,
+    setBasemap,
     removePinMarker,
     setShowContours,
+    refreshRiskMarkerColors,
   } = useZarrMap({
     selectedLayerId: selectedWaveForecast,
     sliderIndex,
@@ -82,6 +84,7 @@ function CookIslandsForecast() {
     setBottomCanvasData,
     setShowBottomCanvas,
     inundationCategories: inundationThresholds.lastValidCategories,
+    minVisibleDepth: inundationThresholds.minVisibleDepth,
     rangeWindow,
     terrainEnabled,
     terrainConfig: MAP_TERRAIN_CONFIG,
@@ -134,6 +137,7 @@ function CookIslandsForecast() {
         setActiveLayers={setActiveLayers}
         mapRef={mapRef}
         mapInstance={mapInstance}
+        setBasemap={setBasemap}
         isUpdatingVisualization={loading}
         minIndex={0}
         isBuffering={false}
@@ -171,6 +175,7 @@ function CookIslandsForecast() {
         onHide={handleHideBottomCanvas}
         data={bottomCanvasData}
         currentSliderDate={currentSliderDate}
+        onRiskThresholdsSaved={refreshRiskMarkerColors}
       />
       <BottomBuoyOffCanvas
         show={showBuoyCanvas}

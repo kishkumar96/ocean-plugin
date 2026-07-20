@@ -40,7 +40,7 @@ export class SfincsRasterOverlay {
   constructor(map, config) {
     this._map       = map;
     this._apiBase   = (config.apiBase || '').replace(/\/$/, '');
-    this._vmin      = config.colorRange?.min ?? 0.05;
+    this._vmin      = config.minVisibleDepth ?? config.colorRange?.min ?? 0.05;
     this._vmax      = config.colorRange?.max ?? 3.0;
     this._opacity   = config.opacity ?? 0.75;
     this._timeIndex = 0;
@@ -292,9 +292,10 @@ export class SfincsRasterOverlay {
     } catch (_) {}
   }
 
-  updateConfig({ rangeWindow, inundationCategories } = {}) {
+  updateConfig({ rangeWindow, inundationCategories, minVisibleDepth } = {}) {
     if (rangeWindow          !== undefined) this._rangeWindow = rangeWindow;
     if (inundationCategories !== undefined) this._categories  = inundationCategories;
+    if (minVisibleDepth      !== undefined && minVisibleDepth !== null) this._vmin = minVisibleDepth;
     if (!this._sourceReady) return;
 
     const isRangeMax = this._rangeWindow && this._rangeWindow.mode !== 'single';
