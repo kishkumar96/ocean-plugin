@@ -29,11 +29,17 @@ export function getRuntimeProviderId() {
  *
  * Env vars:
  *   REACT_APP_INUNDATION_PROVIDER         — 'fastapi' (default) or 'zarr'
- *   REACT_APP_INUNDATION_ZARR_BASE_URL    — S3/HTTP base URL for Zarr store
- *   REACT_APP_INUNDATION_ZARR_DATASET     — Zarr dataset path (e.g. 'sfincs_h_forecast.zarr')
- *   REACT_APP_INUNDATION_ZARR_48H_DATASET — 48h max Zarr dataset path (optional)
+ *   REACT_APP_INUNDATION_ZARR_BASE_URL    — HTTP base URL for the Zarr store
+ *                                            (defaults to apiBase + '/zarr', i.e.
+ *                                            zarr-api's own static route — not Wasabi)
+ *   REACT_APP_INUNDATION_ZARR_DATASET     — Zarr dataset path (default 'sfincs_hmax_forecast.zarr')
+ *   REACT_APP_INUNDATION_ZARR_48H_DATASET — 48h max Zarr dataset path (default 'sfincs_hmax_48h.zarr')
  *
- * @param {string} [apiBase] FastAPI base URL (used for the fastapi provider)
+ * NOTE: 'sfincs_h_forecast.zarr' (the old default here) is a stale directory that
+ * stopped being updated in June — the pipeline has written to 'sfincs_hmax_forecast.zarr'
+ * since. Don't reintroduce the old name.
+ *
+ * @param {string} [apiBase] FastAPI base URL (used for both providers)
  * @param {string} [overrideId] Force a specific provider ('fastapi' or 'zarr')
  * @returns {import('./InundationProvider').default}
  */
@@ -41,9 +47,10 @@ export function createInundationProvider(apiBase, overrideId) {
   const id = overrideId || getRuntimeProviderId();
 
   if (id === 'zarr') {
-    const baseUrl = process.env.REACT_APP_INUNDATION_ZARR_BASE_URL || '';
-    const dataset = process.env.REACT_APP_INUNDATION_ZARR_DATASET || 'sfincs_h_forecast.zarr';
-    const dataset48h = process.env.REACT_APP_INUNDATION_ZARR_48H_DATASET || null;
+    const baseUrl = process.env.REACT_APP_INUNDATION_ZARR_BASE_URL
+      || (apiBase ? `${apiBase.replace(/\/+$/, '')}/zarr` : '');
+    const dataset = process.env.REACT_APP_INUNDATION_ZARR_DATASET || 'sfincs_hmax_forecast.zarr';
+    const dataset48h = process.env.REACT_APP_INUNDATION_ZARR_48H_DATASET || 'sfincs_hmax_48h.zarr';
     return new ZarrInundationProvider({ baseUrl, dataset, dataset48h });
   }
 

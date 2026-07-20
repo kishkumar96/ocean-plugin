@@ -1,5 +1,11 @@
-const WAVE_ZARR_BASE = (process.env.REACT_APP_WAVE_ZARR_BASE_URL || 'https://s3.ap-southeast-2.wasabisys.com/spc-zarr-file').replace(/\/+$/, '');
 const SFINCS_API_BASE = (process.env.REACT_APP_SFINCS_API_BASE || 'https://ocean-zarr.spc.int').replace(/\/+$/, '');
+// SWAN_UGRID.zarr used to be pushed to Wasabi (spc-zarr-file/rarotonga_ugrid.zarr) and
+// read directly from there. The pipeline's Wasabi upload step is now disabled — the wave
+// Zarr only reaches THREDDS/zarr-api's bind-mounted data dir, served live by zarr-api's
+// /zarr static route (confirmed: /zarr/SWAN_UGRID.zarr/.zmetadata returns 200 in prod).
+// The old rarotonga_ugrid.zarr symlink path predates the container bind-mount deployment
+// and now 400s — do not reintroduce it as a fallback.
+const WAVE_ZARR_BASE = (process.env.REACT_APP_WAVE_ZARR_BASE_URL || `${SFINCS_API_BASE}/zarr`).replace(/\/+$/, '');
 // Relative paths (starting with /) need the current origin AND the app's public
 // path prefix (process.env.PUBLIC_URL, from package.json's "homepage") prepended.
 // This app is served under /widget5/, and both the dev server and production
@@ -75,7 +81,7 @@ export const RAROTONGA_ORTHO_2018_CONFIG = {
 
 const COMMON_SWAN_LAYER = {
   type: 'ugrid',
-  datasetName: 'rarotonga_ugrid.zarr',
+  datasetName: 'SWAN_UGRID.zarr',
   zarrBaseUrl: WAVE_ZARR_BASE,
   ugridApiBase: SFINCS_API_BASE,
   bounds: COOK_ISLANDS_WAVE_BOUNDS,

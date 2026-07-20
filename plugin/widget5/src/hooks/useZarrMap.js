@@ -7,10 +7,13 @@ import { UgridOverlay } from '../lib/UgridOverlay';
 import { SfincsRasterOverlay } from '../lib/SfincsRasterOverlay';
 import { SfincsColumnOverlay } from '../lib/SfincsColumnOverlay';
 import { findLayerById, RAROTONGA_ORTHO_2018_CONFIG } from '../lib/mapLayersConfig';
+import { BASEMAP_LAYER_ID, BASEMAP_OPTIONS } from '../config/basemapConfig';
 import { ISLAND_ZOOM_TARGETS } from '../config/islandConfig';
 import {
   fetchRiskDetails,
   fetchRiskPoints as fetchRiskPointsData,
+  getEffectiveRiskLevel,
+  ensureRiskThresholdOverridesLoaded,
 } from '../services/riskDataService';
 import { disableTerrain, enableTerrain, hasTerrainDem } from '../lib/terrainMapLibre';
 
@@ -92,6 +95,7 @@ export function useZarrMap({
   setBottomCanvasData,
   setShowBottomCanvas,
   inundationCategories = null,
+  minVisibleDepth = null,
   rangeWindow = null,
   playSpeedMs = 700,
   terrainEnabled = false,
@@ -121,7 +125,7 @@ export function useZarrMap({
 
   // Keep latest callback params in refs to avoid stale closures in map event listeners
   const cbRef = useRef({});
-  cbRef.current = { setBottomCanvasData, setShowBottomCanvas, inundationCategories, rangeWindow, selectedLayerId, opacity, flood3dElevScale, sliderIndex };
+  cbRef.current = { setBottomCanvasData, setShowBottomCanvas, inundationCategories, minVisibleDepth, rangeWindow, selectedLayerId, opacity, flood3dElevScale, sliderIndex };
 
   const overlayRefR = useRef(overlayRef);
   overlayRefR.current = overlayRef;
@@ -234,33 +238,6 @@ export function useZarrMap({
 
     // Reset loading so a stale true from the previous layer doesn't bleed through.
     setLoading(false);
-
-    const ov = layerCfg.type === 'ugrid'
-      ? new UgridOverlay(map, { ...layerCfg, opacity })
-      : layerCfg.sourceType === 'sfincs-raster'
-      ? new SfincsRasterOverlay(map, {
-          ...layerCfg,
-          opacity,
-          inundationCategories: cbRef.current.inundationCategories,
-        })
-      : new ZarrOverlay(map, { ...layerCfg, opacity, thresholds });
-
-    ov.onTimeChange = (_label, _idx, maxIdx) => setTimeCount(maxIdx + 1);
-    ov.onLoadingChange = setLoading;
-    ov.onErrorChange = setError;
-    ov.onStatsChange = (min, max, units, extra = {}) => {
-      setOverlayStats({
-        min,
-        max,
-        units,
-        colorMin: extra.colorMin ?? min,
-        colorMax: extra.colorMax ?? max,
-        variable: extra.variable ?? layerCfg.variable,
-        layerId: layerCfg.value,
-      });
-    };
-    overlayRef.current = ov;
-
     setSliderIndex(0);
     setTimeCount(1);
     // Don't clear timeLabels here — keep previous layer's labels so currentSliderDate
@@ -269,7 +246,62 @@ export function useZarrMap({
     setOverlayStats(null);
     setError(null);
 
-    return () => { ov.destroy(); };
+    // Construction is deferred one frame past prev.destroy(). UgridOverlay (and
+    // SfincsColumnOverlay, constructed by a sibling effect below) both use deck.gl's
+    // *interleaved* MapboxOverlay, which shares ONE Deck instance per map, cached on
+    // map.__deck (see @deck.gl/mapbox/deck-utils.js getDeckInstance/removeDeckInstance).
+    // Removing an interleaved overlay unconditionally finalizes and nulls that shared
+    // instance, even if a sibling interleaved overlay is still relying on it — and
+    // MapboxOverlay's own layer sync (resolveLayers) runs synchronously off whatever
+    // that reference currently is. Giving the previous overlay's teardown a full
+    // render frame before the next one starts inserting layers (with beforeId:
+    // 'risk-circles') avoids that hazard; this is the source of the intermittent
+    // "cannot add/move layer" MapLibre console errors seen when switching wave
+    // variable/island. (Traced from source, not live-verified — see conversation notes.)
+    let cancelled = false;
+    const rafId = requestAnimationFrame(() => {
+      if (cancelled) return;
+      const ov = layerCfg.type === 'ugrid'
+        ? new UgridOverlay(map, { ...layerCfg, opacity })
+        : layerCfg.sourceType === 'sfincs-raster'
+        ? new SfincsRasterOverlay(map, {
+            ...layerCfg,
+            opacity,
+            inundationCategories: cbRef.current.inundationCategories,
+            minVisibleDepth: cbRef.current.minVisibleDepth,
+          })
+        : new ZarrOverlay(map, { ...layerCfg, opacity, thresholds });
+
+      ov.onTimeChange = (_label, _idx, maxIdx) => setTimeCount(maxIdx + 1);
+      ov.onLoadingChange = setLoading;
+      ov.onErrorChange = setError;
+      ov.onStatsChange = (min, max, units, extra = {}) => {
+        setOverlayStats({
+          min,
+          max,
+          units,
+          colorMin: extra.colorMin ?? min,
+          colorMax: extra.colorMax ?? max,
+          variable: extra.variable ?? layerCfg.variable,
+          layerId: layerCfg.value,
+        });
+      };
+      overlayRef.current = ov;
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+      const current = overlayRef.current;
+      if (current) {
+        current.onLoadingChange = null;
+        current.onTimeChange = null;
+        current.onErrorChange = null;
+        current.onStatsChange = null;
+        current.destroy();
+        overlayRef.current = null;
+      }
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedLayerId]);
 
@@ -310,13 +342,13 @@ export function useZarrMap({
     if (ov && typeof ov.setThresholds === 'function') ov.setThresholds(thresholds);
   }, [thresholds]);
 
-  // ── sfincs config (rangeWindow / inundationCategories) ───────────────────
+  // ── sfincs config (rangeWindow / inundationCategories / minVisibleDepth) ──
   useEffect(() => {
     const ov = overlayRef.current;
     if (ov instanceof SfincsRasterOverlay) {
-      ov.updateConfig({ rangeWindow, inundationCategories });
+      ov.updateConfig({ rangeWindow, inundationCategories, minVisibleDepth });
     }
-  }, [rangeWindow, inundationCategories]);
+  }, [rangeWindow, inundationCategories, minVisibleDepth]);
 
   // ── optional MapLibre terrain ────────────────────────────────────────────
   useEffect(() => {
@@ -398,28 +430,39 @@ export function useZarrMap({
 
     if (!flood3dEnabled || !isSfincs || !map) return;
 
-    // Read latest values from cbRef to avoid stale closure when 3D is toggled off/on
-    const { opacity: latestOpacity, flood3dElevScale: latestElevScale, inundationCategories: latestCats } = cbRef.current;
-    const col = new SfincsColumnOverlay(map, {
-      apiBase: layerCfg.apiBase,
-      colorRange: layerCfg.colorRange,
-      opacity: latestOpacity,
-      inundationCategories: latestCats,
-      flood3dConfig: {
-        ...(flood3dConfig ?? {}),
-        elevationScale: latestElevScale ?? flood3dConfig?.elevationScale ?? 6,
-      },
-      // Insert columns below labels so map text remains readable
-      beforeLayerId: map.getLayer(ISLAND_LABELS_LAYER) ? ISLAND_LABELS_LAYER : null,
+    // Deferred one frame past the destroy above for the same reason as the main
+    // overlay-lifecycle effect: this is also an interleaved deck.gl MapboxOverlay
+    // sharing the map's single cached Deck instance (map.__deck) with UgridOverlay.
+    let cancelled = false;
+    const rafId = requestAnimationFrame(() => {
+      if (cancelled) return;
+      // Read latest values from cbRef to avoid stale closure when 3D is toggled off/on
+      const { opacity: latestOpacity, flood3dElevScale: latestElevScale, inundationCategories: latestCats } = cbRef.current;
+      const col = new SfincsColumnOverlay(map, {
+        apiBase: layerCfg.apiBase,
+        colorRange: layerCfg.colorRange,
+        opacity: latestOpacity,
+        inundationCategories: latestCats,
+        flood3dConfig: {
+          ...(flood3dConfig ?? {}),
+          elevationScale: latestElevScale ?? flood3dConfig?.elevationScale ?? 6,
+        },
+        // Insert columns below labels so map text remains readable
+        beforeLayerId: map.getLayer(ISLAND_LABELS_LAYER) ? ISLAND_LABELS_LAYER : null,
+      });
+      col.onLoadingChange = setLoading;
+      col.onErrorChange = setError;
+      columnOverlayRef.current = col;
+      col.setTimeIndex(sliderIndex);
     });
-    col.onLoadingChange = setLoading;
-    col.onErrorChange = setError;
-    columnOverlayRef.current = col;
-    col.setTimeIndex(sliderIndex);
 
     return () => {
-      col.destroy();
-      columnOverlayRef.current = null;
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+      if (columnOverlayRef.current) {
+        columnOverlayRef.current.destroy();
+        columnOverlayRef.current = null;
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flood3dEnabled, selectedLayerId]);
@@ -451,6 +494,19 @@ export function useZarrMap({
   }, [isPlaying, timeCount, setSliderIndex, setIsPlaying, playSpeedMs]);
 
   // ── risk points ───────────────────────────────────────────────────────────
+  function riskPointsToFeatureCollection(pts) {
+    return {
+      type: 'FeatureCollection',
+      features: pts
+        .filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
+        .map((p) => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+          properties: { id: p.id, riskLevel: getEffectiveRiskLevel(p), maxTWL: p.maxTWL ?? null, type: p.type ?? '' },
+        })),
+    };
+  }
+
   function doRefreshRisk() {
     const map = mapInstance.current;
     if (!map) return;
@@ -465,18 +521,21 @@ export function useZarrMap({
         riskPointsRef.current = pts;
         const src = map.getSource?.(RISK_SOURCE);
         if (!src) return;
-        src.setData({
-          type: 'FeatureCollection',
-          features: pts
-            .filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
-            .map((p) => ({
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-              properties: { id: p.id, riskLevel: p.riskLevel ?? 0, maxTWL: p.maxTWL ?? null, type: p.type ?? '' },
-            })),
-        });
+        src.setData(riskPointsToFeatureCollection(pts));
       })
       .catch((err) => console.error('Risk points fetch failed:', err));
+  }
+
+  // Re-colors markers from the already-fetched point list — no network round trip.
+  // Used after a per-point threshold edit is saved (locally) in RiskDetailsPanel,
+  // so the marker's color picks up the new override immediately instead of waiting
+  // for the next moveend/zoomend refetch.
+  function refreshRiskMarkerColors() {
+    const map = mapInstance.current;
+    if (!map) return;
+    const src = map.getSource?.(RISK_SOURCE);
+    if (!src) return;
+    src.setData(riskPointsToFeatureCollection(riskPointsRef.current));
   }
 
   useEffect(() => {
@@ -490,6 +549,18 @@ export function useZarrMap({
     if (map.loaded()) doRefreshRisk(); else map.once('load', doRefreshRisk);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [riskEnabled]);
+
+  // Server-saved threshold overrides load asynchronously (separate request from the
+  // points fetch above) — once they land, re-color markers already on the map so a
+  // returning user sees their previously-saved thresholds without needing a pan/zoom.
+  useEffect(() => {
+    let cancelled = false;
+    ensureRiskThresholdOverridesLoaded().then(() => {
+      if (!cancelled) refreshRiskMarkerColors();
+    });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── event handlers (stable refs, read latest values via cbRef) ────────────
   function onRiskClick(e) {
@@ -600,6 +671,31 @@ export function useZarrMap({
     map.fitBounds(mlBounds, { padding: 30, animate: true, ...options });
   }, []);
 
+  // Swaps only the 'sat' source/layer in place (never map.setStyle()) so the
+  // Rarotonga ortho overlay and SFINCS/inundation raster overlays — all added
+  // outside this style JSON, or layered above 'sat' within it — survive the
+  // switch untouched.
+  const setBasemap = useCallback((basemapId) => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const option = BASEMAP_OPTIONS.find((b) => b.id === basemapId);
+    if (!option) return;
+
+    const applySwap = () => {
+      if (map.getLayer(BASEMAP_LAYER_ID)) map.removeLayer(BASEMAP_LAYER_ID);
+      if (map.getSource(BASEMAP_LAYER_ID)) map.removeSource(BASEMAP_LAYER_ID);
+      map.addSource(BASEMAP_LAYER_ID, option.source);
+      const firstLayerId = map.getStyle()?.layers?.[0]?.id;
+      map.addLayer({ id: BASEMAP_LAYER_ID, type: 'raster', source: BASEMAP_LAYER_ID }, firstLayerId);
+    };
+
+    if (map.isStyleLoaded()) {
+      applySwap();
+    } else {
+      map.once('load', applySwap);
+    }
+  }, []);
+
   // ── capTime compatibility shim for ForecastApp/InundationWindowControl ─────
   // NOTE (performance): zarr chunks fetched from Wasabi hit S3 on every request
   // because the bucket doesn't serve Cache-Control headers. Fix: add
@@ -635,8 +731,10 @@ export function useZarrMap({
     error,
     overlayStats,
     fitBounds,      // (islandBounds, options) → map.fitBounds with coord conversion
+    setBasemap,     // (basemapId) → swap 'sat' raster source/layer in place
     removePinMarker,
     setShowContours: (enabled) => { overlayRef.current?.setShowContours?.(enabled); },
+    refreshRiskMarkerColors,
   };
 }
 
