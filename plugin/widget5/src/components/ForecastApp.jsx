@@ -53,9 +53,11 @@ const ForecastApp = ({
   setRangeWindow,
   fitBounds,       // (islandBounds) → map.fitBounds with coord conversion — from useZarrMap
   setShowContours,
+  // Unused while the Terrain/Aerial imagery toggles and Flood display's
+  // terrain-aware warning banner are commented out below (moved to
+  // advanced-features branch).
+  // eslint-disable-next-line no-unused-vars
   terrainEnabled = false,
-  // Unused while the Terrain/Aerial imagery toggles are commented out below
-  // (moved to advanced-features branch).
   // eslint-disable-next-line no-unused-vars
   setTerrainEnabled,
   terrainConfig,
@@ -63,10 +65,16 @@ const ForecastApp = ({
   showOrtho2018 = true,
   // eslint-disable-next-line no-unused-vars
   setShowOrtho2018,
+  // Unused while the Flood display (2D/3D) toggle is commented out below
+  // (moved to advanced-features branch).
+  // eslint-disable-next-line no-unused-vars
   floodDisplayMode = '2d',
+  // eslint-disable-next-line no-unused-vars
   setFloodDisplayMode,
   flood3DConfig,
+  // eslint-disable-next-line no-unused-vars
   flood3dElevScale = 6,
+  // eslint-disable-next-line no-unused-vars
   setFlood3dElevScale,
 }) => {
   const lastZoomedLayerRef = useRef(null);
@@ -83,6 +91,9 @@ const ForecastApp = ({
   // advanced-features branch).
   // eslint-disable-next-line no-unused-vars
   const terrainAvailable = Array.isArray(terrainConfig?.tiles) && terrainConfig.tiles.some(Boolean);
+  // Unused while the Flood display toggle is commented out below (moved to
+  // advanced-features branch).
+  // eslint-disable-next-line no-unused-vars
   const flood3DAvailable = Boolean(flood3DConfig?.available);
 
   const zoomToLayerBounds = useCallback((layerValue, { force = false } = {}) => {
@@ -687,6 +698,14 @@ const ForecastApp = ({
           </div>
           */}
 
+          {/* Flood display (2D depth bands / Experimental 3D depth) — moved to
+              the advanced-features branch, disabled here on main. Restore by
+              uncommenting this block (floodDisplayMode/setFloodDisplayMode,
+              flood3dElevScale/setFlood3dElevScale, flood3DAvailable,
+              flood3DConfig, and terrainEnabled props are still threaded
+              through above, untouched, so re-enabling is just removing this
+              comment).
+
           {isRasterInundation && (
             <div className="map-display-option">
               <div className="map-display-option__label">Flood display</div>
@@ -751,6 +770,7 @@ const ForecastApp = ({
               )}
             </div>
           )}
+          */}
         </ControlGroup>
 
         <ControlGroup
