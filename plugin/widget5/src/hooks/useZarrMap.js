@@ -6,7 +6,7 @@ import { ZarrOverlay } from '../lib/ZarrOverlay';
 import { UgridOverlay } from '../lib/UgridOverlay';
 import { SfincsRasterOverlay } from '../lib/SfincsRasterOverlay';
 import { SfincsColumnOverlay } from '../lib/SfincsColumnOverlay';
-import { findLayerById, RAROTONGA_ORTHO_2018_CONFIG } from '../lib/mapLayersConfig';
+import { findLayerById } from '../lib/mapLayersConfig';
 import { BASEMAP_LAYER_ID, BASEMAP_OPTIONS } from '../config/basemapConfig';
 import { ISLAND_ZOOM_TARGETS } from '../config/islandConfig';
 import {
@@ -28,20 +28,9 @@ const ESRI_SAT_STYLE = {
       attribution: 'Tiles © Esri',
       maxzoom: 19,
     },
-    [RAROTONGA_ORTHO_2018_CONFIG.sourceId]: {
-      type: 'raster',
-      tiles: RAROTONGA_ORTHO_2018_CONFIG.tiles,
-      tileSize: RAROTONGA_ORTHO_2018_CONFIG.tileSize,
-      minzoom: RAROTONGA_ORTHO_2018_CONFIG.minzoom,
-      maxzoom: RAROTONGA_ORTHO_2018_CONFIG.maxzoom,
-      bounds: RAROTONGA_ORTHO_2018_CONFIG.bounds,
-      attribution: RAROTONGA_ORTHO_2018_CONFIG.attribution,
-    },
   },
   layers: [
     { id: 'sat', type: 'raster', source: 'sat' },
-    // Sits above Esri; transparent outside its footprint / below minzoom, so Esri shows through.
-    { id: RAROTONGA_ORTHO_2018_CONFIG.layerId, type: 'raster', source: RAROTONGA_ORTHO_2018_CONFIG.sourceId },
   ],
 };
 
@@ -100,7 +89,6 @@ export function useZarrMap({
   playSpeedMs = 700,
   terrainEnabled = false,
   terrainConfig = null,
-  showOrtho2018 = true,
   flood3dEnabled = false,
   flood3dConfig = null,
   flood3dElevScale = null,
@@ -391,30 +379,6 @@ export function useZarrMap({
     // Remove the once() listener if this effect re-runs before the map loads
     return () => map.off('load', applyTerrain);
   }, [terrainEnabled, terrainConfig, selectedLayerId]);
-
-  // ── optional: hide the local high-res 2018 aerial overlay, showing only
-  // the Esri "sat" basemap underneath. Terrain draping is a global scene
-  // property (map.setTerrain()), not per-layer, so the basemap still drapes
-  // over 3D terrain exactly like the ortho overlay does when it's visible.
-  useEffect(() => {
-    const map = mapInstance.current;
-    if (!map) return;
-
-    const applyVisibility = () => {
-      if (map.getLayer(RAROTONGA_ORTHO_2018_CONFIG.layerId)) {
-        map.setLayoutProperty(
-          RAROTONGA_ORTHO_2018_CONFIG.layerId,
-          'visibility',
-          showOrtho2018 ? 'visible' : 'none'
-        );
-      }
-    };
-
-    if (map.loaded()) applyVisibility();
-    else map.once('load', applyVisibility);
-
-    return () => map.off('load', applyVisibility);
-  }, [showOrtho2018]);
 
   // ── 3D flood column overlay ───────────────────────────────────────────────
   useEffect(() => {
