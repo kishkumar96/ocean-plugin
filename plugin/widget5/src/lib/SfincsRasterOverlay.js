@@ -198,7 +198,11 @@ export class SfincsRasterOverlay {
       id: LAYER_ID,
       type: 'raster',
       source: SOURCE_ID,
-      paint: { 'raster-opacity': this._opacity },
+      // The SFINCS grid is ~5m/cell — well below typical zoomed-in screen
+      // resolution — and MapLibre's default 'linear' resampling bilinearly
+      // blurs between threshold-colored bands when overscaled. 'nearest'
+      // keeps threshold-band edges crisp instead of smearing colors together.
+      paint: { 'raster-opacity': this._opacity, 'raster-resampling': 'nearest' },
     });
     this._sourceReady = true;
 
