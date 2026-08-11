@@ -596,7 +596,7 @@ const ForecastApp = ({
         {isRasterInundation && (
           <ControlGroup
             icon={<FancyIcon icon={SlidersHorizontal} animationType="pulse" color="#90caf9" />}
-            title="Inundation Thresholds"
+            title="Dynamic Inundation Visualization"
             ariaLabel="Inundation threshold configuration"
           >
             <div className="inundation-threshold-trigger">

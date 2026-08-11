@@ -1171,12 +1171,12 @@ const ForecastApp = ({
               />
             </ControlGroup>
 
-            <ControlGroup
-              icon={<FancyIcon icon={FastForward} animationType="bounce" color="#ff9800" />}
-              title={UI_CONFIG.SECTIONS.FORECAST_TIME.title}
-              ariaLabel={UI_CONFIG.SECTIONS.FORECAST_TIME.ariaLabel}
-            >
-              {showTimelineInPanel && (
+            {showTimelineInPanel && (
+              <ControlGroup
+                icon={<FancyIcon icon={FastForward} animationType="bounce" color="#ff9800" />}
+                title={UI_CONFIG.SECTIONS.FORECAST_TIME.title}
+                ariaLabel={UI_CONFIG.SECTIONS.FORECAST_TIME.ariaLabel}
+              >
                 <ForecastTimeline
                   inline
                   sliderIndex={sliderIndex}
@@ -1196,10 +1196,9 @@ const ForecastApp = ({
                   showInPanel={showTimelineInPanel}
                   onTogglePanel={() => setShowTimelineInPanel((v) => !v)}
                 />
-              )}
 
-              {/* ✅ Warm-up Period Notice */}
-              {MARINE_CONFIG.SHOW_WARMUP_NOTICE && capTime.warmupSkipped && (
+                {/* ✅ Warm-up Period Notice */}
+                {MARINE_CONFIG.SHOW_WARMUP_NOTICE && capTime.warmupSkipped && (
                 <div style={{
                   marginTop: '0.75rem',
                   padding: '0.5rem 0.75rem',
@@ -1217,13 +1216,14 @@ const ForecastApp = ({
                     Showing reliable forecast data (excluding {capTime.warmupDays}-day model initialization)
                   </span>
                 </div>
-              )}
-            </ControlGroup>
+                )}
+              </ControlGroup>
+            )}
 
             {isInundationSelected && (
               <ControlGroup
                 icon={<FancyIcon icon={SlidersHorizontal} animationType="pulse" color="#90caf9" />}
-                title="Inundation Thresholds"
+                title="Dynamic Inundation Visualization"
                 ariaLabel="Inundation threshold configuration"
               >
                 <div className="inundation-threshold-trigger">
