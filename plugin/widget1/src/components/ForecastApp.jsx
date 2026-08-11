@@ -9,7 +9,7 @@ import BasemapSwitcher from './BasemapSwitcher';
 import ForecastTimeline from './ForecastTimeline';
 import InundationThresholdEditor from './InundationThresholdEditor';
 import { isInundationLayer } from '../config/layerConfig';
-import { buildBreakLegendConfig, buildInundationLegendBands } from '../domain/inundation/legendBands';
+import { buildBreakLegendConfig, buildInundationLegendBands, buildContinuousLegendConfig } from '../domain/inundation/legendBands';
 import { getColormap } from '../lib/colormaps';
 import {
   VESSEL_CLASSES,
@@ -331,6 +331,8 @@ const ForecastApp = ({
   onRunScenario,
   onRunAllScenarios,
   inundationThresholds,
+  inundationRenderMode,
+  setInundationRenderMode,
   oceanStations = [],
   onOceanStationSelect,
   timeDisplayZone,
@@ -534,6 +536,13 @@ const ForecastApp = ({
     }
     
     if (varLower.includes('inun')) {
+      if (inundationRenderMode === 'continuous') {
+        return buildContinuousLegendConfig({
+          colorRange: { min: layerData?.colorRange?.min ?? colorRange?.min ?? 0.05, max: layerData?.colorRange?.max ?? colorRange?.max ?? 6.0 },
+          colormapFn: getColormap('turbo'),
+          units: 'm',
+        });
+      }
       // Bands, colors, and the visible-depth cutoff come from the live
       // inundationThresholds editor state — not the raw WMS colorscalerange —
       // so the legend always matches what the raster/chart are actually showing.
@@ -1234,8 +1243,24 @@ const ForecastApp = ({
                     {`${inundationThresholds.categories.length} bands`}
                   </span>
                 </div>
+                <div className="map-display-option__segmented" role="radiogroup" aria-label="Inundation view mode" style={{ marginTop: '0.5rem' }} onKeyDown={handleSegmentedKeyDown}>
+                  {['bands', 'continuous'].map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={`map-display-option__btn${inundationRenderMode === mode ? ' map-display-option__btn--active' : ''}`}
+                      role="radio"
+                      aria-checked={inundationRenderMode === mode}
+                      onClick={() => setInundationRenderMode?.(mode)}
+                    >
+                      {mode === 'bands' ? 'Bands' : 'Continuous'}
+                    </button>
+                  ))}
+                </div>
                 <div className="inundation-threshold-trigger__hint">
-                  Refine depth bands and severity descriptions. Changes apply live to the map raster, legend, and popup.
+                  {inundationRenderMode === 'continuous'
+                    ? 'Showing a smooth depth gradient across the full range instead of your hazard bands.'
+                    : 'Refine depth bands and severity descriptions. Changes apply live to the map raster, legend, and popup.'}
                 </div>
               </ControlGroup>
             )}
