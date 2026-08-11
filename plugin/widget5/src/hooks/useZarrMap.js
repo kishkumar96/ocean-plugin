@@ -85,7 +85,7 @@ export function useZarrMap({
   setShowBottomCanvas,
   inundationCategories = null,
   minVisibleDepth = null,
-  inundationRenderMode = 'bands',
+  inundationRenderMode = 'continuous',
   rangeWindow = null,
   playSpeedMs = 700,
   terrainEnabled = false,

@@ -110,7 +110,7 @@ export function useZarrMap({
   setShowBottomCanvas,
   inundationCategories = null,
   minVisibleDepth = null,
-  inundationRenderMode = 'bands',
+  inundationRenderMode = 'continuous',
   rangeWindow = null,
   // 'off' | 'particles' | 'particles+raster'
   waveParticleMode = 'off',
