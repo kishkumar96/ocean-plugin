@@ -616,24 +616,8 @@ const ForecastApp = ({
                 {`${inundationThresholds.categories.length} bands`}
               </span>
             </div>
-            <div className="map-display-option__segmented" role="radiogroup" aria-label="Inundation view mode" style={{ marginTop: '0.5rem' }}>
-              {['bands', 'continuous'].map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={`map-display-option__btn${inundationRenderMode === mode ? ' map-display-option__btn--active' : ''}`}
-                  role="radio"
-                  aria-checked={inundationRenderMode === mode}
-                  onClick={() => setInundationRenderMode?.(mode)}
-                >
-                  {mode === 'bands' ? 'Bands' : 'Continuous'}
-                </button>
-              ))}
-            </div>
             <div className="inundation-threshold-trigger__hint">
-              {inundationRenderMode === 'continuous'
-                ? 'Showing a smooth depth gradient across the full range instead of your hazard bands.'
-                : 'Refine depth bands and severity descriptions as observed event data comes in. Changes apply live to the map popup and legend.'}
+              Refine depth bands and severity descriptions as observed event data comes in. Changes apply live to the map popup and legend.
             </div>
           </ControlGroup>
         )}
@@ -825,6 +809,8 @@ const ForecastApp = ({
         resetToDefaults={inundationThresholds.resetToDefaults}
         exportJson={inundationThresholds.exportJson}
         importJson={inundationThresholds.importJson}
+        renderMode={inundationRenderMode}
+        setRenderMode={setInundationRenderMode}
       />
     </div>
   );

@@ -78,7 +78,7 @@ export class SfincsRasterOverlay {
     this._timeIndex = 0;
     this._rangeWindow  = null;
     this._categories   = config.inundationCategories ?? null;
-    this._renderMode   = config.inundationRenderMode ?? 'bands';
+    this._renderMode   = config.inundationRenderMode ?? 'continuous';
     this._timesteps    = [];
     this._destroyed    = false;
     this._sourceReady  = false;

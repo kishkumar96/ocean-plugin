@@ -192,10 +192,10 @@ function Home() {
   }, [showBuoyCanvas]);
 
   const inundationThresholds = useInundationThresholds();
-  // 'bands' | 'continuous' — lets the inundation layer render as the user's
-  // edited hazard bands (default) or a smooth depth gradient, matching the
-  // wave/period forecast layers' continuous rendering.
-  const [inundationRenderMode, setInundationRenderMode] = useState('bands');
+  // 'bands' | 'continuous' — lets the inundation layer render as a smooth
+  // depth gradient (default, matching the wave/period forecast layers) or
+  // the user's edited hazard bands, switchable from the threshold editor.
+  const [inundationRenderMode, setInundationRenderMode] = useState('continuous');
 
   const {
     mapRef,

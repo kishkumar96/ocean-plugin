@@ -42,7 +42,7 @@ export class NiueInundationOverlay {
     this._opacity    = config.opacity ?? 0.75;
     this._timeIndex  = 0;
     this._categories  = config.inundationCategories ?? null;
-    this._renderMode  = config.inundationRenderMode ?? 'bands';
+    this._renderMode  = config.inundationRenderMode ?? 'continuous';
     this._timesteps   = [];
     this._destroyed   = false;
     this._sourceReady = false;

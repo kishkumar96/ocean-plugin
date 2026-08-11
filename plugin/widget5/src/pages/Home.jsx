@@ -40,10 +40,10 @@ function CookIslandsForecast() {
   const [terrainEnabled, setTerrainEnabled] = useState(false);
   const [floodDisplayMode, setFloodDisplayMode] = useState('2d');
   const [flood3dElevScale, setFlood3dElevScale] = useState(FLOOD_3D_CONFIG.elevationScale ?? 6);
-  // 'bands' | 'continuous' — lets the inundation layer render as the user's
-  // edited hazard bands (default) or a smooth depth gradient, matching the
-  // wave/period forecast layers' continuous rendering.
-  const [inundationRenderMode, setInundationRenderMode] = useState('bands');
+  // 'bands' | 'continuous' — lets the inundation layer render as a smooth
+  // depth gradient (default, matching the wave/period forecast layers) or
+  // the user's edited hazard bands, switchable from the threshold editor.
+  const [inundationRenderMode, setInundationRenderMode] = useState('continuous');
 
   // ── canvas visibility ────────────────────────────────────────────────────
   const [showBottomCanvas, setShowBottomCanvas] = useState(false);
