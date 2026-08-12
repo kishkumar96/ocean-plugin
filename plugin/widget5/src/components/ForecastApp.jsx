@@ -14,7 +14,7 @@ import {
   IslandZoomControl,
   DataInfo,
 } from './shared/UIComponents';
-import { Waves, Wind, Navigation, Activity, Info, Settings, Timer, Triangle, CloudRain, MapPin, SlidersHorizontal, BarChart2 } from 'lucide-react';
+import { Waves, Wind, Navigation, Activity, Info, Settings, Timer, Triangle, CloudRain, MapPin, SlidersHorizontal, BarChart2, FastForward } from 'lucide-react';
 import FancyIcon from './FancyIcon';
 import '../styles/fancyIcons.css';
 import InundationThresholdEditor from './InundationThresholdEditor';
@@ -556,26 +556,32 @@ const ForecastApp = ({
         </ControlGroup>
 
         {showTimelineInPanel && (
-          <ForecastTimeline
-            inline
-            sliderIndex={sliderIndex}
-            totalSteps={totalSteps}
-            minIndex={minIndex}
-            currentSliderDate={currentSliderDate}
-            capTime={capTime}
-            isPlaying={isPlaying}
-            playSpeedMs={playSpeedMs}
-            timeDisplayZone={timeDisplayZone}
-            disabled={selectedLayer?.isStatic || (isRasterInundation && rangeWindow?.mode && rangeWindow.mode !== 'single')}
-            onTimeIndexChange={handleSliderChange}
-            onPlayPause={handlePlayToggle}
-            onPrevious={handlePreviousTimestamp}
-            onNext={handleNextTimestamp}
-            onSpeedChange={setPlaySpeedMs}
-            onTimezoneChange={setTimeDisplayZone}
-            showInPanel={showTimelineInPanel}
-            onTogglePanel={() => setShowTimelineInPanel(v => !v)}
-          />
+          <ControlGroup
+            icon={<FancyIcon icon={FastForward} animationType="bounce" color="#ff9800" />}
+            title={UI_CONFIG.SECTIONS.FORECAST_TIME.title}
+            ariaLabel={UI_CONFIG.SECTIONS.FORECAST_TIME.ariaLabel}
+          >
+            <ForecastTimeline
+              inline
+              sliderIndex={sliderIndex}
+              totalSteps={totalSteps}
+              minIndex={minIndex}
+              currentSliderDate={currentSliderDate}
+              capTime={capTime}
+              isPlaying={isPlaying}
+              playSpeedMs={playSpeedMs}
+              timeDisplayZone={timeDisplayZone}
+              disabled={selectedLayer?.isStatic || (isRasterInundation && rangeWindow?.mode && rangeWindow.mode !== 'single')}
+              onTimeIndexChange={handleSliderChange}
+              onPlayPause={handlePlayToggle}
+              onPrevious={handlePreviousTimestamp}
+              onNext={handleNextTimestamp}
+              onSpeedChange={setPlaySpeedMs}
+              onTimezoneChange={setTimeDisplayZone}
+              showInPanel={showTimelineInPanel}
+              onTogglePanel={() => setShowTimelineInPanel(v => !v)}
+            />
+          </ControlGroup>
         )}
 
         <ControlGroup
