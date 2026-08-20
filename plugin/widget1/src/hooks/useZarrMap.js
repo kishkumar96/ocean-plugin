@@ -159,6 +159,11 @@ export function useZarrMap({
   const [error, setError] = useState(null);
   const [mapReady, setMapReady] = useState(false);
   const [overlayStats, setOverlayStats] = useState(null);
+  // True while the Custom-mode suitability canvas is waiting on a grid
+  // fetch for the timestep it's supposed to be showing right now — see
+  // NiueSuitabilityDynamicOverlay's onBufferingChange comment. Unused by
+  // every other overlay type; stays false for all of them.
+  const [suitabilityBuffering, setSuitabilityBuffering] = useState(false);
 
   // Keep latest callback params in refs to avoid stale closures in map event listeners
   const cbRef = useRef({});
@@ -344,12 +349,14 @@ export function useZarrMap({
       prev.onTimeChange = null;
       prev.onErrorChange = null;
       prev.onStatsChange = null;
+      prev.onBufferingChange = null;
       prev.destroy();
       overlayRef.current = null;
     }
 
     // Reset loading so a stale true from the previous layer doesn't bleed through.
     setLoading(false);
+    setSuitabilityBuffering(false);
 
     const ov = layerCfg.type === 'ugrid'
       ? new UgridOverlay(map, { ...layerCfg, opacity, autoFitState: autoFitStateRef.current })
@@ -389,6 +396,7 @@ export function useZarrMap({
     ov.onTimeChange = (_label, _idx, maxIdx) => setTimeCount(maxIdx + 1);
     ov.onLoadingChange = setLoading;
     ov.onErrorChange = setError;
+    ov.onBufferingChange = setSuitabilityBuffering; // no-op property on every non-suitability overlay
     ov.onStatsChange = (min, max, units, extra = {}) => {
       setOverlayStats({
         min,
@@ -940,6 +948,7 @@ export function useZarrMap({
     loading,
     error,
     overlayStats,
+    suitabilityBuffering,
     fitBounds,      // (islandBounds, options) → map.fitBounds with coord conversion
     setBasemap,     // (basemapId) → swap 'sat' raster source/layer in place
     removePinMarker,

@@ -2920,6 +2920,16 @@
   gap: 0.75rem;
 }
 
+.suitability-envelope-buffering {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.66rem;
+  font-weight: 650;
+  color: rgba(226, 240, 255, 0.72);
+  white-space: nowrap;
+}
+
 .suitability-control-card__subtext {
   margin-top: 0.15rem;
   color: rgba(194, 218, 245, 0.62);

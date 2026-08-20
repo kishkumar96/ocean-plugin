@@ -214,6 +214,7 @@ function Home() {
     loading,
     error: overlayError,
     overlayStats,
+    suitabilityBuffering,
     fitBounds,
     setBasemap,
     removePinMarker,
@@ -640,6 +641,7 @@ function Home() {
         timeDisplayZone={timeDisplayZone}
         setTimeDisplayZone={setTimeDisplayZone}
         overlayStats={overlayStats}
+        suitabilityBuffering={suitabilityBuffering}
         activeLayers={activeLayers}
         setActiveLayers={setActiveLayers}
         mapRef={mapRef}

@@ -32,7 +32,7 @@ import {
   //StatusBar
 } from './shared/UIComponents';
 import wmsStyleManager from '../utils/WMSStyleManager';
-import { Waves, Wind, Navigation, Activity, Info, Settings, Timer, Triangle,  BadgeInfo , CloudRain, FastForward, SlidersHorizontal, FileDown, Crosshair, MapPin, Route as RouteIcon, FileText, Ship, HelpCircle } from 'lucide-react';
+import { Waves, Wind, Navigation, Activity, Info, Settings, Timer, Triangle,  BadgeInfo , CloudRain, FastForward, SlidersHorizontal, FileDown, Crosshair, MapPin, Route as RouteIcon, FileText, Ship, HelpCircle, Loader2 } from 'lucide-react';
 import FancyIcon from './FancyIcon';
 import '../styles/fancyIcons.css';
 
@@ -330,6 +330,7 @@ const ForecastApp = ({
   runningScenarioIds = [],
   currentModelRunStart = null,
   overlayStats = null,
+  suitabilityBuffering = false,
   onSaveCurrentAsScenario,
   onDuplicateScenario,
   onRemoveScenario,
@@ -1468,6 +1469,20 @@ const ForecastApp = ({
                 <div className="map-display-option suitability-control-card suitability-control-card--envelope">
                   <div className="suitability-control-card__header">
                     <div className="map-display-option__label">Operating envelope</div>
+                    {/* Custom mode's canvas is only as current as its last
+                        successful grid fetch — this says so honestly rather
+                        than leaving the map looking frozen while a fetch
+                        (currently ~15MB/~2s against the still-undeployed
+                        quantized backend) catches up, especially visible
+                        during timeline playback. Not a fallback showing
+                        different data as if it were current — just an
+                        honest "still loading" signal. */}
+                    {isCustomEnvelope && suitabilityBuffering && (
+                      <span className="suitability-envelope-buffering" title="Loading the map for this forecast time — the display may lag behind the time slider">
+                        <Loader2 size={12} className="update-spinner" />
+                        Updating…
+                      </span>
+                    )}
                   </div>
 
                   {!isCustomEnvelope ? (

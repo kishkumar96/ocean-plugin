@@ -27,6 +27,7 @@ function makeController() {
     setEnvelope: jest.fn(),
     setVisible: jest.fn(),
     destroy: jest.fn(),
+    onBufferingChange: null,
   };
   return controller;
 }
@@ -240,6 +241,20 @@ describe('NiueSuitabilityController callback forwarding', () => {
   test('getTimeLabels delegates to the fixed overlay', () => {
     const controller = makeController();
     expect(controller.getTimeLabels()).toEqual(['2026-08-20 00:00 UTC']);
+  });
+
+  // Unlike the four above, only the dynamic overlay has a meaningful
+  // "buffering" concept (see NiueSuitabilityDynamicOverlay's own comment) —
+  // this must forward to dynamic, not fixed.
+  test('onBufferingChange assigns onto the dynamic overlay, not the fixed one', () => {
+    const controller = makeController();
+    const onBufferingChange = () => {};
+
+    controller.onBufferingChange = onBufferingChange;
+
+    expect(controller.dynamic.onBufferingChange).toBe(onBufferingChange);
+    expect(controller.fixed.onBufferingChange).toBeUndefined();
+    expect(controller.onBufferingChange).toBe(onBufferingChange);
   });
 });
 
