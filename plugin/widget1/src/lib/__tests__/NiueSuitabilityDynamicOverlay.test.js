@@ -1,0 +1,141 @@
+import { NiueSuitabilityDynamicOverlay } from '../NiueSuitabilityDynamicOverlay';
+import { classifySuitability, SUITABILITY_HAZARD_COLORS } from '../NiueSuitabilityOverlay';
+
+// Grid decoding is pure data-shape math (no DOM), so it's tested directly
+// against the backend's documented layout: wind (f32le) then wave (f32le)
+// then valid (u8), each row-major (lat, lon).
+describe('NiueSuitabilityDynamicOverlay grid decoding', () => {
+  test('splits a packed buffer into wind/wave/valid views at the right offsets', () => {
+    const width = 2;
+    const height = 2;
+    const cellCount = width * height;
+    const buffer = new ArrayBuffer(cellCount * 4 * 2 + cellCount);
+
+    new Float32Array(buffer, 0, cellCount).set([1, 2, 3, 4]);
+    new Float32Array(buffer, cellCount * 4, cellCount).set([0.1, 0.2, 0.3, 0.4]);
+    new Uint8Array(buffer, cellCount * 8, cellCount).set([1, 1, 0, 1]);
+
+    const bounds = { lonMin: -170, lonMax: -169, latMin: -19, latMax: -18 };
+    const grid = NiueSuitabilityDynamicOverlay._decodeGridBuffer(buffer, width, height, bounds);
+
+    expect(Array.from(grid.wind)).toEqual([1, 2, 3, 4]);
+    expect(Array.from(grid.wave)).toEqual([0.1, 0.2, 0.3, 0.4].map(Math.fround));
+    expect(Array.from(grid.valid)).toEqual([1, 1, 0, 1]);
+    expect(grid.bounds).toEqual(bounds);
+  });
+});
+
+describe('NiueSuitabilityDynamicOverlay.setThresholds', () => {
+  function makeOverlay() {
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    overlay._map = {};
+    overlay._grid = null;
+    overlay._envelope = null;
+    return overlay;
+  }
+
+  test('rejects a caution threshold above the max threshold (wind)', () => {
+    const overlay = makeOverlay();
+    expect(() =>
+      overlay.setThresholds('small_craft', { cautionWindKt: 25, maxWindKt: 20 })
+    ).toThrow(/wind/i);
+  });
+
+  test('rejects a caution threshold above the max threshold (wave)', () => {
+    const overlay = makeOverlay();
+    expect(() =>
+      overlay.setThresholds('small_craft', { cautionWaveHeightM: 3.0, maxWaveHeightM: 2.0 })
+    ).toThrow(/wave/i);
+  });
+
+  test('throws on an unknown vessel class', () => {
+    const overlay = makeOverlay();
+    expect(() => overlay.setThresholds('not_a_real_vessel')).toThrow(/unknown vessel/i);
+  });
+
+  test('accepts overrides merged onto the vessel preset without repainting when no grid is loaded', () => {
+    const overlay = makeOverlay();
+    overlay._repaint = jest.fn();
+    overlay.setThresholds('small_craft', { maxWaveHeightM: 2.5 });
+    expect(overlay._envelope.maxWaveHeightM).toBe(2.5);
+    expect(overlay._envelope.cautionWindKt).toBe(15); // untouched preset field survives the merge
+    expect(overlay._repaint).not.toHaveBeenCalled();
+  });
+});
+
+// Per-pixel classification must agree with the existing point-query
+// classifySuitability (NiueSuitabilityOverlay.js) — same max(windHazard,
+// waveHazard) rule, just applied across a raster instead of one point.
+describe('NiueSuitabilityDynamicOverlay._repaint classification parity', () => {
+  function paintSinglePixel(windKt, waveM, vesselCode) {
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    const width = 1;
+    const height = 1;
+    const pixels = new Uint8ClampedArray(4);
+
+    overlay._grid = {
+      width,
+      height,
+      wind: new Float32Array([windKt]),
+      wave: new Float32Array([waveM]),
+      valid: new Uint8Array([1]),
+      bounds: { lonMin: 0, lonMax: 1, latMin: 0, latMax: 1 },
+    };
+    overlay._imageData = { data: pixels };
+    overlay._ctx = { putImageData: jest.fn() };
+    overlay._map = {
+      getSource: jest.fn(() => null),
+      addSource: jest.fn(),
+      addLayer: jest.fn(),
+      triggerRepaint: jest.fn(),
+    };
+
+    overlay.setThresholds(vesselCode);
+    return pixels;
+  }
+
+  const cases = [
+    ['small_craft', 5, 0.5], // suitable
+    ['small_craft', 17, 0.5], // caution on wind
+    ['small_craft', 5, 1.8], // caution on wave
+    ['small_craft', 22, 0.5], // warning on wind
+    ['small_craft', 5, 2.2], // warning on wave
+  ];
+
+  test.each(cases)('vessel=%s wind=%dkt wave=%dm matches classifySuitability', (vessel, wind, wave) => {
+    const expectedHazard = classifySuitability(vessel, wind, wave);
+    const expectedRgb = SUITABILITY_HAZARD_COLORS[expectedHazard];
+    const [r, g, b] = [
+      Number.parseInt(expectedRgb.slice(1, 3), 16),
+      Number.parseInt(expectedRgb.slice(3, 5), 16),
+      Number.parseInt(expectedRgb.slice(5, 7), 16),
+    ];
+
+    const pixels = paintSinglePixel(wind, wave, vessel);
+    expect(Array.from(pixels)).toEqual([r, g, b, 205]);
+  });
+
+  test('an invalid cell is painted fully transparent regardless of wind/wave values', () => {
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    const pixels = new Uint8ClampedArray(4);
+    overlay._grid = {
+      width: 1,
+      height: 1,
+      wind: new Float32Array([50]), // would be a warning if valid
+      wave: new Float32Array([5]),
+      valid: new Uint8Array([0]),
+      bounds: { lonMin: 0, lonMax: 1, latMin: 0, latMax: 1 },
+    };
+    overlay._imageData = { data: pixels };
+    overlay._ctx = { putImageData: jest.fn() };
+    overlay._map = {
+      getSource: jest.fn(() => null),
+      addSource: jest.fn(),
+      addLayer: jest.fn(),
+      triggerRepaint: jest.fn(),
+    };
+
+    overlay.setThresholds('small_craft');
+    expect(pixels[3]).toBe(0);
+  });
+});
