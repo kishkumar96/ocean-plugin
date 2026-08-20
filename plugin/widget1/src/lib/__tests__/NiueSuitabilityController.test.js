@@ -8,6 +8,7 @@ import { NiueSuitabilityController } from '../NiueSuitabilityController';
 function makeController() {
   const controller = Object.create(NiueSuitabilityController.prototype);
   controller._mode = 'preset';
+  controller._isPlaying = false;
   controller.fixed = {
     setTimeIndex: jest.fn(),
     setOpacity: jest.fn(),
@@ -149,6 +150,22 @@ describe('NiueSuitabilityController constructor seeding', () => {
     expect(customController.dynamic._visible).toBe(true);
     expect(customController.fixed._visible).toBe(false);
   });
+
+  test('starting already playing in Custom mode still shows preset tiles, not the canvas', () => {
+    mockFetchForGridAndTimesteps();
+
+    const controller = new NiueSuitabilityController(fakeMap(), {
+      apiBase: 'https://example.test',
+      vessel: 'traditional_craft',
+      timeIndex: 0,
+      suitabilityMode: 'custom',
+      customEnvelope: null,
+      isPlaying: true,
+    });
+
+    expect(controller.dynamic._visible).toBe(false);
+    expect(controller.fixed._visible).toBe(true);
+  });
 });
 
 describe('NiueSuitabilityController mode toggling', () => {
@@ -170,6 +187,62 @@ describe('NiueSuitabilityController mode toggling', () => {
   test('rejects an unknown mode', () => {
     const controller = makeController();
     expect(() => controller.setMode('surprise')).toThrow(/unknown suitability mode/i);
+  });
+});
+
+// Regression coverage for a real production issue: Custom mode's grid fetch
+// (~15MB, ~2s) is far slower than a single playback tick, so racing to keep
+// the canvas in sync with every tick left it visibly frozen/blank for the
+// whole playback run. The fix is a deliberate fallback to the fast preset
+// tiles while playing, not a data-loading fix — these tests cover the
+// visibility side of that decision.
+describe('NiueSuitabilityController playback fallback', () => {
+  test('starting playback in Custom mode hides the canvas and shows preset tiles', () => {
+    const controller = makeController();
+    controller.setMode('custom');
+    controller.fixed.setVisible.mockClear();
+    controller.dynamic.setVisible.mockClear();
+
+    controller.setPlaying(true);
+
+    expect(controller.fixed.setVisible).toHaveBeenCalledWith(true);
+    expect(controller.dynamic.setVisible).toHaveBeenCalledWith(false);
+  });
+
+  test('stopping playback in Custom mode re-reveals the canvas', () => {
+    const controller = makeController();
+    controller.setMode('custom');
+    controller.setPlaying(true);
+    controller.fixed.setVisible.mockClear();
+    controller.dynamic.setVisible.mockClear();
+
+    controller.setPlaying(false);
+
+    expect(controller.fixed.setVisible).toHaveBeenCalledWith(false);
+    expect(controller.dynamic.setVisible).toHaveBeenCalledWith(true);
+  });
+
+  test('playback has no visible effect in Preset mode (already showing tiles)', () => {
+    const controller = makeController(); // starts in 'preset'
+    controller.fixed.setVisible.mockClear();
+    controller.dynamic.setVisible.mockClear();
+
+    controller.setPlaying(true);
+
+    expect(controller.fixed.setVisible).toHaveBeenCalledWith(true);
+    expect(controller.dynamic.setVisible).toHaveBeenCalledWith(false);
+  });
+
+  test('toggling Custom mode while already playing keeps the canvas hidden', () => {
+    const controller = makeController();
+    controller.setPlaying(true);
+    controller.fixed.setVisible.mockClear();
+    controller.dynamic.setVisible.mockClear();
+
+    controller.setMode('custom'); // user opens Custom mode mid-playback
+
+    expect(controller.fixed.setVisible).toHaveBeenCalledWith(true);
+    expect(controller.dynamic.setVisible).toHaveBeenCalledWith(false);
   });
 });
 
