@@ -6,7 +6,7 @@
 // (raw wind/wave/valid raster) instead of pre-rendered per-vessel PNG tiles.
 //
 // setTimeIndex() is the only method that touches the network (one fetch per
-// timestep, cached). setThresholds() repaints a canvas already held in
+// timestep, cached). setEnvelope() repaints a canvas already held in
 // memory, so dragging a threshold slider never issues a request.
 
 import { VESSEL_OPERATING_ENVELOPE, SUITABILITY_HAZARD_COLORS } from './NiueSuitabilityOverlay';
@@ -30,24 +30,42 @@ export class NiueSuitabilityDynamicOverlay {
     this._gridCache = new Map(); // time_index -> parsed grid
     this._grid = null;
     this._envelope = null;
+    this._visible = true;
+    this._requestId = 0;
     this._canvas = document.createElement('canvas');
     this._ctx = this._canvas.getContext('2d', { willReadFrequently: false });
     this._imageData = null;
   }
 
   async setTimeIndex(timeIndex) {
+    // Dragging the time slider quickly can fire several overlapping
+    // fetches; without this a slow-to-resolve older request can land after
+    // a faster newer one and silently repaint stale data over the current
+    // timestep. Only the most recent call's result is allowed to apply.
+    const requestId = ++this._requestId;
+
     let grid = this._gridCache.get(timeIndex);
     if (!grid) {
       grid = await this._fetchGrid(timeIndex);
+      if (requestId !== this._requestId) return;
       this._gridCache.set(timeIndex, grid);
     }
+    if (requestId !== this._requestId) return;
+
     this._grid = grid;
     this._ensureCanvasSize();
     if (this._envelope) this._repaint();
   }
 
   // overrides: { cautionWindKt, maxWindKt, cautionWaveHeightM, maxWaveHeightM }
-  setThresholds(vesselCode, overrides = {}) {
+  //
+  // Deliberately not named setThresholds: useZarrMap.js has an existing
+  // generic effect (`if (typeof ov.setThresholds === 'function')
+  // ov.setThresholds(thresholds)`) for ZarrOverlay's unrelated color-break
+  // thresholds. Reusing that name here would make this overlay's vessel
+  // envelope get silently called with the wrong (single-argument) shape
+  // whenever that unrelated prop changes.
+  setEnvelope(vesselCode, overrides = {}) {
     const base = VESSEL_OPERATING_ENVELOPE[vesselCode];
     if (!base) throw new Error(`Unknown vessel class: ${vesselCode}`);
 
@@ -69,7 +87,11 @@ export class NiueSuitabilityDynamicOverlay {
     }
   }
 
+  // Safe to call before the first repaint has created the layer (e.g. right
+  // after construction, while still on preset mode) — _visible is applied
+  // as soon as _ensureMapSource() actually creates it.
   setVisible(visible) {
+    this._visible = visible;
     if (this._map.getLayer(LAYER_ID)) {
       this._map.setLayoutProperty(LAYER_ID, 'visibility', visible ? 'visible' : 'none');
     }
@@ -192,6 +214,7 @@ export class NiueSuitabilityDynamicOverlay {
       id: LAYER_ID,
       type: 'raster',
       source: SOURCE_ID,
+      layout: { visibility: this._visible ? 'visible' : 'none' },
       paint: { 'raster-opacity': 0.8 },
     });
   }

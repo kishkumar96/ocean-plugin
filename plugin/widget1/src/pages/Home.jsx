@@ -62,6 +62,14 @@ function Home() {
   const [particleQuality, setParticleQuality] = useState('balanced');
   const [swellSourcesEnabled, setSwellSourcesEnabled] = useState(false);
   const [selectedVessel, setSelectedVessel] = useState('traditional_craft');
+  // 'preset' | 'custom' — Preset uses VESSEL_OPERATING_ENVELOPE[selectedVessel]
+  // as-is; Custom lets the operator override individual caution/danger
+  // thresholds. customEnvelope is null until Custom is first enabled, at
+  // which point it's initialized from the current vessel's preset (see
+  // enableCustomEnvelope in ForecastApp.jsx) so switching modes causes zero
+  // visual change until the operator actually moves a slider.
+  const [suitabilityMode, setSuitabilityMode] = useState('preset');
+  const [customEnvelope, setCustomEnvelope] = useState(null);
   const [showBottomCanvas, setShowBottomCanvas] = useState(false);
   const [bottomCanvasData, setBottomCanvasData] = useState(null);
   const [showBuoyCanvas, setShowBuoyCanvas] = useState(false);
@@ -228,6 +236,8 @@ function Home() {
     particleQuality,
     swellSourcesEnabled,
     selectedVessel,
+    suitabilityMode,
+    customEnvelope,
     landingAreaPickMode,
     onLandingAreaPick: handleLandingAreaPick,
     routePickMode,
@@ -619,6 +629,10 @@ function Home() {
         setSwellSourcesEnabled={setSwellSourcesEnabled}
         selectedVessel={selectedVessel}
         setSelectedVessel={setSelectedVessel}
+        suitabilityMode={suitabilityMode}
+        setSuitabilityMode={setSuitabilityMode}
+        customEnvelope={customEnvelope}
+        setCustomEnvelope={setCustomEnvelope}
         currentSliderDate={currentSliderDate}
         capTime={capTime}
         forecastEndTime={forecastEndTime}

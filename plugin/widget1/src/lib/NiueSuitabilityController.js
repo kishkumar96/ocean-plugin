@@ -1,0 +1,102 @@
+// NiueSuitabilityController.js
+// Public-facing suitability overlay: wraps the fixed tile-based overlay
+// (NiueSuitabilityOverlay, four preset vessel classes) and the dynamic
+// canvas-based overlay (NiueSuitabilityDynamicOverlay, adjustable
+// wind/wave envelope) behind one interface, so useZarrMap only ever deals
+// with a single "suitability layer" regardless of Preset/Custom mode.
+//
+// Preset and Custom are UI modes of the same product, not two different
+// layers a user can pick from the layer list — mapLayersConfig.js keeps a
+// single niue-suitability entry (supportsCustomEnvelope: true) rather than
+// exposing this split as separate selectable layers.
+//
+// Both underlying overlays stay constructed and kept in sync the whole
+// time; setMode() only toggles which one is visible. That avoids losing
+// the current time position (and re-fetching the preset's tile set or the
+// custom grid) on every Preset<->Custom toggle.
+
+import { NiueSuitabilityOverlay } from './NiueSuitabilityOverlay';
+import { NiueSuitabilityDynamicOverlay } from './NiueSuitabilityDynamicOverlay';
+
+export class NiueSuitabilityController {
+  constructor(map, config) {
+    this._mode = 'preset';
+    this.fixed = new NiueSuitabilityOverlay(map, config);
+    this.dynamic = new NiueSuitabilityDynamicOverlay(map, config.apiBase);
+    this.dynamic.setVisible(false);
+  }
+
+  // Only NiueSuitabilityOverlay's /niue/suitability/timesteps fetch ever
+  // fires these — the dynamic overlay has no independent notion of loading
+  // state, error state, or a timestep list, so these forward straight
+  // through rather than trying to merge two callback sources.
+  set onTimeChange(fn) { this.fixed.onTimeChange = fn; }
+  get onTimeChange() { return this.fixed.onTimeChange; }
+  set onLoadingChange(fn) { this.fixed.onLoadingChange = fn; }
+  get onLoadingChange() { return this.fixed.onLoadingChange; }
+  set onErrorChange(fn) { this.fixed.onErrorChange = fn; }
+  get onErrorChange() { return this.fixed.onErrorChange; }
+  set onStatsChange(fn) { this.fixed.onStatsChange = fn; }
+  get onStatsChange() { return this.fixed.onStatsChange; }
+
+  getTimeLabels() {
+    return this.fixed.getTimeLabels();
+  }
+
+  // Drives both overlays regardless of mode, so switching Preset<->Custom
+  // never shows a stale time position while the just-revealed overlay
+  // catches up.
+  setTimeIndex(timeIndex) {
+    this.fixed.setTimeIndex(timeIndex);
+    this.dynamic.setTimeIndex(timeIndex).catch((err) => {
+      this.onErrorChange?.(err.message);
+    });
+  }
+
+  setOpacity(opacity) {
+    this.fixed.setOpacity(opacity);
+    this.dynamic.setOpacity(opacity);
+  }
+
+  // Preset-mode vessel selection (tile overlay only). Custom mode's vessel
+  // + thresholds go through setEnvelope instead — callers already
+  // recompute the effective envelope from VESSEL_OPERATING_ENVELOPE plus
+  // any overrides and pass the merged result there, so this method doesn't
+  // need to guess at reset-on-vessel-change semantics for the dynamic side.
+  setVessel(vessel) {
+    this.fixed.setVessel(vessel);
+  }
+
+  // overrides: {} for "just use vessel's preset envelope" (still routes
+  // through the dynamic/canvas render path — used so Custom mode shows
+  // literally the same numbers as Preset until the user actually moves a
+  // slider), or the vessel's envelope fields the user has overridden.
+  setEnvelope(vessel, overrides = {}) {
+    this.dynamic.setEnvelope(vessel, overrides);
+  }
+
+  setMode(mode) {
+    if (mode !== 'preset' && mode !== 'custom') {
+      throw new Error(`Unknown suitability mode: ${mode}`);
+    }
+    this._mode = mode;
+    this.fixed.setVisible(mode === 'preset');
+    this.dynamic.setVisible(mode === 'custom');
+  }
+
+  // Point-query hazard reading. NOTE: this currently always reflects the
+  // backend's fixed-vessel-preset classification (/niue/suitability/point),
+  // even in Custom mode — there's no point-query equivalent of the raw
+  // grid yet. A click while in Custom mode will report what Preset mode
+  // would have shown, not the custom envelope's classification. Flagged
+  // here rather than silently shipped; needs its own follow-up before this
+  // is presented as authoritative for Custom mode.
+  getSuitabilityAtPoint(lng, lat) {
+    return this.fixed.getSuitabilityAtPoint(lng, lat);
+  }
+
+  destroy() {
+    this.fixed.destroy();
+    this.dynamic.destroy();
+  }
+}

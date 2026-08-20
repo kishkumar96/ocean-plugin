@@ -303,6 +303,10 @@ const ForecastApp = ({
   setSwellSourcesEnabled,
   selectedVessel = 'traditional_craft',
   setSelectedVessel,
+  suitabilityMode = 'preset',
+  setSuitabilityMode,
+  customEnvelope = null,
+  setCustomEnvelope,
   landingArea = null,
   setLandingArea,
   landingAreaPickMode = false,
@@ -353,6 +357,40 @@ const ForecastApp = ({
   const suitabilityApiBase = isSuitabilitySelected ? (selectedLayerConfig?.apiBase ?? '') : '';
   const selectedVesselMeta = VESSEL_CLASSES.find((v) => v.value === selectedVessel) ?? VESSEL_CLASSES[0];
   const selectedVesselEnvelope = VESSEL_OPERATING_ENVELOPE[selectedVessel] ?? null;
+  const isCustomEnvelope = suitabilityMode === 'custom';
+  // What the map is actually rendering right now, regardless of mode —
+  // Custom mode always starts as an exact copy of the vessel's preset (see
+  // enableCustomEnvelope below), so this is never a jump to arbitrary
+  // numbers the first time a slider is touched.
+  const effectiveEnvelope = isCustomEnvelope ? (customEnvelope ?? selectedVesselEnvelope) : selectedVesselEnvelope;
+
+  const enableCustomEnvelope = useCallback(() => {
+    setCustomEnvelope?.({ ...selectedVesselEnvelope });
+    setSuitabilityMode?.('custom');
+  }, [selectedVesselEnvelope, setCustomEnvelope, setSuitabilityMode]);
+
+  const resetCustomEnvelope = useCallback(() => {
+    setCustomEnvelope?.(null);
+    setSuitabilityMode?.('preset');
+  }, [setCustomEnvelope, setSuitabilityMode]);
+
+  // Keeps caution < danger for both wind and wave: moving one slider past
+  // the other pushes the other along with it rather than accepting an
+  // inverted (and meaningless) envelope silently. Matches the 1kt / 0.1m
+  // minimum separation NiueSuitabilityDynamicOverlay.setEnvelope enforces
+  // (it throws if caution >= max), so a slider drag can never produce a
+  // value that overlay would reject.
+  const updateCustomEnvelope = useCallback((field, value) => {
+    setCustomEnvelope?.((prev) => {
+      const base = prev ?? selectedVesselEnvelope;
+      const next = { ...base, [field]: value };
+      if (field === 'cautionWindKt') next.cautionWindKt = Math.min(value, base.maxWindKt - 1);
+      if (field === 'maxWindKt') next.maxWindKt = Math.max(value, base.cautionWindKt + 1);
+      if (field === 'cautionWaveHeightM') next.cautionWaveHeightM = Math.min(value, base.maxWaveHeightM - 0.1);
+      if (field === 'maxWaveHeightM') next.maxWaveHeightM = Math.max(value, base.cautionWaveHeightM + 0.1);
+      return next;
+    });
+  }, [selectedVesselEnvelope, setCustomEnvelope]);
 
   // A dominant single-class summary renders most/all of the raster tile as one
   // flat color (e.g. mostly "Avoid"), which can read as visually indistinguishable
@@ -1401,6 +1439,103 @@ const ForecastApp = ({
                   </div>
                 </div>
                 </>
+              )}
+
+              {/* ── Operating envelope ── Preset shows the vessel's fixed
+                   caution/danger numbers read-only; Custom turns those same
+                   numbers into sliders. Enabling Custom seeds it from the
+                   current vessel's preset (enableCustomEnvelope), so the map
+                   never jumps on mode switch — only a slider drag changes it. */}
+              {isSuitabilitySelected && effectiveEnvelope && (
+                <div className="map-display-option suitability-control-card suitability-control-card--envelope">
+                  <div className="suitability-control-card__header">
+                    <div className="map-display-option__label">Operating envelope</div>
+                  </div>
+
+                  {!isCustomEnvelope ? (
+                    <>
+                      <div className="suitability-control-card__subtext">
+                        Caution — Wind {effectiveEnvelope.cautionWindKt} kt · Wave {effectiveEnvelope.cautionWaveHeightM} m
+                      </div>
+                      <div className="suitability-control-card__subtext">
+                        Danger — Wind {effectiveEnvelope.maxWindKt} kt · Wave {effectiveEnvelope.maxWaveHeightM} m
+                      </div>
+                      <button
+                        type="button"
+                        className="map-display-option__btn"
+                        onClick={enableCustomEnvelope}
+                      >
+                        Customize operating envelope
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="suitability-envelope-slider">
+                        <label htmlFor="envelope-caution-wind">
+                          Wind caution: {effectiveEnvelope.cautionWindKt} kt
+                        </label>
+                        <input
+                          id="envelope-caution-wind"
+                          type="range"
+                          min={0}
+                          max={40}
+                          step={1}
+                          value={effectiveEnvelope.cautionWindKt}
+                          onChange={(e) => updateCustomEnvelope('cautionWindKt', Number(e.target.value))}
+                        />
+                      </div>
+                      <div className="suitability-envelope-slider">
+                        <label htmlFor="envelope-danger-wind">
+                          Wind danger: {effectiveEnvelope.maxWindKt} kt
+                        </label>
+                        <input
+                          id="envelope-danger-wind"
+                          type="range"
+                          min={0}
+                          max={40}
+                          step={1}
+                          value={effectiveEnvelope.maxWindKt}
+                          onChange={(e) => updateCustomEnvelope('maxWindKt', Number(e.target.value))}
+                        />
+                      </div>
+                      <div className="suitability-envelope-slider">
+                        <label htmlFor="envelope-caution-wave">
+                          Wave caution: {effectiveEnvelope.cautionWaveHeightM.toFixed(1)} m
+                        </label>
+                        <input
+                          id="envelope-caution-wave"
+                          type="range"
+                          min={0}
+                          max={5}
+                          step={0.1}
+                          value={effectiveEnvelope.cautionWaveHeightM}
+                          onChange={(e) => updateCustomEnvelope('cautionWaveHeightM', Number(e.target.value))}
+                        />
+                      </div>
+                      <div className="suitability-envelope-slider">
+                        <label htmlFor="envelope-danger-wave">
+                          Wave danger: {effectiveEnvelope.maxWaveHeightM.toFixed(1)} m
+                        </label>
+                        <input
+                          id="envelope-danger-wave"
+                          type="range"
+                          min={0}
+                          max={5}
+                          step={0.1}
+                          value={effectiveEnvelope.maxWaveHeightM}
+                          onChange={(e) => updateCustomEnvelope('maxWaveHeightM', Number(e.target.value))}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="map-display-option__btn"
+                        onClick={resetCustomEnvelope}
+                      >
+                        Reset to {selectedVesselMeta?.label ?? 'vessel'} defaults
+                      </button>
+                    </>
+                  )}
+                </div>
               )}
 
               {/* ── Suitability workflow tabs ── Point (default map click) / Landing

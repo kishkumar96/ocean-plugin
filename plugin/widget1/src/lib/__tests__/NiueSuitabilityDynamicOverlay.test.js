@@ -25,7 +25,7 @@ describe('NiueSuitabilityDynamicOverlay grid decoding', () => {
   });
 });
 
-describe('NiueSuitabilityDynamicOverlay.setThresholds', () => {
+describe('NiueSuitabilityDynamicOverlay.setEnvelope', () => {
   function makeOverlay() {
     const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
     overlay._map = {};
@@ -37,29 +37,80 @@ describe('NiueSuitabilityDynamicOverlay.setThresholds', () => {
   test('rejects a caution threshold above the max threshold (wind)', () => {
     const overlay = makeOverlay();
     expect(() =>
-      overlay.setThresholds('small_craft', { cautionWindKt: 25, maxWindKt: 20 })
+      overlay.setEnvelope('small_craft', { cautionWindKt: 25, maxWindKt: 20 })
     ).toThrow(/wind/i);
   });
 
   test('rejects a caution threshold above the max threshold (wave)', () => {
     const overlay = makeOverlay();
     expect(() =>
-      overlay.setThresholds('small_craft', { cautionWaveHeightM: 3.0, maxWaveHeightM: 2.0 })
+      overlay.setEnvelope('small_craft', { cautionWaveHeightM: 3.0, maxWaveHeightM: 2.0 })
     ).toThrow(/wave/i);
   });
 
   test('throws on an unknown vessel class', () => {
     const overlay = makeOverlay();
-    expect(() => overlay.setThresholds('not_a_real_vessel')).toThrow(/unknown vessel/i);
+    expect(() => overlay.setEnvelope('not_a_real_vessel')).toThrow(/unknown vessel/i);
   });
 
   test('accepts overrides merged onto the vessel preset without repainting when no grid is loaded', () => {
     const overlay = makeOverlay();
     overlay._repaint = jest.fn();
-    overlay.setThresholds('small_craft', { maxWaveHeightM: 2.5 });
+    overlay.setEnvelope('small_craft', { maxWaveHeightM: 2.5 });
     expect(overlay._envelope.maxWaveHeightM).toBe(2.5);
     expect(overlay._envelope.cautionWindKt).toBe(15); // untouched preset field survives the merge
     expect(overlay._repaint).not.toHaveBeenCalled();
+  });
+});
+
+describe('NiueSuitabilityDynamicOverlay.setTimeIndex race guard', () => {
+  test('a slow earlier fetch does not overwrite a faster later one', async () => {
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    overlay._gridCache = new Map();
+    overlay._grid = null;
+    overlay._envelope = null;
+    overlay._requestId = 0;
+    overlay._ensureCanvasSize = jest.fn();
+    overlay._repaint = jest.fn();
+
+    let resolveSlow;
+    const slow = new Promise((resolve) => { resolveSlow = resolve; });
+    const fast = Promise.resolve({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} });
+
+    overlay._fetchGrid = jest.fn()
+      .mockImplementationOnce(() => slow)  // timeIndex 10, requested first, resolves last
+      .mockImplementationOnce(() => fast); // timeIndex 11, requested second, resolves first
+
+    const p10 = overlay.setTimeIndex(10);
+    const p11 = overlay.setTimeIndex(11);
+    await p11;
+    expect(overlay._grid.bounds).toEqual({}); // timeIndex 11's grid is current
+
+    resolveSlow({ width: 1, height: 1, wind: [9], wave: [9], valid: [1], bounds: { stale: true } });
+    await p10;
+    expect(overlay._grid.bounds).toEqual({}); // the late timeIndex 10 response must not clobber it
+  });
+});
+
+describe('NiueSuitabilityDynamicOverlay.setVisible', () => {
+  test('is applied once the layer is created, even if called before it exists', () => {
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    const addLayerCalls = [];
+    overlay._map = {
+      getLayer: jest.fn(() => false),
+      getSource: jest.fn(() => null),
+      addSource: jest.fn(),
+      addLayer: jest.fn((cfg) => addLayerCalls.push(cfg)),
+      setLayoutProperty: jest.fn(),
+      triggerRepaint: jest.fn(),
+    };
+    overlay._canvas = { width: 0, height: 0 };
+
+    overlay.setVisible(false); // called before any repaint has run
+
+    overlay._ensureMapSource({ lonMin: 0, lonMax: 1, latMin: 0, latMax: 1 });
+
+    expect(addLayerCalls[0].layout).toEqual({ visibility: 'none' });
   });
 });
 
@@ -90,7 +141,7 @@ describe('NiueSuitabilityDynamicOverlay._repaint classification parity', () => {
       triggerRepaint: jest.fn(),
     };
 
-    overlay.setThresholds(vesselCode);
+    overlay.setEnvelope(vesselCode);
     return pixels;
   }
 
@@ -135,7 +186,7 @@ describe('NiueSuitabilityDynamicOverlay._repaint classification parity', () => {
       triggerRepaint: jest.fn(),
     };
 
-    overlay.setThresholds('small_craft');
+    overlay.setEnvelope('small_craft');
     expect(pixels[3]).toBe(0);
   });
 });

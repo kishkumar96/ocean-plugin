@@ -133,6 +133,14 @@ export const MAP_LAYERS = [
     units: '',
     description: 'Vessel-class marine hazard suitability - Niue (wind/wave, served via ocean-zarr.spc.int)',
     bounds: NIUE_BOUNDS,
+    // Preset (fixed vessel classes) and Custom (adjustable wind/wave
+    // envelope) are UI modes of this one layer, not separate layers a user
+    // picks between — NiueSuitabilityController renders both from the same
+    // sourceType. Don't add a second niue-suitability-* layer entry for
+    // Custom mode; that would expose an implementation detail (which
+    // renderer is active) as if it were a different data product.
+    supportsCustomEnvelope: true,
+    defaultSuitabilityMode: 'preset',
   },
 ];
 
