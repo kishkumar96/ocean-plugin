@@ -14,6 +14,15 @@
 // time; setMode() only toggles which one is visible. That avoids losing
 // the current time position (and re-fetching the preset's tile set or the
 // custom grid) on every Preset<->Custom toggle.
+//
+// setTimeIndex() drives both overlays regardless of mode, including during
+// timeline playback — the dynamic overlay's grid fetch is small enough
+// (int16-quantized + gzip, ~640KB, see the backend's /niue/suitability/grid
+// docstring) plus prefetched ahead (NiueSuitabilityDynamicOverlay) to
+// realistically keep up with a live playback tick. An earlier version of
+// this fell back to preset tiles while playing to paper over the old ~15MB
+// float32 payload being too slow for that — replaced by actually fixing the
+// payload size instead of hiding the symptom.
 
 import { NiueSuitabilityOverlay } from './NiueSuitabilityOverlay';
 import { NiueSuitabilityDynamicOverlay } from './NiueSuitabilityDynamicOverlay';
@@ -21,16 +30,6 @@ import { NiueSuitabilityDynamicOverlay } from './NiueSuitabilityDynamicOverlay';
 export class NiueSuitabilityController {
   constructor(map, config) {
     this._mode = config.suitabilityMode === 'custom' ? 'custom' : 'preset';
-    // Custom mode's grid fetch is ~15MB and takes ~2s — far slower than a
-    // single playback tick (as little as ~350ms at 2x). Racing to keep the
-    // canvas in sync with every tick means almost every fetch gets
-    // superseded (see setTimeIndex's race guard) before it ever finishes,
-    // so the canvas would sit visibly frozen/blank for the whole playback
-    // run. Falling back to the fast preset tiles while playing (and back to
-    // the canvas the instant playback stops) is the deliberate tradeoff —
-    // not a bug workaround, an explicit choice about what's honest to show
-    // when the data pipeline genuinely can't keep up with the tick rate.
-    this._isPlaying = Boolean(config.isPlaying);
     this.fixed = new NiueSuitabilityOverlay(map, config);
     this.dynamic = new NiueSuitabilityDynamicOverlay(map, config.apiBase);
     this._applyVisibility();
@@ -111,18 +110,8 @@ export class NiueSuitabilityController {
     this._applyVisibility();
   }
 
-  // See the constructor comment: while playing, the canvas overlay is
-  // always hidden in favor of the fast preset tiles, regardless of _mode —
-  // stopping playback re-reveals whatever _mode already says, with no
-  // separate "was in custom mode" tracking needed since _mode was never
-  // changed by entering/leaving playback.
-  setPlaying(isPlaying) {
-    this._isPlaying = Boolean(isPlaying);
-    this._applyVisibility();
-  }
-
   _applyVisibility() {
-    const showCustomCanvas = this._mode === 'custom' && !this._isPlaying;
+    const showCustomCanvas = this._mode === 'custom';
     this.fixed.setVisible(!showCustomCanvas);
     this.dynamic.setVisible(showCustomCanvas);
   }

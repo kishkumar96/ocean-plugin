@@ -72,10 +72,47 @@ describe('NiueSuitabilityDynamicOverlay._parseGridResponse header validation', (
   });
 });
 
+// The backend now sends quantized int16 (scaled) instead of float32 —
+// measured ~23x smaller on the wire after gzip, the difference between
+// Custom mode's grid fetch keeping up with a live playback tick or not.
+// This path must stay correct independent of the legacy float32 path,
+// which a not-yet-redeployed backend can still be serving.
+describe('NiueSuitabilityDynamicOverlay._parseGridResponse quantized (i16le) decoding', () => {
+  test('rescales int16 wind/wave values by their X-Wind-Scale/X-Wave-Scale headers', async () => {
+    const width = 2;
+    const height = 1;
+    const cellCount = width * height;
+    const buffer = new ArrayBuffer(cellCount * 2 * 2 + cellCount);
+    new Int16Array(buffer, 0, cellCount).set([1500, 2000]); // wind, scale 100 -> 15.00, 20.00 kt
+    new Int16Array(buffer, cellCount * 2, cellCount).set([1500, 2000]); // wave, scale 1000 -> 1.5, 2.0 m
+    new Uint8Array(buffer, cellCount * 4, cellCount).set([1, 1]);
+
+    const resp = {
+      headers: {
+        get: (name) => ({
+          'X-Grid-Width': '2',
+          'X-Grid-Height': '1',
+          'X-Lon-Min': '-170', 'X-Lon-Max': '-169', 'X-Lat-Min': '-19', 'X-Lat-Max': '-18',
+          'X-Grid-Encoding': 'wind:i16le,wave:i16le,valid:u8',
+          'X-Wind-Scale': '100',
+          'X-Wave-Scale': '1000',
+        }[name] ?? null),
+      },
+      arrayBuffer: () => Promise.resolve(buffer),
+    };
+
+    const grid = await NiueSuitabilityDynamicOverlay._parseGridResponse(resp);
+    expect(Array.from(grid.wind)).toEqual([15, 20]);
+    expect(Array.from(grid.wave)).toEqual([1.5, 2]);
+    expect(Array.from(grid.valid)).toEqual([1, 1]);
+  });
+});
+
 describe('NiueSuitabilityDynamicOverlay.destroy resilience', () => {
   test('does not throw if the map was already torn down (getLayer throws)', () => {
     const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
     overlay._gridCache = new Map();
+    overlay._prefetchInFlight = new Set();
     overlay._grid = { some: 'grid' };
     overlay._envelope = { some: 'envelope' };
     overlay._map = {
@@ -167,6 +204,7 @@ describe('NiueSuitabilityDynamicOverlay.setTimeIndex race guard', () => {
   test('a slow earlier fetch does not overwrite a faster later one', async () => {
     const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
     overlay._gridCache = new Map();
+    overlay._prefetchInFlight = new Set();
     overlay._grid = null;
     overlay._envelope = null;
     overlay._requestId = 0;
@@ -179,7 +217,12 @@ describe('NiueSuitabilityDynamicOverlay.setTimeIndex race guard', () => {
 
     overlay._fetchGrid = jest.fn()
       .mockImplementationOnce(() => slow)  // timeIndex 10, requested first, resolves last
-      .mockImplementationOnce(() => fast); // timeIndex 11, requested second, resolves first
+      .mockImplementationOnce(() => fast)  // timeIndex 11, requested second, resolves first
+      // Every call after that is this test's own setTimeIndex() calls'
+      // _prefetchAhead() firing in the background — not under test here,
+      // just needs to resolve cleanly instead of hitting jest.fn()'s
+      // default "return undefined" once the queued mocks are exhausted.
+      .mockImplementation(() => Promise.resolve({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} }));
 
     const p10 = overlay.setTimeIndex(10);
     const p11 = overlay.setTimeIndex(11);
@@ -189,6 +232,73 @@ describe('NiueSuitabilityDynamicOverlay.setTimeIndex race guard', () => {
     resolveSlow({ width: 1, height: 1, wind: [9], wave: [9], valid: [1], bounds: { stale: true } });
     await p10;
     expect(overlay._grid.bounds).toEqual({}); // the late timeIndex 10 response must not clobber it
+  });
+});
+
+// Playback advances the timeline on a fixed interval regardless of fetch
+// speed; prefetching the next few timesteps in the background after each
+// successful setTimeIndex is what lets those later ticks usually find their
+// grid already cached instead of starting cold every time.
+describe('NiueSuitabilityDynamicOverlay prefetching', () => {
+  function makeOverlay(fetchImpl) {
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    overlay._gridCache = new Map();
+    overlay._prefetchInFlight = new Set();
+    overlay._grid = null;
+    overlay._envelope = null;
+    overlay._requestId = 0;
+    overlay._ensureCanvasSize = jest.fn();
+    overlay._repaint = jest.fn();
+    overlay._fetchGrid = jest.fn(fetchImpl);
+    return overlay;
+  }
+
+  test('setTimeIndex(N) prefetches N+1..N+3 into the cache without being awaited', async () => {
+    const overlay = makeOverlay((timeIndex) =>
+      Promise.resolve({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: { timeIndex } })
+    );
+
+    await overlay.setTimeIndex(10);
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(10);
+    // Prefetches are fire-and-forget promises, not part of setTimeIndex's
+    // own awaited chain — give their microtasks a turn to settle.
+    await Promise.resolve().then(() => Promise.resolve()).then(() => Promise.resolve());
+
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(11);
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(12);
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(13);
+    expect(overlay._gridCache.get(11).bounds).toEqual({ timeIndex: 11 });
+    expect(overlay._gridCache.get(12).bounds).toEqual({ timeIndex: 12 });
+    expect(overlay._gridCache.get(13).bounds).toEqual({ timeIndex: 13 });
+  });
+
+  test('does not re-fetch a timestep that is already cached or already being prefetched', async () => {
+    const overlay = makeOverlay(() =>
+      Promise.resolve({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} })
+    );
+    overlay._gridCache.set(11, { cached: true }); // already have this one
+    overlay._prefetchInFlight.add(12); // already fetching this one
+
+    await overlay.setTimeIndex(10);
+    await Promise.resolve().then(() => Promise.resolve());
+
+    expect(overlay._fetchGrid).not.toHaveBeenCalledWith(11);
+    expect(overlay._fetchGrid).not.toHaveBeenCalledWith(12);
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(13);
+  });
+
+  test('a prefetch failure is swallowed silently, not surfaced as an error', async () => {
+    const overlay = makeOverlay((timeIndex) =>
+      timeIndex === 11 ? Promise.reject(new Error('network blip')) : Promise.resolve({
+        width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {},
+      })
+    );
+
+    await expect(overlay.setTimeIndex(10)).resolves.toBeUndefined();
+    await Promise.resolve().then(() => Promise.resolve()).then(() => Promise.resolve());
+
+    expect(overlay._gridCache.has(11)).toBe(false);
+    expect(overlay._prefetchInFlight.has(11)).toBe(false); // cleaned up despite the rejection
   });
 });
 

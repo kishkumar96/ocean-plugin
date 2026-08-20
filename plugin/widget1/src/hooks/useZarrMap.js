@@ -165,7 +165,7 @@ export function useZarrMap({
   cbRef.current = {
     setBottomCanvasData, setShowBottomCanvas, inundationCategories, minVisibleDepth, inundationRenderMode, rangeWindow, selectedLayerId,
     opacity, sliderIndex, swellSourcesEnabled, selectedVessel,
-    suitabilityMode, customEnvelope, isPlaying,
+    suitabilityMode, customEnvelope,
     landingAreaPickMode, onLandingAreaPick,
     routePickMode, onRoutePointPick,
   };
@@ -383,7 +383,6 @@ export function useZarrMap({
           timeIndex: cbRef.current.sliderIndex,
           suitabilityMode: cbRef.current.suitabilityMode,
           customEnvelope: cbRef.current.customEnvelope,
-          isPlaying: cbRef.current.isPlaying,
         })
       : new ZarrOverlay(map, { ...layerCfg, opacity, thresholds });
 
@@ -626,16 +625,6 @@ export function useZarrMap({
     ov.setMode(suitabilityMode);
     ov.setEnvelope(selectedVessel, suitabilityMode === 'custom' ? (customEnvelope || {}) : {});
   }, [selectedVessel, suitabilityMode, customEnvelope]);
-
-  // Custom mode's canvas overlay is deliberately hidden in favor of the
-  // fast preset tiles while playback is running (see NiueSuitabilityController's
-  // constructor comment — its grid fetch is far slower than a playback
-  // tick), and shown again the instant playback stops.
-  useEffect(() => {
-    const ov = overlayRef.current;
-    if (!(ov instanceof NiueSuitabilityController)) return;
-    ov.setPlaying(isPlaying);
-  }, [isPlaying]);
 
   // ── playback ──────────────────────────────────────────────────────────────
   useEffect(() => {
