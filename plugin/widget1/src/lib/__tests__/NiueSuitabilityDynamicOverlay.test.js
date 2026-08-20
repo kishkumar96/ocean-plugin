@@ -91,6 +91,40 @@ describe('NiueSuitabilityDynamicOverlay.destroy resilience', () => {
   });
 });
 
+// Regression coverage for a real production bug: with animate: false,
+// MapLibre's CanvasSource only uploads the canvas to its GPU texture once,
+// on creation (see canvas_source.ts: prepare() only calls texture.update()
+// when `resize || this._playing`). Every _repaint() after the first
+// correctly redrew the offscreen canvas but the map never showed it —
+// dragging a Custom-mode slider had no visible effect despite _repaint()
+// running and _grid/_envelope both being populated correctly.
+describe('NiueSuitabilityDynamicOverlay._ensureMapSource texture refresh', () => {
+  test('an existing canvas source gets play() then pause() to force a one-shot texture upload', () => {
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    const calls = [];
+    const existingSource = {
+      setCoordinates: jest.fn(() => calls.push('setCoordinates')),
+      play: jest.fn(() => calls.push('play')),
+      pause: jest.fn(() => calls.push('pause')),
+    };
+    overlay._map = { getSource: jest.fn(() => existingSource) };
+
+    overlay._ensureMapSource({ lonMin: 0, lonMax: 1, latMin: 0, latMax: 1 });
+
+    expect(calls).toEqual(['setCoordinates', 'play', 'pause']);
+  });
+
+  test('does not throw if the source predates play()/pause() support', () => {
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    const existingSource = { setCoordinates: jest.fn() }; // no play/pause
+    overlay._map = { getSource: jest.fn(() => existingSource) };
+
+    expect(() =>
+      overlay._ensureMapSource({ lonMin: 0, lonMax: 1, latMin: 0, latMax: 1 })
+    ).not.toThrow();
+  });
+});
+
 describe('NiueSuitabilityDynamicOverlay.setEnvelope', () => {
   function makeOverlay() {
     const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
