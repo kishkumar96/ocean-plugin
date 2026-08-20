@@ -65,6 +65,10 @@ export class NiueSuitabilityController {
   get onErrorChange() { return this.fixed.onErrorChange; }
   set onStatsChange(fn) { this.fixed.onStatsChange = fn; }
   get onStatsChange() { return this.fixed.onStatsChange; }
+  // Unlike the four above, this one only the dynamic overlay can fire —
+  // see its own comment for what it actually signals.
+  set onBufferingChange(fn) { this.dynamic.onBufferingChange = fn; }
+  get onBufferingChange() { return this.dynamic.onBufferingChange; }
 
   getTimeLabels() {
     return this.fixed.getTimeLabels();

@@ -45,6 +45,17 @@ export class NiueSuitabilityDynamicOverlay {
     this._canvas = document.createElement('canvas');
     this._ctx = this._canvas.getContext('2d', { willReadFrequently: false });
     this._imageData = null;
+
+    // Set by the controller — fired true right before a real (non-cache-hit)
+    // grid fetch starts, false once it settles. This isn't loading state in
+    // the general sense (NiueSuitabilityOverlay's onLoadingChange covers
+    // that, for its own /timesteps fetch) — it's specifically "the canvas
+    // you're looking at right now is stale, a fetch is catching up to it",
+    // most visible during timeline playback against a backend that hasn't
+    // been redeployed with the quantized grid format yet (still ~15MB/~2s
+    // per timestep instead of ~640KB) — without this signal the map just
+    // looks frozen with no indication anything is happening.
+    this.onBufferingChange = null;
   }
 
   async setTimeIndex(timeIndex) {
@@ -56,7 +67,16 @@ export class NiueSuitabilityDynamicOverlay {
 
     let grid = this._gridCache.get(timeIndex);
     if (!grid) {
-      grid = await this._fetchGrid(timeIndex);
+      this.onBufferingChange?.(true);
+      try {
+        grid = await this._fetchGrid(timeIndex);
+      } finally {
+        // Only clear buffering if no *newer* request has since superseded
+        // this one — otherwise this stale request's own completion (success
+        // or failure) would incorrectly signal "caught up" while the actual
+        // latest request is still in flight.
+        if (requestId === this._requestId) this.onBufferingChange?.(false);
+      }
       if (requestId !== this._requestId) return;
       this._gridCache.set(timeIndex, grid);
     }

@@ -235,6 +235,79 @@ describe('NiueSuitabilityDynamicOverlay.setTimeIndex race guard', () => {
   });
 });
 
+// onBufferingChange is the "still catching up" signal shown in the UI while
+// a real backend fetch is in flight for the timestep currently being
+// requested — most relevant during playback against the not-yet-redeployed
+// float32 backend, where a fetch can take ~2s against a playback tick as
+// short as ~350ms.
+describe('NiueSuitabilityDynamicOverlay onBufferingChange', () => {
+  function makeOverlay(fetchImpl) {
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    overlay._gridCache = new Map();
+    overlay._prefetchInFlight = new Set();
+    overlay._grid = null;
+    overlay._envelope = null;
+    overlay._requestId = 0;
+    overlay._ensureCanvasSize = jest.fn();
+    overlay._repaint = jest.fn();
+    overlay._fetchGrid = jest.fn(fetchImpl);
+    overlay.onBufferingChange = jest.fn();
+    return overlay;
+  }
+
+  test('fires true then false around a real (cache-miss) fetch', async () => {
+    let resolveFetch;
+    const overlay = makeOverlay(() => new Promise((resolve) => { resolveFetch = resolve; }));
+
+    const pending = overlay.setTimeIndex(5);
+    expect(overlay.onBufferingChange).toHaveBeenCalledWith(true);
+    expect(overlay.onBufferingChange).not.toHaveBeenCalledWith(false);
+
+    resolveFetch({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} });
+    await pending;
+    expect(overlay.onBufferingChange).toHaveBeenLastCalledWith(false);
+  });
+
+  test('does not fire at all for a cache hit', async () => {
+    const overlay = makeOverlay(() => Promise.resolve({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} }));
+    overlay._gridCache.set(5, { width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: { cached: true } });
+
+    await overlay.setTimeIndex(5);
+
+    expect(overlay.onBufferingChange).not.toHaveBeenCalled();
+  });
+
+  test('still fires false even when the fetch rejects', async () => {
+    const overlay = makeOverlay(() => Promise.reject(new Error('network error')));
+
+    await expect(overlay.setTimeIndex(5)).rejects.toThrow('network error');
+
+    expect(overlay.onBufferingChange).toHaveBeenCalledWith(true);
+    expect(overlay.onBufferingChange).toHaveBeenLastCalledWith(false);
+  });
+
+  test('a superseded request does not clear buffering while a newer one is still in flight', async () => {
+    let resolveSlow, resolveFast;
+    const overlay = makeOverlay((timeIndex) =>
+      timeIndex === 10
+        ? new Promise((resolve) => { resolveSlow = resolve; })
+        : new Promise((resolve) => { resolveFast = resolve; })
+    );
+
+    const p10 = overlay.setTimeIndex(10);
+    const p11 = overlay.setTimeIndex(11);
+
+    // timeIndex 10's fetch resolving should NOT report "done" — 11 is now current.
+    resolveSlow({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} });
+    await p10;
+    expect(overlay.onBufferingChange).not.toHaveBeenCalledWith(false);
+
+    resolveFast({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} });
+    await p11;
+    expect(overlay.onBufferingChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
 // Playback advances the timeline on a fixed interval regardless of fetch
 // speed; prefetching the next few timesteps in the background after each
 // successful setTimeIndex is what lets those later ticks usually find their
