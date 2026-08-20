@@ -25,6 +25,72 @@ describe('NiueSuitabilityDynamicOverlay grid decoding', () => {
   });
 });
 
+// Regression coverage for a real production incident: the backend's CORS
+// config didn't set Access-Control-Expose-Headers for these custom X-Grid-*
+// headers, so cross-origin resp.headers.get() silently returned null for
+// all of them. Number(null) is 0 (not NaN), so this slipped past a naive
+// isNaN check and reached createImageData(0, 0), which throws a much less
+// diagnosable error several calls deeper in the stack.
+function fakeGridResponse(headerValues, bufferByteLength = 9) {
+  return {
+    headers: { get: (name) => (name in headerValues ? headerValues[name] : null) },
+    arrayBuffer: () => Promise.resolve(new ArrayBuffer(bufferByteLength)),
+  };
+}
+
+describe('NiueSuitabilityDynamicOverlay._parseGridResponse header validation', () => {
+  test('throws a diagnosable error when grid dimension headers are entirely missing', async () => {
+    const resp = fakeGridResponse({});
+    await expect(NiueSuitabilityDynamicOverlay._parseGridResponse(resp)).rejects.toThrow(
+      /X-Grid-Width|CORS|Access-Control-Expose-Headers/i
+    );
+  });
+
+  test('throws rather than silently proceeding with a 0x0 grid', async () => {
+    const resp = fakeGridResponse({ 'X-Grid-Width': '0', 'X-Grid-Height': '0' });
+    await expect(NiueSuitabilityDynamicOverlay._parseGridResponse(resp)).rejects.toThrow();
+  });
+
+  test('throws on a non-numeric dimension header', async () => {
+    const resp = fakeGridResponse({ 'X-Grid-Width': 'not-a-number', 'X-Grid-Height': '10' });
+    await expect(NiueSuitabilityDynamicOverlay._parseGridResponse(resp)).rejects.toThrow();
+  });
+
+  test('resolves normally when headers are present and valid', async () => {
+    const resp = fakeGridResponse(
+      {
+        'X-Grid-Width': '2',
+        'X-Grid-Height': '1',
+        'X-Lon-Min': '-170', 'X-Lon-Max': '-169', 'X-Lat-Min': '-19', 'X-Lat-Max': '-18',
+      },
+      2 * 4 * 2 + 2, // width*height * (2 float32 bands) + valid bytes
+    );
+    const grid = await NiueSuitabilityDynamicOverlay._parseGridResponse(resp);
+    expect(grid.width).toBe(2);
+    expect(grid.height).toBe(1);
+    expect(grid.bounds).toEqual({ lonMin: -170, lonMax: -169, latMin: -19, latMax: -18 });
+  });
+});
+
+describe('NiueSuitabilityDynamicOverlay.destroy resilience', () => {
+  test('does not throw if the map was already torn down (getLayer throws)', () => {
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    overlay._gridCache = new Map();
+    overlay._grid = { some: 'grid' };
+    overlay._envelope = { some: 'envelope' };
+    overlay._map = {
+      getLayer: jest.fn(() => { throw new Error('map is destroyed'); }),
+      getSource: jest.fn(),
+      removeLayer: jest.fn(),
+      removeSource: jest.fn(),
+    };
+
+    expect(() => overlay.destroy()).not.toThrow();
+    expect(overlay._grid).toBeNull();
+    expect(overlay._envelope).toBeNull();
+  });
+});
+
 describe('NiueSuitabilityDynamicOverlay.setEnvelope', () => {
   function makeOverlay() {
     const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);

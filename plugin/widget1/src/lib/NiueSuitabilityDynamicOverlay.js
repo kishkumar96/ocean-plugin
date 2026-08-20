@@ -82,9 +82,11 @@ export class NiueSuitabilityDynamicOverlay {
   }
 
   setOpacity(opacity) {
-    if (this._map.getLayer(LAYER_ID)) {
-      this._map.setPaintProperty(LAYER_ID, 'raster-opacity', opacity);
-    }
+    try {
+      if (this._map.getLayer(LAYER_ID)) {
+        this._map.setPaintProperty(LAYER_ID, 'raster-opacity', opacity);
+      }
+    } catch (_) { /* map may already be torn down */ }
   }
 
   // Safe to call before the first repaint has created the layer (e.g. right
@@ -92,9 +94,11 @@ export class NiueSuitabilityDynamicOverlay {
   // as soon as _ensureMapSource() actually creates it.
   setVisible(visible) {
     this._visible = visible;
-    if (this._map.getLayer(LAYER_ID)) {
-      this._map.setLayoutProperty(LAYER_ID, 'visibility', visible ? 'visible' : 'none');
-    }
+    try {
+      if (this._map.getLayer(LAYER_ID)) {
+        this._map.setLayoutProperty(LAYER_ID, 'visibility', visible ? 'visible' : 'none');
+      }
+    } catch (_) { /* map may already be torn down */ }
   }
 
   clearCache() {
@@ -102,8 +106,15 @@ export class NiueSuitabilityDynamicOverlay {
   }
 
   destroy() {
-    if (this._map.getLayer(LAYER_ID)) this._map.removeLayer(LAYER_ID);
-    if (this._map.getSource(SOURCE_ID)) this._map.removeSource(SOURCE_ID);
+    // Mirrors NiueSuitabilityOverlay._removeFromMap()'s try/catch: the map
+    // instance can already be torn down (map.remove() already ran) by the
+    // time this fires, e.g. during a fast layer switch or an error-recovery
+    // unmount — getLayer/getSource on a removed map throw rather than
+    // returning falsy.
+    try {
+      if (this._map.getLayer(LAYER_ID)) this._map.removeLayer(LAYER_ID);
+      if (this._map.getSource(SOURCE_ID)) this._map.removeSource(SOURCE_ID);
+    } catch (_) { /* map may already be torn down */ }
     this._gridCache.clear();
     this._grid = null;
     this._envelope = null;
@@ -126,6 +137,24 @@ export class NiueSuitabilityDynamicOverlay {
       latMin: Number(resp.headers.get('X-Lat-Min')),
       latMax: Number(resp.headers.get('X-Lat-Max')),
     };
+
+    // Fails closed (throws, caught by the controller's setTimeIndex .catch)
+    // rather than proceeding with a 0x0 grid. The most likely real-world
+    // cause isn't a malformed response — it's the backend's CORS config not
+    // exposing these custom X-Grid-* headers cross-origin. When that
+    // happens resp.headers.get() returns null for every one of them,
+    // Number(null) is 0, not NaN, so this can't just check isNaN: it would
+    // pass straight through as a "valid" 0x0 grid and crash later, deeper
+    // in the call stack, at createImageData(0, 0) instead of here.
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+      throw new Error(
+        `Suitability grid response missing/invalid X-Grid-Width or X-Grid-Height ` +
+        `(got ${resp.headers.get('X-Grid-Width')}x${resp.headers.get('X-Grid-Height')}). ` +
+        `If these headers are present on the actual HTTP response but not readable here, ` +
+        `the backend's CORS config likely needs Access-Control-Expose-Headers to include them.`
+      );
+    }
+
     const buffer = await resp.arrayBuffer();
     return NiueSuitabilityDynamicOverlay._decodeGridBuffer(buffer, width, height, bounds);
   }
@@ -155,6 +184,13 @@ export class NiueSuitabilityDynamicOverlay {
   }
 
   _repaint() {
+    // Guards against calling this with a grid whose _ensureCanvasSize()
+    // never ran (or threw) — e.g. a setEnvelope() call landing after a
+    // setTimeIndex() that failed. Both call sites already check
+    // this._grid/this._envelope before calling _repaint(), so in practice
+    // this only ever catches _imageData being unset.
+    if (!this._grid || !this._envelope || !this._imageData) return;
+
     const { width, height, wind, wave, valid, bounds } = this._grid;
     const { cautionWindKt, maxWindKt, cautionWaveHeightM, maxWaveHeightM } = this._envelope;
     const pixels = this._imageData.data;
