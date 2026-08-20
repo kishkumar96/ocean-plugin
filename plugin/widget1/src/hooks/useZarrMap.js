@@ -6,7 +6,8 @@ import { ZarrOverlay } from '../lib/ZarrOverlay';
 import { UgridOverlay } from '../lib/UgridOverlay';
 import { SfincsRasterOverlay } from '../lib/SfincsRasterOverlay';
 import { NiueInundationOverlay } from '../lib/NiueInundationOverlay';
-import { NiueSuitabilityOverlay, SUITABILITY_HAZARD_COLORS } from '../lib/NiueSuitabilityOverlay';
+import { SUITABILITY_HAZARD_COLORS } from '../lib/NiueSuitabilityOverlay';
+import { NiueSuitabilityController } from '../lib/NiueSuitabilityController';
 import { WaveParticleOverlay } from '../lib/WaveParticleOverlay';
 import { SwellSourceArcOverlay } from '../lib/SwellSourceArcOverlay';
 import { findLayerById } from '../lib/mapLayersConfig';
@@ -117,6 +118,8 @@ export function useZarrMap({
   particleQuality = 'balanced',
   swellSourcesEnabled = false,
   selectedVessel = 'traditional_craft',
+  suitabilityMode = 'preset',
+  customEnvelope = null,
   landingAreaPickMode = false,
   onLandingAreaPick = null,
   routePickMode = false,
@@ -365,7 +368,7 @@ export function useZarrMap({
           inundationRenderMode: cbRef.current.inundationRenderMode,
         })
       : layerCfg.sourceType === 'niue-suitability-raster'
-      ? new NiueSuitabilityOverlay(map, {
+      ? new NiueSuitabilityController(map, {
           ...layerCfg,
           opacity,
           vessel: cbRef.current.selectedVessel || layerCfg.defaultVessel,
@@ -593,10 +596,24 @@ export function useZarrMap({
   // ── suitability vessel class ──────────────────────────────────────────────
   useEffect(() => {
     const ov = overlayRef.current;
-    if (ov instanceof NiueSuitabilityOverlay) {
+    if (ov instanceof NiueSuitabilityController) {
       ov.setVessel(selectedVessel);
     }
   }, [selectedVessel]);
+
+  // ── suitability Preset/Custom mode + custom envelope ───────────────────────
+  // customEnvelope is the effective envelope object (vessel preset merged
+  // with any user overrides) once Custom mode has been enabled at least
+  // once — null/undefined before that, in which case setEnvelope just gets
+  // {} and NiueSuitabilityDynamicOverlay falls back to the vessel's own
+  // preset, so Custom mode always starts identical to Preset until the user
+  // actually moves a slider.
+  useEffect(() => {
+    const ov = overlayRef.current;
+    if (!(ov instanceof NiueSuitabilityController)) return;
+    ov.setMode(suitabilityMode);
+    ov.setEnvelope(selectedVessel, suitabilityMode === 'custom' ? (customEnvelope || {}) : {});
+  }, [selectedVessel, suitabilityMode, customEnvelope]);
 
   // ── playback ──────────────────────────────────────────────────────────────
   useEffect(() => {

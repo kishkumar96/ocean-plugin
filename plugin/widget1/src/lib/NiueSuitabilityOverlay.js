@@ -314,6 +314,7 @@ export class NiueSuitabilityOverlay {
     this._timesteps = [];
     this._destroyed   = false;
     this._sourceReady = false;
+    this._visible = true;
     // Cancels this instance's in-flight /timesteps fetch — aborted in
     // destroy(). Without this, rapid layer switching leaves abandoned
     // fetches running to completion in the background, which can pile up
@@ -386,6 +387,7 @@ export class NiueSuitabilityOverlay {
       type: 'raster',
       source: SOURCE_ID,
       paint: { 'raster-opacity': this._opacity },
+      layout: { visibility: this._visible ? 'visible' : 'none' },
     });
     this._sourceReady = true;
   }
@@ -427,6 +429,20 @@ export class NiueSuitabilityOverlay {
     if (!vessel || vessel === this._vessel) return;
     this._vessel = vessel;
     this._updateTiles();
+  }
+
+  // Used by NiueSuitabilityController to hide the preset tile layer while
+  // custom-envelope mode's canvas layer is showing, without tearing down
+  // (and re-fetching /niue/suitability/timesteps for) this overlay. Safe to
+  // call before _addToMap() has run (e.g. right after construction, while
+  // /niue/suitability/timesteps is still in flight) — _visible is applied
+  // as soon as the layer is actually created.
+  setVisible(visible) {
+    this._visible = visible;
+    if (!this._sourceReady) return;
+    try {
+      this._map.setLayoutProperty(LAYER_ID, 'visibility', visible ? 'visible' : 'none');
+    } catch (_) { /* layer removed */ }
   }
 
   // Single-point hazard reading at the current time index. Returns a shape
