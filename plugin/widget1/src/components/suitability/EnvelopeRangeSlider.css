@@ -1,0 +1,116 @@
+.envelope-range {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.envelope-range__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.envelope-range__label {
+  color: rgba(194, 218, 245, 0.78);
+  font-size: 0.68rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.envelope-range__readout {
+  font-size: 0.72rem;
+  color: rgba(226, 240, 255, 0.92);
+  font-variant-numeric: tabular-nums;
+}
+
+.envelope-range__readout-caution { color: #fb8c00; }
+.envelope-range__readout-danger { color: #e53935; }
+
+/* Two <input type="range"> stacked on one track: each is fully transparent
+   except its own thumb (pointer-events: none on the input, re-enabled only
+   on the ::-webkit-slider-thumb/::-moz-range-thumb pseudo-element), so both
+   handles are independently draggable even though they occupy the same
+   horizontal space. This is the standard technique for a dual-handle range
+   without a bespoke drag implementation — native keyboard/touch/ARIA
+   behavior for each thumb comes for free. */
+.envelope-range__track-wrap {
+  position: relative;
+  height: 22px;
+  display: flex;
+  align-items: center;
+}
+
+.envelope-range__track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.envelope-range__input {
+  position: absolute;
+  left: 0;
+  right: 0;
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: none; /* only the thumb (below) re-enables interaction */
+}
+
+.envelope-range__input:focus-visible {
+  outline: none;
+}
+
+.envelope-range__input::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 6px;
+}
+
+.envelope-range__input::-moz-range-track {
+  background: transparent;
+  height: 6px;
+}
+
+.envelope-range__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #e7f1ff;
+  border: 2px solid #0b1220;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  margin-top: -4.5px;
+}
+
+.envelope-range__input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #e7f1ff;
+  border: 2px solid #0b1220;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+
+.envelope-range__input:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.45);
+}
+
+.envelope-range__input:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.45);
+}
+
+.envelope-range__input--caution::-webkit-slider-thumb { background: #2a9d8f; }
+.envelope-range__input--caution::-moz-range-thumb { background: #2a9d8f; }
+.envelope-range__input--danger::-webkit-slider-thumb { background: #e53935; }
+.envelope-range__input--danger::-moz-range-thumb { background: #e53935; }

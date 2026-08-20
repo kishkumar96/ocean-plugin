@@ -2913,18 +2913,6 @@
     linear-gradient(180deg, rgba(8, 20, 36, 0.96), rgba(5, 16, 29, 0.94));
 }
 
-.suitability-envelope-slider {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.suitability-envelope-slider label {
-  color: rgba(194, 218, 245, 0.78);
-  font-size: 0.68rem;
-  font-weight: 650;
-}
-
 .suitability-control-card__header {
   display: flex;
   align-items: flex-start;
