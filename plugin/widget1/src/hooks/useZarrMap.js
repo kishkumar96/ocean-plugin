@@ -165,6 +165,7 @@ export function useZarrMap({
   cbRef.current = {
     setBottomCanvasData, setShowBottomCanvas, inundationCategories, minVisibleDepth, inundationRenderMode, rangeWindow, selectedLayerId,
     opacity, sliderIndex, swellSourcesEnabled, selectedVessel,
+    suitabilityMode, customEnvelope,
     landingAreaPickMode, onLandingAreaPick,
     routePickMode, onRoutePointPick,
   };
@@ -372,6 +373,16 @@ export function useZarrMap({
           ...layerCfg,
           opacity,
           vessel: cbRef.current.selectedVessel || layerCfg.defaultVessel,
+          // Seeds the dynamic (Custom-mode) overlay's first grid fetch and
+          // initial mode/envelope at construction time. Without this, a
+          // fresh controller only gets synced by the sliderIndex/mode
+          // effects below, both of which are no-ops if the relevant state
+          // (e.g. sliderIndex already 0) doesn't *change* value on this
+          // layer switch — leaving the dynamic overlay's grid perpetually
+          // null and every setEnvelope() call a silent no-op.
+          timeIndex: cbRef.current.sliderIndex,
+          suitabilityMode: cbRef.current.suitabilityMode,
+          customEnvelope: cbRef.current.customEnvelope,
         })
       : new ZarrOverlay(map, { ...layerCfg, opacity, thresholds });
 

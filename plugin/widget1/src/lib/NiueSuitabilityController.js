@@ -20,10 +20,29 @@ import { NiueSuitabilityDynamicOverlay } from './NiueSuitabilityDynamicOverlay';
 
 export class NiueSuitabilityController {
   constructor(map, config) {
-    this._mode = 'preset';
+    this._mode = config.suitabilityMode === 'custom' ? 'custom' : 'preset';
     this.fixed = new NiueSuitabilityOverlay(map, config);
     this.dynamic = new NiueSuitabilityDynamicOverlay(map, config.apiBase);
-    this.dynamic.setVisible(false);
+    this.fixed.setVisible(this._mode === 'preset');
+    this.dynamic.setVisible(this._mode === 'custom');
+
+    // Seed the dynamic overlay's first grid fetch immediately rather than
+    // waiting on useZarrMap's sliderIndex effect, which is a no-op here if
+    // sliderIndex doesn't happen to *change* value on this layer switch
+    // (e.g. it's already 0) — without this, _grid stays null forever and
+    // every setEnvelope() call after silently no-ops in _repaint().
+    this.dynamic.setTimeIndex(config.timeIndex ?? 0).catch((err) => {
+      this.onErrorChange?.(err.message);
+    });
+    // Same reasoning for the envelope itself: seed it from whatever the
+    // caller already knows (mirrors useZarrMap's mode/envelope effect) so
+    // Custom mode shows real data as soon as its first grid fetch resolves,
+    // instead of waiting for selectedVessel/suitabilityMode/customEnvelope
+    // to next *change* value.
+    this.dynamic.setEnvelope(
+      config.vessel,
+      this._mode === 'custom' ? (config.customEnvelope || {}) : {}
+    );
   }
 
   // Only NiueSuitabilityOverlay's /niue/suitability/timesteps fetch ever
