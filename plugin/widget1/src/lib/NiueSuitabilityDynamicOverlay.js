@@ -23,11 +23,21 @@ const HAZARD_RGB = Object.fromEntries(
   Object.entries(SUITABILITY_HAZARD_COLORS).map(([code, hex]) => [code, hexToRgb(hex)])
 );
 
+// Fired-and-forgotten background fetches, one tick ahead of the currently
+// displayed timestep, so playback (which advances on a fixed interval
+// regardless of fetch speed) usually finds its next few frames already
+// warm in cache instead of starting cold on every tick. Kept modest —
+// each is still a real network request, and stacking too many concurrent
+// ones would compete with (and slow down) whatever the user is actually
+// waiting to see right now.
+const PREFETCH_AHEAD_COUNT = 3;
+
 export class NiueSuitabilityDynamicOverlay {
   constructor(map, apiBase) {
     this._map = map;
     this._apiBase = apiBase.replace(/\/$/, '');
     this._gridCache = new Map(); // time_index -> parsed grid
+    this._prefetchInFlight = new Set(); // time_index currently being prefetched
     this._grid = null;
     this._envelope = null;
     this._visible = true;
@@ -55,6 +65,34 @@ export class NiueSuitabilityDynamicOverlay {
     this._grid = grid;
     this._ensureCanvasSize();
     if (this._envelope) this._repaint();
+    this._prefetchAhead(timeIndex);
+  }
+
+  // Not awaited by callers — this is deliberately best-effort. A prefetch
+  // landing after the user has already scrubbed past it just populates the
+  // cache for next time; a prefetch failing (network blip, or timeIndex
+  // running past the end of the forecast) is silently dropped rather than
+  // surfaced as a layer error, since nothing the user is currently looking
+  // at depends on it succeeding.
+  _prefetchAhead(fromTimeIndex) {
+    for (let offset = 1; offset <= PREFETCH_AHEAD_COUNT; offset++) {
+      const timeIndex = fromTimeIndex + offset;
+      if (this._gridCache.has(timeIndex) || this._prefetchInFlight.has(timeIndex)) continue;
+
+      this._prefetchInFlight.add(timeIndex);
+      // Wrapped in Promise.resolve().then(...) rather than calling
+      // this._fetchGrid(timeIndex) directly: if it ever threw synchronously
+      // instead of rejecting (e.g. called past the end of the forecast, or
+      // in a test with an exhausted mock), that throw would otherwise
+      // escape this loop — inside a plain .then() callback it becomes a
+      // rejection instead, caught by the .catch() below like every other
+      // failure mode this is meant to swallow.
+      Promise.resolve()
+        .then(() => this._fetchGrid(timeIndex))
+        .then((grid) => { this._gridCache.set(timeIndex, grid); })
+        .catch(() => {})
+        .finally(() => { this._prefetchInFlight.delete(timeIndex); });
+    }
   }
 
   // overrides: { cautionWindKt, maxWindKt, cautionWaveHeightM, maxWaveHeightM }
@@ -116,6 +154,7 @@ export class NiueSuitabilityDynamicOverlay {
       if (this._map.getSource(SOURCE_ID)) this._map.removeSource(SOURCE_ID);
     } catch (_) { /* map may already be torn down */ }
     this._gridCache.clear();
+    this._prefetchInFlight.clear();
     this._grid = null;
     this._envelope = null;
   }
@@ -155,12 +194,31 @@ export class NiueSuitabilityDynamicOverlay {
       );
     }
 
+    // Two supported encodings, distinguished by X-Grid-Encoding — kept
+    // backward-compatible with the original float32 format deliberately:
+    // this frontend and the production backend don't deploy in lockstep,
+    // so a frontend that only understood the new quantized format would
+    // break against whatever's already live until someone redeploys the
+    // backend. The quantized (i16le) path is ~23x smaller on the wire
+    // (measured: a real ~15MB float32 grid -> ~640KB gzipped-quantized) —
+    // see the backend's /niue/suitability/grid docstring for the measured
+    // numbers this tradeoff is based on.
+    const encoding = resp.headers.get('X-Grid-Encoding') || '';
     const buffer = await resp.arrayBuffer();
+
+    if (encoding.includes('i16le')) {
+      const windScale = Number(resp.headers.get('X-Wind-Scale')) || 1;
+      const waveScale = Number(resp.headers.get('X-Wave-Scale')) || 1;
+      return NiueSuitabilityDynamicOverlay._decodeQuantizedGridBuffer(
+        buffer, width, height, bounds, windScale, waveScale
+      );
+    }
     return NiueSuitabilityDynamicOverlay._decodeGridBuffer(buffer, width, height, bounds);
   }
 
-  // Layout matches X-Grid-Encoding on the backend: wind (f32le) then wave
-  // (f32le) then valid (u8), each row-major (lat, lon).
+  // Legacy layout: wind (f32le) then wave (f32le) then valid (u8), each
+  // row-major (lat, lon). Kept for compatibility with a backend that hasn't
+  // been redeployed with quantization yet — see _parseGridResponse.
   static _decodeGridBuffer(buffer, width, height, bounds) {
     const cellCount = width * height;
     const floatBytes = cellCount * 4;
@@ -171,6 +229,35 @@ export class NiueSuitabilityDynamicOverlay {
       wind: new Float32Array(buffer, 0, cellCount),
       wave: new Float32Array(buffer, floatBytes, cellCount),
       valid: new Uint8Array(buffer, floatBytes * 2, cellCount),
+    };
+  }
+
+  // Layout matches X-Grid-Encoding: wind (i16le) then wave (i16le) then
+  // valid (u8), each row-major (lat, lon). wind_kt = raw / windScale,
+  // wave_m = raw / waveScale (see /niue/suitability/grid's docstring for
+  // why int16 rather than float32). Rescaled into Float32Array immediately
+  // so _repaint()'s classification math doesn't need to know or care which
+  // encoding a given grid came from.
+  static _decodeQuantizedGridBuffer(buffer, width, height, bounds, windScale, waveScale) {
+    const cellCount = width * height;
+    const int16Bytes = cellCount * 2;
+    const windRaw = new Int16Array(buffer, 0, cellCount);
+    const waveRaw = new Int16Array(buffer, int16Bytes, cellCount);
+
+    const wind = new Float32Array(cellCount);
+    const wave = new Float32Array(cellCount);
+    for (let i = 0; i < cellCount; i++) {
+      wind[i] = windRaw[i] / windScale;
+      wave[i] = waveRaw[i] / waveScale;
+    }
+
+    return {
+      width,
+      height,
+      bounds,
+      wind,
+      wave,
+      valid: new Uint8Array(buffer, int16Bytes * 2, cellCount),
     };
   }
 
