@@ -18,6 +18,7 @@ import {
   VESSEL_OPERATING_ENVELOPE,
   VESSEL_OPERATING_ENVELOPE_STATUS,
 } from '../lib/NiueSuitabilityOverlay';
+import EnvelopeRangeSlider from './suitability/EnvelopeRangeSlider';
 import AdvisoryPdfModal from './advisory/AdvisoryPdfModal';
 import UserGuide from './UserGuide';
 import LandingAreaPanel from './landingArea/LandingAreaPanel';
@@ -363,6 +364,23 @@ const ForecastApp = ({
   // enableCustomEnvelope below), so this is never a jump to arbitrary
   // numbers the first time a slider is touched.
   const effectiveEnvelope = isCustomEnvelope ? (customEnvelope ?? selectedVesselEnvelope) : selectedVesselEnvelope;
+
+  // Slider track range scales to the selected vessel's own preset (not the
+  // live-editing effectiveEnvelope — that would make the track grow while
+  // dragging its own upper handle, a moving-goalpost feel) rather than one
+  // fixed 0-40kt/0-5m range for every vessel. Without this, Traditional
+  // Craft's entire meaningful range (0-12kt) sits inside the first 30% of
+  // the same track Larger Vessels uses out to 25kt+, making fine control
+  // cramped for smaller vessel classes specifically.
+  const windSliderMax = selectedVesselEnvelope ? Math.max(selectedVesselEnvelope.maxWindKt * 2, 20) : 40;
+  const waveSliderMax = selectedVesselEnvelope ? Math.max(selectedVesselEnvelope.maxWaveHeightM * 2, 2) : 5;
+
+  // One formatter used by both the Preset read-only numbers and the Custom
+  // sliders' readout — without this, a vessel preset with a whole-number
+  // wave value (e.g. 1.0, stored by JS as 1) prints "1 m" in Preset mode
+  // but "1.0 m" in Custom mode for the exact same value.
+  const formatWave = useCallback((v) => `${v.toFixed(1)} m`, []);
+  const formatWind = useCallback((v) => `${Math.round(v)} kt`, []);
 
   const enableCustomEnvelope = useCallback(() => {
     setCustomEnvelope?.({ ...selectedVesselEnvelope });
@@ -1455,10 +1473,10 @@ const ForecastApp = ({
                   {!isCustomEnvelope ? (
                     <>
                       <div className="suitability-control-card__subtext">
-                        Caution — Wind {effectiveEnvelope.cautionWindKt} kt · Wave {effectiveEnvelope.cautionWaveHeightM} m
+                        Caution — Wind {formatWind(effectiveEnvelope.cautionWindKt)} · Wave {formatWave(effectiveEnvelope.cautionWaveHeightM)}
                       </div>
                       <div className="suitability-control-card__subtext">
-                        Danger — Wind {effectiveEnvelope.maxWindKt} kt · Wave {effectiveEnvelope.maxWaveHeightM} m
+                        Danger — Wind {formatWind(effectiveEnvelope.maxWindKt)} · Wave {formatWave(effectiveEnvelope.maxWaveHeightM)}
                       </div>
                       <button
                         type="button"
@@ -1470,62 +1488,32 @@ const ForecastApp = ({
                     </>
                   ) : (
                     <>
-                      <div className="suitability-envelope-slider">
-                        <label htmlFor="envelope-caution-wind">
-                          Wind caution: {effectiveEnvelope.cautionWindKt} kt
-                        </label>
-                        <input
-                          id="envelope-caution-wind"
-                          type="range"
-                          min={0}
-                          max={40}
-                          step={1}
-                          value={effectiveEnvelope.cautionWindKt}
-                          onChange={(e) => updateCustomEnvelope('cautionWindKt', Number(e.target.value))}
-                        />
-                      </div>
-                      <div className="suitability-envelope-slider">
-                        <label htmlFor="envelope-danger-wind">
-                          Wind danger: {effectiveEnvelope.maxWindKt} kt
-                        </label>
-                        <input
-                          id="envelope-danger-wind"
-                          type="range"
-                          min={0}
-                          max={40}
-                          step={1}
-                          value={effectiveEnvelope.maxWindKt}
-                          onChange={(e) => updateCustomEnvelope('maxWindKt', Number(e.target.value))}
-                        />
-                      </div>
-                      <div className="suitability-envelope-slider">
-                        <label htmlFor="envelope-caution-wave">
-                          Wave caution: {effectiveEnvelope.cautionWaveHeightM.toFixed(1)} m
-                        </label>
-                        <input
-                          id="envelope-caution-wave"
-                          type="range"
-                          min={0}
-                          max={5}
-                          step={0.1}
-                          value={effectiveEnvelope.cautionWaveHeightM}
-                          onChange={(e) => updateCustomEnvelope('cautionWaveHeightM', Number(e.target.value))}
-                        />
-                      </div>
-                      <div className="suitability-envelope-slider">
-                        <label htmlFor="envelope-danger-wave">
-                          Wave danger: {effectiveEnvelope.maxWaveHeightM.toFixed(1)} m
-                        </label>
-                        <input
-                          id="envelope-danger-wave"
-                          type="range"
-                          min={0}
-                          max={5}
-                          step={0.1}
-                          value={effectiveEnvelope.maxWaveHeightM}
-                          onChange={(e) => updateCustomEnvelope('maxWaveHeightM', Number(e.target.value))}
-                        />
-                      </div>
+                      <EnvelopeRangeSlider
+                        label="Wind"
+                        unit="kt"
+                        min={0}
+                        max={windSliderMax}
+                        step={1}
+                        minGap={1}
+                        cautionValue={effectiveEnvelope.cautionWindKt}
+                        dangerValue={effectiveEnvelope.maxWindKt}
+                        onCautionChange={(v) => updateCustomEnvelope('cautionWindKt', v)}
+                        onDangerChange={(v) => updateCustomEnvelope('maxWindKt', v)}
+                        formatValue={formatWind}
+                      />
+                      <EnvelopeRangeSlider
+                        label="Wave"
+                        unit="m"
+                        min={0}
+                        max={waveSliderMax}
+                        step={0.1}
+                        minGap={0.1}
+                        cautionValue={effectiveEnvelope.cautionWaveHeightM}
+                        dangerValue={effectiveEnvelope.maxWaveHeightM}
+                        onCautionChange={(v) => updateCustomEnvelope('cautionWaveHeightM', v)}
+                        onDangerChange={(v) => updateCustomEnvelope('maxWaveHeightM', v)}
+                        formatValue={formatWave}
+                      />
                       <button
                         type="button"
                         className="map-display-option__btn"
