@@ -26,8 +26,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-.envelope-range__readout-caution { color: #fb8c00; }
-.envelope-range__readout-danger { color: #e53935; }
+/* Colors come from CSS custom properties set inline by the component (from
+   SUITABILITY_HAZARD_COLORS — the same source the legend two cards up
+   reads) rather than hex literals here, so the readout text, the track
+   gradient, and each thumb can never independently drift out of sync with
+   each other or with what the rest of the panel calls "caution"/"danger". */
+.envelope-range__readout-caution { color: var(--envelope-caution-color); }
+.envelope-range__readout-danger { color: var(--envelope-danger-color); }
 
 /* Two <input type="range"> stacked on one track: each is fully transparent
    except its own thumb (pointer-events: none on the input, re-enabled only
@@ -110,7 +115,7 @@
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.45);
 }
 
-.envelope-range__input--caution::-webkit-slider-thumb { background: #2a9d8f; }
-.envelope-range__input--caution::-moz-range-thumb { background: #2a9d8f; }
-.envelope-range__input--danger::-webkit-slider-thumb { background: #e53935; }
-.envelope-range__input--danger::-moz-range-thumb { background: #e53935; }
+.envelope-range__input--caution::-webkit-slider-thumb { background: var(--envelope-caution-color); }
+.envelope-range__input--caution::-moz-range-thumb { background: var(--envelope-caution-color); }
+.envelope-range__input--danger::-webkit-slider-thumb { background: var(--envelope-danger-color); }
+.envelope-range__input--danger::-moz-range-thumb { background: var(--envelope-danger-color); }

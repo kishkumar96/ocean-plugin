@@ -15,7 +15,6 @@ export default function EnvelopeRangeSlider({
   min,
   max,
   step,
-  minGap,
   cautionValue,
   dangerValue,
   onCautionChange,
@@ -27,13 +26,6 @@ export default function EnvelopeRangeSlider({
   const cautionPct = toPercent(cautionValue);
   const dangerPct = toPercent(dangerValue);
 
-  // Each handle's own min/max is clamped to the other handle's current
-  // position (minus/plus minGap) — the native slider then physically
-  // refuses to drag past that point, rather than accepting the drag and
-  // having the controlled value snap back on the next render.
-  const cautionMax = Math.max(min, dangerValue - minGap);
-  const dangerMin = Math.min(max, cautionValue + minGap);
-
   // Same colors as the "Forecast classes" legend two cards up (and every
   // suitability map tile) — imported from the one place that defines them
   // rather than re-picked here, so this can't silently drift from what the
@@ -43,7 +35,12 @@ export default function EnvelopeRangeSlider({
   ];
 
   return (
-    <div className="envelope-range">
+    <div
+      className="envelope-range"
+      role="group"
+      aria-label={`${label} operating envelope`}
+      style={{ '--envelope-caution-color': cautionColor, '--envelope-danger-color': dangerColor }}
+    >
       <div className="envelope-range__header">
         <span className="envelope-range__label">{label}</span>
         <span className="envelope-range__readout">
@@ -63,12 +60,27 @@ export default function EnvelopeRangeSlider({
               `${dangerColor} ${dangerPct}%, ${dangerColor} 100%)`,
           }}
         />
+        {/* Both inputs deliberately share the same [min, max] as the track's
+            own gradient calculation above, rather than each being narrowed
+            to stop at the other handle's position. A native range input
+            always maps its thumb across its own min-to-max onto its full
+            rendered width — if the two overlaid inputs had different
+            ranges, their thumbs would render at different percentages than
+            the color track's boundaries (verified: with min=0/max=40 and
+            handles at 15/20, a narrowed range put the "caution" thumb to
+            the visual *right* of the "danger" thumb despite caution < danger
+            — badly, silently wrong). Keeping ranges identical is what makes
+            "thumb position" and "color boundary" agree. The caution < danger
+            constraint is enforced by the parent's onChange handler
+            (updateCustomEnvelope) clamping the value instead — the thumb can
+            be dragged toward the other and stops there via a value that
+            stops changing, not via the native input refusing the drag. */}
         <input
           type="range"
           className="envelope-range__input envelope-range__input--caution"
           aria-label={`${label} caution threshold`}
           min={min}
-          max={cautionMax}
+          max={max}
           step={step}
           value={cautionValue}
           onChange={(e) => onCautionChange(Number(e.target.value))}
@@ -77,7 +89,7 @@ export default function EnvelopeRangeSlider({
           type="range"
           className="envelope-range__input envelope-range__input--danger"
           aria-label={`${label} danger threshold`}
-          min={dangerMin}
+          min={min}
           max={max}
           step={step}
           value={dangerValue}

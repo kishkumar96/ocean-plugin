@@ -1494,7 +1494,6 @@ const ForecastApp = ({
                         min={0}
                         max={windSliderMax}
                         step={1}
-                        minGap={1}
                         cautionValue={effectiveEnvelope.cautionWindKt}
                         dangerValue={effectiveEnvelope.maxWindKt}
                         onCautionChange={(v) => updateCustomEnvelope('cautionWindKt', v)}
@@ -1507,7 +1506,6 @@ const ForecastApp = ({
                         min={0}
                         max={waveSliderMax}
                         step={0.1}
-                        minGap={0.1}
                         cautionValue={effectiveEnvelope.cautionWaveHeightM}
                         dangerValue={effectiveEnvelope.maxWaveHeightM}
                         onCautionChange={(v) => updateCustomEnvelope('cautionWaveHeightM', v)}
