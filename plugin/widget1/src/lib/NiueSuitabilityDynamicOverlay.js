@@ -237,6 +237,20 @@ export class NiueSuitabilityDynamicOverlay {
     const existing = this._map.getSource(SOURCE_ID);
     if (existing) {
       existing.setCoordinates(coordinates);
+      // With animate: false, MapLibre's CanvasSource only uploads the
+      // canvas to its GPU texture once (on creation) — see prepare() in
+      // canvas_source.ts, which only calls texture.update() when
+      // `resize || this._playing`, and _playing only ever becomes true
+      // between play()/pause(). Without this, every _repaint() after the
+      // first correctly redraws the offscreen canvas but the map's texture
+      // never reflects it: play() flips _playing on and requests a frame,
+      // pause() synchronously does the one texture.update() this repaint
+      // needs and flips _playing back off — a one-shot refresh instead of
+      // paying for animate: true's continuous per-frame re-upload of a
+      // ~1600x1000px canvas on every pan/zoom regardless of whether this
+      // layer's content actually changed.
+      existing.play?.();
+      existing.pause?.();
       return;
     }
 
