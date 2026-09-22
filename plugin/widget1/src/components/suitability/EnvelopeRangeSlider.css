@@ -30,9 +30,15 @@
    SUITABILITY_HAZARD_COLORS — the same source the legend two cards up
    reads) rather than hex literals here, so the readout text, the track
    gradient, and each thumb can never independently drift out of sync with
-   each other or with what the rest of the panel calls "caution"/"danger". */
+   each other or with what the rest of the panel calls "caution"/"avoid". */
 .envelope-range__readout-caution { color: var(--envelope-caution-color); }
-.envelope-range__readout-danger { color: var(--envelope-danger-color); }
+.envelope-range__readout-avoid { color: var(--envelope-avoid-color); }
+
+.envelope-range__constraint {
+  color: rgba(194, 218, 245, 0.52);
+  font-size: 0.62rem;
+  line-height: 1.2;
+}
 
 /* Two <input type="range"> stacked on one track: each is fully transparent
    except its own thumb (pointer-events: none on the input, re-enabled only
@@ -43,7 +49,7 @@
    behavior for each thumb comes for free. */
 .envelope-range__track-wrap {
   position: relative;
-  height: 22px;
+  height: 34px;
   display: flex;
   align-items: center;
 }
@@ -86,25 +92,27 @@
 .envelope-range__input::-webkit-slider-thumb {
   -webkit-appearance: none;
   pointer-events: auto;
-  width: 15px;
-  height: 15px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: #e7f1ff;
+  background: var(--envelope-thumb-color, #e7f1ff);
   border: 2px solid #0b1220;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
   cursor: pointer;
-  margin-top: -4.5px;
+  margin-top: -11px;
+  touch-action: none;
 }
 
 .envelope-range__input::-moz-range-thumb {
   pointer-events: auto;
-  width: 15px;
-  height: 15px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: #e7f1ff;
+  background: var(--envelope-thumb-color, #e7f1ff);
   border: 2px solid #0b1220;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
   cursor: pointer;
+  touch-action: none;
 }
 
 .envelope-range__input:focus-visible::-webkit-slider-thumb {
@@ -115,7 +123,9 @@
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.45);
 }
 
-.envelope-range__input--caution::-webkit-slider-thumb { background: var(--envelope-caution-color); }
-.envelope-range__input--caution::-moz-range-thumb { background: var(--envelope-caution-color); }
-.envelope-range__input--danger::-webkit-slider-thumb { background: var(--envelope-danger-color); }
-.envelope-range__input--danger::-moz-range-thumb { background: var(--envelope-danger-color); }
+.envelope-range__input--caution { --envelope-thumb-color: var(--envelope-caution-color); }
+.envelope-range__input--avoid { --envelope-thumb-color: var(--envelope-avoid-color); }
+
+/* When handles overlap, the safety-critical Avoid threshold remains reachable. */
+.envelope-range__input--caution { z-index: 2; }
+.envelope-range__input--avoid { z-index: 3; }

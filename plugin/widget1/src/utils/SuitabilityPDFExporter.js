@@ -1061,6 +1061,22 @@ async function captureMap(mapElement) {
   return canvas.toDataURL('image/jpeg', 0.88);
 }
 
+// A live map capture is safe only when it uses the same preset vessel
+// classification as the PDF statistics. Custom what-if pixels must never be
+// embedded beside backend preset percentages as though they share a method.
+export function canUseLiveSuitabilityMap({
+  allowMapCapture = true,
+  mapElement,
+  mapVessel = null,
+  effectiveVessel,
+}) {
+  return Boolean(
+    allowMapCapture
+    && mapElement
+    && (!mapVessel || mapVessel === effectiveVessel)
+  );
+}
+
 // ── Page 1 — Executive advisory ───────────────────────────────────────────────
 
 async function drawPage1(doc, { mapDataUrl, summary, validTime, runId, selectedVessel = 'small_craft', timeSeriesData = [], vesselIcons = {}, advisoryConfig = null, mapExtentSource = 'model_domain' }) {
@@ -2919,6 +2935,7 @@ function drawPage6(doc, { validTime, runId, advisoryConfig = null, summary = nul
 export async function exportSuitabilityPDF({
   mapElement,
   mapVessel = null,
+  allowMapCapture = true,
   timeIndex,
   validTime,
   runId,
@@ -3032,7 +3049,13 @@ export async function exportSuitabilityPDF({
   // only covered fetchMapImage; a captureMap rejection went unhandled.
   let mapDataUrl = null;
   let mapExtentSource = 'model_domain';
-  if (wantsCurrentMapView && mapElement && (!mapVessel || mapVessel === effectiveVessel)) {
+  const canUseLiveMap = canUseLiveSuitabilityMap({
+    allowMapCapture,
+    mapElement,
+    mapVessel,
+    effectiveVessel,
+  });
+  if (wantsCurrentMapView && canUseLiveMap) {
     try {
       mapDataUrl = await captureMap(mapElement);
       mapExtentSource = 'current_map_view_capture';
@@ -3056,7 +3079,7 @@ export async function exportSuitabilityPDF({
   if (wantsCurrentMapView && !mapDataUrl) {
     throw new Error('The backend could not render a map for the selected current-map bounds. The advisory was not generated because a full-domain fallback would be misleading.');
   }
-  if (!mapDataUrl && !wantsCurrentMapView && mapElement) {
+  if (!mapDataUrl && !wantsCurrentMapView && canUseLiveMap) {
     try {
       mapDataUrl = await captureMap(mapElement);
       mapExtentSource = 'current_map_view_fallback';

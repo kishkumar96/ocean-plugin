@@ -124,6 +124,7 @@ export default function AdvisoryPdfModal({
   validTime          = null,
   runId              = null,
   selectedVessel     = 'small_craft',
+  suitabilityMode    = 'preset',
   suitabilityBaseUrl = '',
   mapInstance,
   landingArea        = null,
@@ -190,6 +191,11 @@ export default function AdvisoryPdfModal({
         runId,
         mapElement: readMapElement(mapInstance),
         mapVessel: selectedVessel,
+        // A Custom what-if canvas uses client-side thresholds while every
+        // advisory statistic is still backend/preset-classified. Never mix
+        // those two methods in one report; retain the viewport bounds but
+        // ask the backend to render the preset map instead.
+        allowMapCapture: suitabilityMode !== 'custom',
         suitabilityBaseUrl,
         selectedVessel: effectiveVesselCode,
         publicUrl: process.env.PUBLIC_URL ?? '',
@@ -203,7 +209,7 @@ export default function AdvisoryPdfModal({
       setErrorMsg(err?.message || 'Export failed — see console for details');
       setBusy(false);
     }
-  }, [busy, timeIndex, validTime, runId, suitabilityBaseUrl, selectedVessel, effectiveVesselCode, effectiveVesselLabel, areaType, timeFrameType, landingArea, mapInstance, onClose]);
+  }, [busy, timeIndex, validTime, runId, suitabilityBaseUrl, selectedVessel, suitabilityMode, effectiveVesselCode, effectiveVesselLabel, areaType, timeFrameType, landingArea, mapInstance, onClose]);
 
   // Poster ignores the vessel/area/timeframe controls above entirely — it
   // auto-picks whichever vessel class shows the most cross-class variation
@@ -257,6 +263,12 @@ export default function AdvisoryPdfModal({
 
         {/* ── Body ── */}
         <div className="advisory-modal-body">
+
+          {suitabilityMode === 'custom' && (
+            <div className="advisory-bounds advisory-bounds-warn" role="status">
+              This advisory uses vessel preset thresholds. The Map + point what-if preview is not embedded in the report.
+            </div>
+          )}
 
           {/* 1. Vessel type */}
           <div className="advisory-section">

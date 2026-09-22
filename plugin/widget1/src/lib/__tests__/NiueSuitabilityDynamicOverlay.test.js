@@ -1,5 +1,53 @@
-import { NiueSuitabilityDynamicOverlay } from '../NiueSuitabilityDynamicOverlay';
+import {
+  MAX_GRID_CACHE_ENTRIES,
+  NiueSuitabilityDynamicOverlay,
+} from '../NiueSuitabilityDynamicOverlay';
 import { classifySuitability, SUITABILITY_HAZARD_COLORS } from '../NiueSuitabilityOverlay';
+
+const makeGrid = (timeIndex = 0, overrides = {}) => ({
+  width: 1,
+  height: 1,
+  wind: new Float32Array([0]),
+  wave: new Float32Array([0]),
+  valid: new Uint8Array([1]),
+  bounds: { lonMin: 0, lonMax: 1, latMin: 0, latMax: 1 },
+  validTime: `2026-08-20T${String(timeIndex).padStart(2, '0')}:00:00Z`,
+  ...overrides,
+});
+
+async function flushMicrotasks(turns = 8) {
+  for (let i = 0; i < turns; i++) await Promise.resolve();
+}
+
+function makeRequestOverlay(fetchImpl, { visible = false } = {}) {
+  const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+  Object.assign(overlay, {
+    _gridCache: new Map(),
+    _gridFetches: new Map(),
+    _fetchControllers: new Map(),
+    _prefetchInFlight: new Set(),
+    _activeFetchTimeIndex: null,
+    _grid: null,
+    _envelope: null,
+    _lastSummary: null,
+    _visible: visible,
+    _destroyed: false,
+    _requestId: 0,
+    _requestedTimeIndex: null,
+    _renderedTimeIndex: null,
+    _maxTimeIndex: null,
+    _status: 'idle',
+    _statusError: null,
+    _repaintFrame: null,
+    _ensureCanvasSize: jest.fn(),
+    _repaint: jest.fn(),
+    _fetchGrid: jest.fn(fetchImpl),
+    onBufferingChange: jest.fn(),
+    onSummaryChange: jest.fn(),
+    onStatusChange: jest.fn(),
+  });
+  return overlay;
+}
 
 // Grid decoding is pure data-shape math (no DOM), so it's tested directly
 // against the backend's documented layout: wind (f32le) then wave (f32le)
@@ -38,6 +86,16 @@ function fakeGridResponse(headerValues, bufferByteLength = 9) {
   };
 }
 
+const validFloatHeaders = (overrides = {}) => ({
+  'X-Grid-Width': '1',
+  'X-Grid-Height': '1',
+  'X-Lon-Min': '-170',
+  'X-Lon-Max': '-169',
+  'X-Lat-Min': '-19',
+  'X-Lat-Max': '-18',
+  ...overrides,
+});
+
 describe('NiueSuitabilityDynamicOverlay._parseGridResponse header validation', () => {
   test('throws a diagnosable error when grid dimension headers are entirely missing', async () => {
     const resp = fakeGridResponse({});
@@ -69,6 +127,45 @@ describe('NiueSuitabilityDynamicOverlay._parseGridResponse header validation', (
     expect(grid.width).toBe(2);
     expect(grid.height).toBe(1);
     expect(grid.bounds).toEqual({ lonMin: -170, lonMax: -169, latMin: -19, latMax: -18 });
+  });
+
+  test.each([
+    [{ 'X-Lon-Min': '-169', 'X-Lon-Max': '-170' }, /bounds/i],
+    [{ 'X-Lat-Min': '-18', 'X-Lat-Max': '-19' }, /bounds/i],
+    [{ 'X-Lon-Max': 'not-a-number' }, /bounds/i],
+  ])('rejects non-finite or unordered coordinate bounds: %p', async (overrides, message) => {
+    const resp = fakeGridResponse(validFloatHeaders(overrides));
+    await expect(NiueSuitabilityDynamicOverlay._parseGridResponse(resp)).rejects.toThrow(message);
+  });
+
+  test('rejects a payload whose byte length does not match its declared dimensions', async () => {
+    const resp = fakeGridResponse(validFloatHeaders({
+      'X-Grid-Width': '2',
+      'X-Grid-Height': '1',
+    }), 9);
+
+    await expect(NiueSuitabilityDynamicOverlay._parseGridResponse(resp)).rejects.toThrow(
+      /payload length mismatch.*expected 18.*got 9/i
+    );
+  });
+
+  test('rejects dimensions whose product is not a safe cell count', async () => {
+    const resp = fakeGridResponse(validFloatHeaders({
+      'X-Grid-Width': String(Number.MAX_SAFE_INTEGER),
+      'X-Grid-Height': '2',
+    }));
+
+    await expect(NiueSuitabilityDynamicOverlay._parseGridResponse(resp)).rejects.toThrow(/cell count/i);
+  });
+
+  test('preserves the optional valid-time header on the parsed grid', async () => {
+    const resp = fakeGridResponse(validFloatHeaders({
+      'X-Valid-Time': '2026-08-20T03:00:00Z',
+    }));
+
+    await expect(NiueSuitabilityDynamicOverlay._parseGridResponse(resp)).resolves.toMatchObject({
+      validTime: '2026-08-20T03:00:00Z',
+    });
   });
 });
 
@@ -105,6 +202,21 @@ describe('NiueSuitabilityDynamicOverlay._parseGridResponse quantized (i16le) dec
     expect(Array.from(grid.wind)).toEqual([15, 20]);
     expect(Array.from(grid.wave)).toEqual([1.5, 2]);
     expect(Array.from(grid.valid)).toEqual([1, 1]);
+  });
+
+  test.each([
+    [{}, /scale/i],
+    [{ 'X-Wind-Scale': '0', 'X-Wave-Scale': '1000' }, /scale/i],
+    [{ 'X-Wind-Scale': '100', 'X-Wave-Scale': '-1' }, /scale/i],
+    [{ 'X-Wind-Scale': 'invalid', 'X-Wave-Scale': '1000' }, /scale/i],
+  ])('rejects missing or non-positive quantization scales: %p', async (scaleHeaders, message) => {
+    const resp = fakeGridResponse({
+      ...validFloatHeaders(),
+      'X-Grid-Encoding': 'wind:i16le,wave:i16le,valid:u8',
+      ...scaleHeaders,
+    }, 5);
+
+    await expect(NiueSuitabilityDynamicOverlay._parseGridResponse(resp)).rejects.toThrow(message);
   });
 });
 
@@ -168,6 +280,8 @@ describe('NiueSuitabilityDynamicOverlay.setEnvelope', () => {
     overlay._map = {};
     overlay._grid = null;
     overlay._envelope = null;
+    overlay._repaintFrame = null;
+    overlay._destroyed = false;
     return overlay;
   }
 
@@ -185,6 +299,28 @@ describe('NiueSuitabilityDynamicOverlay.setEnvelope', () => {
     ).toThrow(/wave/i);
   });
 
+  test('rejects equal caution and avoid thresholds because the caution band would disappear', () => {
+    const overlay = makeOverlay();
+    expect(() =>
+      overlay.setEnvelope('small_craft', { cautionWindKt: 20, maxWindKt: 20 })
+    ).toThrow(/wind.*lower/i);
+    expect(() =>
+      overlay.setEnvelope('small_craft', { cautionWaveHeightM: 2, maxWaveHeightM: 2 })
+    ).toThrow(/wave.*lower/i);
+  });
+
+  test.each([
+    ['cautionWindKt', NaN],
+    ['maxWindKt', Infinity],
+    ['cautionWaveHeightM', -0.1],
+    ['maxWaveHeightM', '2.5'],
+  ])('rejects invalid numeric override %s=%p', (field, value) => {
+    const overlay = makeOverlay();
+    expect(() => overlay.setEnvelope('small_craft', { [field]: value })).toThrow(
+      /finite, non-negative number/i
+    );
+  });
+
   test('throws on an unknown vessel class', () => {
     const overlay = makeOverlay();
     expect(() => overlay.setEnvelope('not_a_real_vessel')).toThrow(/unknown vessel/i);
@@ -198,40 +334,46 @@ describe('NiueSuitabilityDynamicOverlay.setEnvelope', () => {
     expect(overlay._envelope.cautionWindKt).toBe(15); // untouched preset field survives the merge
     expect(overlay._repaint).not.toHaveBeenCalled();
   });
+
+  test('ignores non-adjustable metadata instead of letting overrides relabel a vessel', () => {
+    const overlay = makeOverlay();
+    overlay.setEnvelope('small_craft', {
+      label: 'Not Small Craft',
+      advisoryLevel: 'Unverified override',
+      maxWaveHeightM: 2.5,
+    });
+
+    expect(overlay._envelope).toMatchObject({
+      label: 'Small Craft',
+      advisoryLevel: 'Small Craft Advisory',
+      maxWaveHeightM: 2.5,
+    });
+  });
 });
 
 describe('NiueSuitabilityDynamicOverlay.setTimeIndex race guard', () => {
   test('a slow earlier fetch does not overwrite a faster later one', async () => {
-    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
-    overlay._gridCache = new Map();
-    overlay._prefetchInFlight = new Set();
-    overlay._grid = null;
-    overlay._envelope = null;
-    overlay._requestId = 0;
-    overlay._ensureCanvasSize = jest.fn();
-    overlay._repaint = jest.fn();
-
     let resolveSlow;
     const slow = new Promise((resolve) => { resolveSlow = resolve; });
-    const fast = Promise.resolve({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} });
-
-    overlay._fetchGrid = jest.fn()
+    const fast = Promise.resolve(makeGrid(11));
+    const overlay = makeRequestOverlay();
+    overlay._fetchGrid
       .mockImplementationOnce(() => slow)  // timeIndex 10, requested first, resolves last
       .mockImplementationOnce(() => fast)  // timeIndex 11, requested second, resolves first
-      // Every call after that is this test's own setTimeIndex() calls'
-      // _prefetchAhead() firing in the background — not under test here,
-      // just needs to resolve cleanly instead of hitting jest.fn()'s
-      // default "return undefined" once the queued mocks are exhausted.
-      .mockImplementation(() => Promise.resolve({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} }));
+      .mockImplementation((timeIndex) => Promise.resolve(makeGrid(timeIndex)));
 
     const p10 = overlay.setTimeIndex(10);
     const p11 = overlay.setTimeIndex(11);
     await p11;
-    expect(overlay._grid.bounds).toEqual({}); // timeIndex 11's grid is current
+    expect(overlay._grid).toBe(await fast); // timeIndex 11's grid is current
+    expect(overlay.getStatus()).toEqual({
+      status: 'ready', requestedTimeIndex: 11, renderedTimeIndex: 11, error: null,
+    });
 
-    resolveSlow({ width: 1, height: 1, wind: [9], wave: [9], valid: [1], bounds: { stale: true } });
+    resolveSlow(makeGrid(10, { bounds: { stale: true } }));
     await p10;
-    expect(overlay._grid.bounds).toEqual({}); // the late timeIndex 10 response must not clobber it
+    expect(overlay._renderedTimeIndex).toBe(11); // late timeIndex 10 must not clobber it
+    expect(overlay.getStatus().status).toBe('ready');
   });
 });
 
@@ -242,17 +384,7 @@ describe('NiueSuitabilityDynamicOverlay.setTimeIndex race guard', () => {
 // short as ~350ms.
 describe('NiueSuitabilityDynamicOverlay onBufferingChange', () => {
   function makeOverlay(fetchImpl) {
-    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
-    overlay._gridCache = new Map();
-    overlay._prefetchInFlight = new Set();
-    overlay._grid = null;
-    overlay._envelope = null;
-    overlay._requestId = 0;
-    overlay._ensureCanvasSize = jest.fn();
-    overlay._repaint = jest.fn();
-    overlay._fetchGrid = jest.fn(fetchImpl);
-    overlay.onBufferingChange = jest.fn();
-    return overlay;
+    return makeRequestOverlay(fetchImpl);
   }
 
   test('fires true then false around a real (cache-miss) fetch', async () => {
@@ -262,19 +394,30 @@ describe('NiueSuitabilityDynamicOverlay onBufferingChange', () => {
     const pending = overlay.setTimeIndex(5);
     expect(overlay.onBufferingChange).toHaveBeenCalledWith(true);
     expect(overlay.onBufferingChange).not.toHaveBeenCalledWith(false);
+    expect(overlay.onSummaryChange).toHaveBeenCalledWith(null);
+    expect(overlay.getStatus()).toEqual({
+      status: 'loading', requestedTimeIndex: 5, renderedTimeIndex: null, error: null,
+    });
 
-    resolveFetch({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} });
+    resolveFetch(makeGrid(5));
     await pending;
     expect(overlay.onBufferingChange).toHaveBeenLastCalledWith(false);
+    expect(overlay.getStatus()).toEqual({
+      status: 'ready', requestedTimeIndex: 5, renderedTimeIndex: 5, error: null,
+    });
+    expect(overlay.onStatusChange).toHaveBeenLastCalledWith(overlay.getStatus());
   });
 
-  test('does not fire at all for a cache hit', async () => {
-    const overlay = makeOverlay(() => Promise.resolve({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} }));
-    overlay._gridCache.set(5, { width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: { cached: true } });
+  test('does not enter buffering for a cache hit', async () => {
+    const overlay = makeOverlay(() => Promise.resolve(makeGrid(5)));
+    overlay._gridCache.set(5, makeGrid(5, { bounds: { cached: true } }));
 
     await overlay.setTimeIndex(5);
 
-    expect(overlay.onBufferingChange).not.toHaveBeenCalled();
+    expect(overlay.onBufferingChange).not.toHaveBeenCalledWith(true);
+    expect(overlay.onBufferingChange).toHaveBeenLastCalledWith(false);
+    expect(overlay._fetchGrid).not.toHaveBeenCalled();
+    expect(overlay.getStatus().status).toBe('ready');
   });
 
   test('still fires false even when the fetch rejects', async () => {
@@ -284,6 +427,9 @@ describe('NiueSuitabilityDynamicOverlay onBufferingChange', () => {
 
     expect(overlay.onBufferingChange).toHaveBeenCalledWith(true);
     expect(overlay.onBufferingChange).toHaveBeenLastCalledWith(false);
+    expect(overlay.getStatus()).toEqual({
+      status: 'error', requestedTimeIndex: 5, renderedTimeIndex: null, error: 'network error',
+    });
   });
 
   test('a superseded request does not clear buffering while a newer one is still in flight', async () => {
@@ -298,13 +444,16 @@ describe('NiueSuitabilityDynamicOverlay onBufferingChange', () => {
     const p11 = overlay.setTimeIndex(11);
 
     // timeIndex 10's fetch resolving should NOT report "done" — 11 is now current.
-    resolveSlow({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} });
+    resolveSlow(makeGrid(10));
     await p10;
     expect(overlay.onBufferingChange).not.toHaveBeenCalledWith(false);
 
-    resolveFast({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} });
+    resolveFast(makeGrid(11));
     await p11;
     expect(overlay.onBufferingChange).toHaveBeenLastCalledWith(false);
+    expect(overlay.getStatus()).toEqual({
+      status: 'ready', requestedTimeIndex: 11, renderedTimeIndex: 11, error: null,
+    });
   });
 });
 
@@ -314,64 +463,321 @@ describe('NiueSuitabilityDynamicOverlay onBufferingChange', () => {
 // grid already cached instead of starting cold every time.
 describe('NiueSuitabilityDynamicOverlay prefetching', () => {
   function makeOverlay(fetchImpl) {
-    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
-    overlay._gridCache = new Map();
-    overlay._prefetchInFlight = new Set();
-    overlay._grid = null;
-    overlay._envelope = null;
-    overlay._requestId = 0;
-    overlay._ensureCanvasSize = jest.fn();
-    overlay._repaint = jest.fn();
-    overlay._fetchGrid = jest.fn(fetchImpl);
+    const overlay = makeRequestOverlay(fetchImpl, { visible: true });
+    overlay.setMaxTimeIndex(100);
     return overlay;
   }
 
   test('setTimeIndex(N) prefetches N+1..N+3 into the cache without being awaited', async () => {
-    const overlay = makeOverlay((timeIndex) =>
-      Promise.resolve({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: { timeIndex } })
-    );
+    const overlay = makeOverlay((timeIndex) => Promise.resolve(makeGrid(timeIndex)));
 
     await overlay.setTimeIndex(10);
-    expect(overlay._fetchGrid).toHaveBeenCalledWith(10);
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(10, expect.any(AbortSignal));
     // Prefetches are fire-and-forget promises, not part of setTimeIndex's
     // own awaited chain — give their microtasks a turn to settle.
-    await Promise.resolve().then(() => Promise.resolve()).then(() => Promise.resolve());
+    await flushMicrotasks();
 
-    expect(overlay._fetchGrid).toHaveBeenCalledWith(11);
-    expect(overlay._fetchGrid).toHaveBeenCalledWith(12);
-    expect(overlay._fetchGrid).toHaveBeenCalledWith(13);
-    expect(overlay._gridCache.get(11).bounds).toEqual({ timeIndex: 11 });
-    expect(overlay._gridCache.get(12).bounds).toEqual({ timeIndex: 12 });
-    expect(overlay._gridCache.get(13).bounds).toEqual({ timeIndex: 13 });
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(11, expect.any(AbortSignal));
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(12, expect.any(AbortSignal));
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(13, expect.any(AbortSignal));
+    expect(overlay._gridCache.get(11)).toBeDefined();
+    expect(overlay._gridCache.get(12)).toBeDefined();
+    expect(overlay._gridCache.get(13)).toBeDefined();
   });
 
   test('does not re-fetch a timestep that is already cached or already being prefetched', async () => {
-    const overlay = makeOverlay(() =>
-      Promise.resolve({ width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {} })
-    );
+    const overlay = makeOverlay((timeIndex) => Promise.resolve(makeGrid(timeIndex)));
     overlay._gridCache.set(11, { cached: true }); // already have this one
     overlay._prefetchInFlight.add(12); // already fetching this one
 
     await overlay.setTimeIndex(10);
-    await Promise.resolve().then(() => Promise.resolve());
+    await flushMicrotasks();
 
-    expect(overlay._fetchGrid).not.toHaveBeenCalledWith(11);
-    expect(overlay._fetchGrid).not.toHaveBeenCalledWith(12);
-    expect(overlay._fetchGrid).toHaveBeenCalledWith(13);
+    expect(overlay._fetchGrid).not.toHaveBeenCalledWith(11, expect.any(AbortSignal));
+    expect(overlay._fetchGrid).not.toHaveBeenCalledWith(12, expect.any(AbortSignal));
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(13, expect.any(AbortSignal));
   });
 
   test('a prefetch failure is swallowed silently, not surfaced as an error', async () => {
     const overlay = makeOverlay((timeIndex) =>
-      timeIndex === 11 ? Promise.reject(new Error('network blip')) : Promise.resolve({
-        width: 1, height: 1, wind: [0], wave: [0], valid: [1], bounds: {},
-      })
+      timeIndex === 11 ? Promise.reject(new Error('network blip')) : Promise.resolve(makeGrid(timeIndex))
     );
 
     await expect(overlay.setTimeIndex(10)).resolves.toBeUndefined();
-    await Promise.resolve().then(() => Promise.resolve()).then(() => Promise.resolve());
+    await flushMicrotasks();
 
     expect(overlay._gridCache.has(11)).toBe(false);
     expect(overlay._prefetchInFlight.has(11)).toBe(false); // cleaned up despite the rejection
+  });
+
+  test('a hidden overlay fetches only the requested frame and does not prefetch', async () => {
+    const overlay = makeRequestOverlay((timeIndex) => Promise.resolve(makeGrid(timeIndex)), { visible: false });
+
+    await overlay.setTimeIndex(10);
+    await flushMicrotasks();
+
+    expect(overlay._fetchGrid).toHaveBeenCalledTimes(1);
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(10, expect.any(AbortSignal));
+  });
+
+  test('does not speculatively prefetch while the forecast horizon is unknown', async () => {
+    const overlay = makeRequestOverlay((timeIndex) => Promise.resolve(makeGrid(timeIndex)), { visible: true });
+
+    await overlay.setTimeIndex(10);
+    await flushMicrotasks();
+
+    expect(overlay._fetchGrid).toHaveBeenCalledTimes(1);
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(10, expect.any(AbortSignal));
+  });
+
+  test('does not prefetch beyond the declared forecast horizon', async () => {
+    const overlay = makeOverlay((timeIndex) => Promise.resolve(makeGrid(timeIndex)));
+    overlay.setMaxTimeIndex(11);
+
+    await overlay.setTimeIndex(10);
+    await flushMicrotasks();
+
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(11, expect.any(AbortSignal));
+    expect(overlay._fetchGrid).not.toHaveBeenCalledWith(12, expect.any(AbortSignal));
+    expect(overlay._fetchGrid).not.toHaveBeenCalledWith(13, expect.any(AbortSignal));
+  });
+});
+
+describe('NiueSuitabilityDynamicOverlay shared bounded grid cache', () => {
+  test('deduplicates concurrent requests for the same timestep and shares one AbortSignal-backed promise', async () => {
+    let resolveFetch;
+    const overlay = makeRequestOverlay(() => new Promise((resolve) => { resolveFetch = resolve; }));
+
+    const first = overlay._getOrFetchGrid(4);
+    const second = overlay._getOrFetchGrid(4);
+
+    expect(second).toBe(first);
+    expect(overlay._fetchGrid).toHaveBeenCalledTimes(1);
+    expect(overlay._fetchGrid).toHaveBeenCalledWith(4, expect.any(AbortSignal));
+
+    const grid = makeGrid(4);
+    resolveFetch(grid);
+    await expect(first).resolves.toBe(grid);
+    await expect(second).resolves.toBe(grid);
+
+    expect(overlay._gridCache.get(4)).toBe(grid);
+    expect(overlay._gridFetches.size).toBe(0);
+    expect(overlay._fetchControllers.size).toBe(0);
+  });
+
+  test('caps decoded grids with LRU eviction while preserving the rendered frame', () => {
+    const overlay = makeRequestOverlay(() => Promise.resolve());
+    overlay._renderedTimeIndex = 0;
+
+    for (let index = 0; index <= MAX_GRID_CACHE_ENTRIES; index++) {
+      overlay._cacheGrid(index, makeGrid(index));
+    }
+
+    expect(overlay._gridCache).toHaveProperty('size', MAX_GRID_CACHE_ENTRIES);
+    expect(overlay._gridCache.has(0)).toBe(true); // rendered frame is protected
+    expect(overlay._gridCache.has(1)).toBe(false); // oldest non-rendered frame was evicted
+
+    overlay._getCachedGrid(2); // touch 2 so it becomes most recently used
+    overlay._cacheGrid(MAX_GRID_CACHE_ENTRIES + 1, makeGrid(MAX_GRID_CACHE_ENTRIES + 1));
+
+    expect(overlay._gridCache).toHaveProperty('size', MAX_GRID_CACHE_ENTRIES);
+    expect(overlay._gridCache.has(2)).toBe(true);
+    expect(overlay._gridCache.has(3)).toBe(false);
+  });
+
+  test('does not cache a request that resolves after the overlay is destroyed', async () => {
+    let resolveFetch;
+    const overlay = makeRequestOverlay(() => new Promise((resolve) => { resolveFetch = resolve; }));
+    overlay._map = {};
+
+    const pending = overlay._getOrFetchGrid(7);
+    const signal = overlay._fetchGrid.mock.calls[0][1];
+    overlay.destroy();
+
+    expect(signal.aborted).toBe(true);
+    resolveFetch(makeGrid(7));
+    await expect(pending).resolves.toBeDefined();
+    expect(overlay._gridCache.size).toBe(0);
+  });
+});
+
+describe('NiueSuitabilityDynamicOverlay request cancellation and fetch contract', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('constructor is network-lazy and defers canvas context creation', () => {
+    global.fetch = jest.fn();
+    const overlay = new NiueSuitabilityDynamicOverlay({}, 'https://example.test/');
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(overlay._ctx).toBeNull();
+    expect(overlay.getStatus().status).toBe('idle');
+
+    overlay.destroy();
+  });
+
+  test('_fetchGrid passes its AbortSignal to fetch', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 503 });
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    overlay._apiBase = 'https://example.test';
+    const controller = new AbortController();
+
+    await expect(overlay._fetchGrid(6, controller.signal)).rejects.toThrow(/503/);
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://example.test/niue/suitability/grid/6',
+      { signal: controller.signal }
+    );
+  });
+
+  test('cancelPendingRequests aborts active signals, clears request bookkeeping, and emits idle status', () => {
+    const overlay = makeRequestOverlay(() => new Promise(() => {}));
+    overlay._getOrFetchGrid(9);
+    const signal = overlay._fetchGrid.mock.calls[0][1];
+
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+
+    overlay.cancelPendingRequests();
+
+    expect(signal.aborted).toBe(true);
+    expect(overlay._gridFetches.size).toBe(0);
+    expect(overlay._fetchControllers.size).toBe(0);
+    expect(overlay._prefetchInFlight.size).toBe(0);
+    expect(overlay.onBufferingChange).toHaveBeenLastCalledWith(false);
+    expect(overlay.getStatus().status).toBe('idle');
+  });
+
+  // Playback advances the requested time_index every tick, faster than a
+  // real (unquantized-backend) grid fetch can complete. Without aborting
+  // the superseded fetch, every previous tick's still-in-flight request
+  // just keeps competing for bandwidth with the one actually being waited
+  // on — and since none of them ever gets to apply (requestId fencing
+  // discards a stale result on arrival), the map can go an entire playback
+  // session without ever repainting again.
+  test('setTimeIndex aborts the previous time_index fetch it supersedes', () => {
+    const overlay = makeRequestOverlay(() => new Promise(() => {}));
+
+    overlay.setTimeIndex(1);
+    const firstSignal = overlay._fetchGrid.mock.calls[0][1];
+    expect(firstSignal.aborted).toBe(false);
+
+    overlay.setTimeIndex(2);
+    const secondSignal = overlay._fetchGrid.mock.calls[1][1];
+
+    expect(firstSignal.aborted).toBe(true);
+    expect(secondSignal.aborted).toBe(false);
+  });
+
+  test('setTimeIndex does not abort its own fetch when re-requesting the same time_index', () => {
+    const overlay = makeRequestOverlay(() => new Promise(() => {}));
+
+    overlay.setTimeIndex(4);
+    const signal = overlay._fetchGrid.mock.calls[0][1];
+
+    overlay.setTimeIndex(4);
+
+    expect(signal.aborted).toBe(false);
+    // Same time_index while already in flight is deduped, not re-fetched.
+    expect(overlay._fetchGrid).toHaveBeenCalledTimes(1);
+  });
+
+  test('setTimeIndex reuses a still-in-flight prefetch for the frame it lands on instead of aborting and re-fetching it', () => {
+    const overlay = makeRequestOverlay(() => new Promise(() => {}));
+
+    // Simulate frame 2 already being prefetched (e.g. kicked off while frame
+    // 0 was showing) and still in flight.
+    overlay._getOrFetchGrid(2);
+    const prefetchSignal = overlay._fetchGrid.mock.calls[0][1];
+
+    overlay.setTimeIndex(1); // becomes the active direct request
+    overlay.setTimeIndex(2); // playback catches up to the frame already being prefetched
+
+    expect(prefetchSignal.aborted).toBe(false);
+    // Reused the in-flight prefetch promise via _getOrFetchGrid's existing
+    // same-time_index dedup — not a second, redundant fetch for frame 2.
+    expect(overlay._fetchGrid).toHaveBeenCalledTimes(2); // frame 2 (prefetch) + frame 1 (direct)
+  });
+});
+
+describe('NiueSuitabilityDynamicOverlay stale point inspection', () => {
+  function makePointOverlay() {
+    const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
+    overlay._grid = null;
+    overlay._repaintFrame = null;
+    overlay._destroyed = false;
+    overlay.setEnvelope('small_craft', {
+      cautionWindKt: 12,
+      maxWindKt: 18,
+      cautionWaveHeightM: 1,
+      maxWaveHeightM: 2,
+    });
+    overlay._grid = makeGrid(3, {
+      wind: new Float32Array([15]),
+      wave: new Float32Array([0.5]),
+    });
+    return overlay;
+  }
+
+  test('blocks a point result when the rendered grid belongs to an older requested timestep', async () => {
+    const overlay = makePointOverlay();
+    overlay._requestedTimeIndex = 4;
+    overlay._renderedTimeIndex = 3;
+
+    await expect(overlay.getSuitabilityAtPoint(0.5, 0.5)).resolves.toMatchObject({
+      available: false,
+      hazard_class: null,
+      is_custom_envelope: true,
+      requested_time_index: 4,
+      rendered_time_index: 3,
+      unavailable_reason: expect.stringMatching(/older frame|not finished loading/i),
+    });
+  });
+
+  test('returns a classified, time-stamped point only when requested and rendered timesteps match', async () => {
+    const overlay = makePointOverlay();
+    overlay._requestedTimeIndex = 3;
+    overlay._renderedTimeIndex = 3;
+
+    await expect(overlay.getSuitabilityAtPoint(0.5, 0.5)).resolves.toMatchObject({
+      available: true,
+      hazard_class: 1,
+      vessel: 'small_craft',
+      wind_speed_kt: 15,
+      wave_height_m: 0.5,
+      time_index: 3,
+      valid_time: '2026-08-20T03:00:00Z',
+      is_custom_envelope: true,
+      classification_basis: 'custom_wind_wave_thresholds',
+      thresholds_used: {
+        cautionWindKt: 12,
+        maxWindKt: 18,
+        cautionWaveHeightM: 1,
+        maxWaveHeightM: 2,
+      },
+    });
+  });
+
+  test('fails closed for non-finite point coordinates or model values', async () => {
+    const overlay = makePointOverlay();
+    overlay._requestedTimeIndex = 3;
+    overlay._renderedTimeIndex = 3;
+
+    await expect(overlay.getSuitabilityAtPoint(Number.NaN, 0.5)).resolves.toMatchObject({
+      available: false,
+      hazard_class: null,
+      unavailable_reason: expect.stringMatching(/coordinates are invalid/i),
+    });
+
+    overlay._grid.wind[0] = Number.NaN;
+    await expect(overlay.getSuitabilityAtPoint(0.5, 0.5)).resolves.toMatchObject({
+      available: false,
+      hazard_class: null,
+      time_index: 3,
+      unavailable_reason: expect.stringMatching(/wind or wave data is invalid/i),
+    });
   });
 });
 
@@ -401,13 +807,13 @@ describe('NiueSuitabilityDynamicOverlay.setVisible', () => {
 // classifySuitability (NiueSuitabilityOverlay.js) — same max(windHazard,
 // waveHazard) rule, just applied across a raster instead of one point.
 describe('NiueSuitabilityDynamicOverlay._repaint classification parity', () => {
-  function paintSinglePixel(windKt, waveM, vesselCode) {
+  function paintSinglePixel(windKt, waveM, vesselCode, overrides = {}) {
     const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
     const width = 1;
     const height = 1;
     const pixels = new Uint8ClampedArray(4);
 
-    overlay._grid = {
+    const grid = {
       width,
       height,
       wind: new Float32Array([windKt]),
@@ -424,7 +830,15 @@ describe('NiueSuitabilityDynamicOverlay._repaint classification parity', () => {
       triggerRepaint: jest.fn(),
     };
 
-    overlay.setEnvelope(vesselCode);
+    // setEnvelope now coalesces UI changes with requestAnimationFrame. Keep
+    // this pure repaint test synchronous by resolving the envelope before a
+    // grid is attached, then invoke the paint primitive directly.
+    overlay._grid = null;
+    overlay._repaintFrame = null;
+    overlay._destroyed = false;
+    overlay.setEnvelope(vesselCode, overrides);
+    overlay._grid = grid;
+    overlay._repaint();
     return pixels;
   }
 
@@ -449,10 +863,22 @@ describe('NiueSuitabilityDynamicOverlay._repaint classification parity', () => {
     expect(Array.from(pixels)).toEqual([r, g, b, 205]);
   });
 
+  test('uses custom thresholds at the exact caution and avoid boundaries', () => {
+    const cautionPixels = paintSinglePixel(12, 0.5, 'small_craft', {
+      cautionWindKt: 12, maxWindKt: 18, cautionWaveHeightM: 1, maxWaveHeightM: 2,
+    });
+    const avoidPixels = paintSinglePixel(18, 0.5, 'small_craft', {
+      cautionWindKt: 12, maxWindKt: 18, cautionWaveHeightM: 1, maxWaveHeightM: 2,
+    });
+
+    expect(Array.from(cautionPixels).slice(0, 3)).toEqual([251, 140, 0]);
+    expect(Array.from(avoidPixels).slice(0, 3)).toEqual([229, 57, 53]);
+  });
+
   test('an invalid cell is painted fully transparent regardless of wind/wave values', () => {
     const overlay = Object.create(NiueSuitabilityDynamicOverlay.prototype);
     const pixels = new Uint8ClampedArray(4);
-    overlay._grid = {
+    const grid = {
       width: 1,
       height: 1,
       wind: new Float32Array([50]), // would be a warning if valid
@@ -469,7 +895,12 @@ describe('NiueSuitabilityDynamicOverlay._repaint classification parity', () => {
       triggerRepaint: jest.fn(),
     };
 
+    overlay._grid = null;
+    overlay._repaintFrame = null;
+    overlay._destroyed = false;
     overlay.setEnvelope('small_craft');
+    overlay._grid = grid;
+    overlay._repaint();
     expect(pixels[3]).toBe(0);
   });
 });

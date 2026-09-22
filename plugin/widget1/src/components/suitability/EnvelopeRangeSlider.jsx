@@ -1,8 +1,9 @@
+import { useId } from 'react';
 import { SUITABILITY_HAZARD_COLORS } from '../../lib/NiueSuitabilityOverlay';
 import './EnvelopeRangeSlider.css';
 
 // Dual-handle range slider for one hazard metric (wind or wave): a caution
-// handle and a danger handle sharing one track, colored in the same
+// handle and an avoid handle sharing one track, colored in the same
 // Suitable/Caution/Avoid zones as the map legend above it. Two native
 // <input type="range"> elements are stacked on the same track rather than a
 // bespoke drag implementation — each is only pointer-interactive at its own
@@ -16,21 +17,22 @@ export default function EnvelopeRangeSlider({
   max,
   step,
   cautionValue,
-  dangerValue,
+  avoidValue,
   onCautionChange,
-  onDangerChange,
+  onAvoidChange,
   formatValue,
 }) {
+  const constraintId = useId();
   const format = formatValue || ((v) => `${v} ${unit}`);
   const toPercent = (v) => ((v - min) / (max - min)) * 100;
   const cautionPct = toPercent(cautionValue);
-  const dangerPct = toPercent(dangerValue);
+  const avoidPct = toPercent(avoidValue);
 
   // Same colors as the "Forecast classes" legend two cards up (and every
   // suitability map tile) — imported from the one place that defines them
   // rather than re-picked here, so this can't silently drift from what the
   // rest of the UI calls "suitable"/"caution"/"avoid".
-  const [suitableColor, cautionColor, dangerColor] = [
+  const [suitableColor, cautionColor, avoidColor] = [
     SUITABILITY_HAZARD_COLORS[0], SUITABILITY_HAZARD_COLORS[1], SUITABILITY_HAZARD_COLORS[2],
   ];
 
@@ -38,17 +40,20 @@ export default function EnvelopeRangeSlider({
     <div
       className="envelope-range"
       role="group"
-      aria-label={`${label} operating envelope`}
-      style={{ '--envelope-caution-color': cautionColor, '--envelope-danger-color': dangerColor }}
+      aria-label={`${label} classification thresholds`}
+      style={{ '--envelope-caution-color': cautionColor, '--envelope-avoid-color': avoidColor }}
     >
       <div className="envelope-range__header">
         <span className="envelope-range__label">{label}</span>
         <span className="envelope-range__readout">
           <span className="envelope-range__readout-caution">Caution {format(cautionValue)}</span>
           {' · '}
-          <span className="envelope-range__readout-danger">Danger {format(dangerValue)}</span>
+          <span className="envelope-range__readout-avoid">Avoid {format(avoidValue)}</span>
         </span>
       </div>
+      <span id={constraintId} className="envelope-range__constraint">
+        Caution must remain at least {format(step)} below Avoid.
+      </span>
       <div className="envelope-range__track-wrap">
         <div
           className="envelope-range__track"
@@ -56,8 +61,8 @@ export default function EnvelopeRangeSlider({
             background:
               `linear-gradient(to right, ` +
               `${suitableColor} 0%, ${suitableColor} ${cautionPct}%, ` +
-              `${cautionColor} ${cautionPct}%, ${cautionColor} ${dangerPct}%, ` +
-              `${dangerColor} ${dangerPct}%, ${dangerColor} 100%)`,
+              `${cautionColor} ${cautionPct}%, ${cautionColor} ${avoidPct}%, ` +
+              `${avoidColor} ${avoidPct}%, ${avoidColor} 100%)`,
           }}
         />
         {/* Both inputs deliberately share the same [min, max] as the track's
@@ -68,9 +73,9 @@ export default function EnvelopeRangeSlider({
             ranges, their thumbs would render at different percentages than
             the color track's boundaries (verified: with min=0/max=40 and
             handles at 15/20, a narrowed range put the "caution" thumb to
-            the visual *right* of the "danger" thumb despite caution < danger
+            the visual *right* of the "avoid" thumb despite caution < avoid
             — badly, silently wrong). Keeping ranges identical is what makes
-            "thumb position" and "color boundary" agree. The caution < danger
+            "thumb position" and "color boundary" agree. The caution < avoid
             constraint is enforced by the parent's onChange handler
             (updateCustomEnvelope) clamping the value instead — the thumb can
             be dragged toward the other and stops there via a value that
@@ -83,17 +88,21 @@ export default function EnvelopeRangeSlider({
           max={max}
           step={step}
           value={cautionValue}
+          aria-valuetext={format(cautionValue)}
+          aria-describedby={constraintId}
           onChange={(e) => onCautionChange(Number(e.target.value))}
         />
         <input
           type="range"
-          className="envelope-range__input envelope-range__input--danger"
-          aria-label={`${label} danger threshold`}
+          className="envelope-range__input envelope-range__input--avoid"
+          aria-label={`${label} avoid threshold`}
           min={min}
           max={max}
           step={step}
-          value={dangerValue}
-          onChange={(e) => onDangerChange(Number(e.target.value))}
+          value={avoidValue}
+          aria-valuetext={format(avoidValue)}
+          aria-describedby={constraintId}
+          onChange={(e) => onAvoidChange(Number(e.target.value))}
         />
       </div>
     </div>

@@ -145,6 +145,8 @@ export function useZarrMap({
   const arcOverlayRef = useRef(null);
   const playIntervalRef = useRef(null);
   const pinMarkerRef = useRef(null);
+  const suitabilityPointRef = useRef(null);
+  const suitabilityPointRequestRef = useRef(0);
   const routeWaypointMarkersRef = useRef([]);
   const routeLegLabelMarkersRef = useRef([]);
   const routeHoverPopupRef = useRef(null);
@@ -164,6 +166,14 @@ export function useZarrMap({
   // NiueSuitabilityDynamicOverlay's onBufferingChange comment. Unused by
   // every other overlay type; stays false for all of them.
   const [suitabilityBuffering, setSuitabilityBuffering] = useState(false);
+  // Custom-mode-only { warning_percent, caution_percent, suitable_percent }
+  // for the vessel whose envelope is currently being edited — see
+  // NiueSuitabilityDynamicOverlay's onSummaryChange comment. null for every
+  // other overlay type and for Preset mode.
+  const [suitabilityCustomSummary, setSuitabilityCustomSummary] = useState(null);
+  // Persistent requested-vs-rendered identity for Custom mode. Unlike the
+  // buffering boolean, this retains a failed state after a request settles.
+  const [suitabilityCustomStatus, setSuitabilityCustomStatus] = useState(null);
 
   // Keep latest callback params in refs to avoid stale closures in map event listeners
   const cbRef = useRef({});
@@ -174,6 +184,25 @@ export function useZarrMap({
     landingAreaPickMode, onLandingAreaPick,
     routePickMode, onRoutePointPick,
   };
+
+  const refreshSuitabilityPoint = useCallback((overlay, lng, lat, { showPanel = false } = {}) => {
+    if (!overlay?.getSuitabilityAtPoint) return;
+    const requestId = ++suitabilityPointRequestRef.current;
+    const { setBottomCanvasData: setCB, setShowBottomCanvas: setSC } = cbRef.current;
+    setCB?.({ mode: 'suitability', loading: true, lat, lng });
+    if (showPanel) setSC?.(true);
+
+    overlay.getSuitabilityAtPoint(lng, lat)
+      .then((result) => {
+        if (requestId !== suitabilityPointRequestRef.current) return;
+        setCB?.({ mode: 'suitability', lat, lng, result });
+      })
+      .catch((err) => {
+        if (requestId !== suitabilityPointRequestRef.current) return;
+        console.error('[useZarrMap] Suitability point query failed:', err);
+        setCB?.({ mode: 'suitability', lat, lng, error: err.message });
+      });
+  }, []);
 
   const overlayRefR = useRef(overlayRef);
   overlayRefR.current = overlayRef;
@@ -350,6 +379,8 @@ export function useZarrMap({
       prev.onErrorChange = null;
       prev.onStatsChange = null;
       prev.onBufferingChange = null;
+      prev.onSummaryChange = null;
+      prev.onStatusChange = null;
       prev.destroy();
       overlayRef.current = null;
     }
@@ -357,6 +388,10 @@ export function useZarrMap({
     // Reset loading so a stale true from the previous layer doesn't bleed through.
     setLoading(false);
     setSuitabilityBuffering(false);
+    setSuitabilityCustomSummary(null);
+    setSuitabilityCustomStatus(null);
+    suitabilityPointRef.current = null;
+    suitabilityPointRequestRef.current += 1;
 
     const ov = layerCfg.type === 'ugrid'
       ? new UgridOverlay(map, { ...layerCfg, opacity, autoFitState: autoFitStateRef.current })
@@ -380,14 +415,10 @@ export function useZarrMap({
           ...layerCfg,
           opacity,
           vessel: cbRef.current.selectedVessel || layerCfg.defaultVessel,
-          // Seeds the dynamic (Custom-mode) overlay's first grid fetch and
-          // initial mode/envelope at construction time. Without this, a
-          // fresh controller only gets synced by the sliderIndex/mode
-          // effects below, both of which are no-ops if the relevant state
-          // (e.g. sliderIndex already 0) doesn't *change* value on this
-          // layer switch — leaving the dynamic overlay's grid perpetually
-          // null and every setEnvelope() call a silent no-op.
-          timeIndex: cbRef.current.sliderIndex,
+          // Every layer switch below resets the shared slider to zero. Seed
+          // that same index here so Custom mode never starts an immediately
+          // obsolete fetch for the previous layer's timeline position.
+          timeIndex: 0,
           suitabilityMode: cbRef.current.suitabilityMode,
           customEnvelope: cbRef.current.customEnvelope,
         })
@@ -397,6 +428,8 @@ export function useZarrMap({
     ov.onLoadingChange = setLoading;
     ov.onErrorChange = setError;
     ov.onBufferingChange = setSuitabilityBuffering; // no-op property on every non-suitability overlay
+    ov.onSummaryChange = setSuitabilityCustomSummary; // no-op property on every non-suitability overlay
+    ov.onStatusChange = setSuitabilityCustomStatus; // requested/rendered time + persistent error
     ov.onStatsChange = (min, max, units, extra = {}) => {
       setOverlayStats({
         min,
@@ -634,6 +667,23 @@ export function useZarrMap({
     ov.setEnvelope(selectedVessel, suitabilityMode === 'custom' ? (customEnvelope || {}) : {});
   }, [selectedVessel, suitabilityMode, customEnvelope]);
 
+  // Keep an open point result on the same configuration revision as the map.
+  // A time change first returns the overlay's explicit "not ready" result;
+  // when requested/rendered identity becomes ready, the status dependency
+  // below re-runs the query and replaces it with the real current frame.
+  useEffect(() => {
+    const ov = overlayRef.current;
+    const point = suitabilityPointRef.current;
+    if (!(ov instanceof NiueSuitabilityController) || !point) return;
+    refreshSuitabilityPoint(ov, point.lng, point.lat);
+  }, [
+    sliderIndex, selectedVessel, suitabilityMode, customEnvelope,
+    suitabilityCustomStatus?.status,
+    suitabilityCustomStatus?.requestedTimeIndex,
+    suitabilityCustomStatus?.renderedTimeIndex,
+    refreshSuitabilityPoint,
+  ]);
+
   // ── playback ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (playIntervalRef.current) { clearInterval(playIntervalRef.current); playIntervalRef.current = null; }
@@ -752,16 +802,8 @@ export function useZarrMap({
     if (layerCfg.sourceType === 'niue-suitability-raster') {
       if (!ov?.getSuitabilityAtPoint) return;
       addPinMarker(lng, lat, map);
-      setCB({ mode: 'suitability', loading: true, lat, lng });
-      setSC(true);
-      ov.getSuitabilityAtPoint(lng, lat)
-        .then((result) => {
-          setCB({ mode: 'suitability', lat, lng, result });
-        })
-        .catch((err) => {
-          console.error('[useZarrMap] Suitability point query failed:', err);
-          setCB({ mode: 'suitability', lat, lng, error: err.message });
-        });
+      suitabilityPointRef.current = { lng, lat };
+      refreshSuitabilityPoint(ov, lng, lat, { showPanel: true });
       return;
     }
 
@@ -949,6 +991,8 @@ export function useZarrMap({
     error,
     overlayStats,
     suitabilityBuffering,
+    suitabilityCustomSummary,
+    suitabilityCustomStatus,
     fitBounds,      // (islandBounds, options) → map.fitBounds with coord conversion
     setBasemap,     // (basemapId) → swap 'sat' raster source/layer in place
     removePinMarker,

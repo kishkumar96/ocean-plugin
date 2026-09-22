@@ -11,6 +11,7 @@ import useInundationThresholds from '../hooks/useInundationThresholds';
 import { useLandingAreaTimeseries } from '../hooks/useLandingAreaTimeseries';
 import { useSeaLevelTimeseries } from '../hooks/useSeaLevelTimeseries';
 import { fetchRouteForecast, parseRouteFile, parseAsUtcWallClock } from '../services/routeForecastService';
+import { getCustomEnvelopeForVessel, updateCustomEnvelopeForVessel } from '../domain/suitability/customEnvelopeProfiles';
 import {
   MAX_SCENARIOS,
   createScenario,
@@ -63,13 +64,18 @@ function Home() {
   const [swellSourcesEnabled, setSwellSourcesEnabled] = useState(false);
   const [selectedVessel, setSelectedVessel] = useState('traditional_craft');
   // 'preset' | 'custom' — Preset uses VESSEL_OPERATING_ENVELOPE[selectedVessel]
-  // as-is; Custom lets the operator override individual caution/danger
-  // thresholds. customEnvelope is null until Custom is first enabled, at
-  // which point it's initialized from the current vessel's preset (see
-  // enableCustomEnvelope in ForecastApp.jsx) so switching modes causes zero
-  // visual change until the operator actually moves a slider.
+  // as-is; Custom lets the operator override individual caution/avoid
+  // thresholds. Profiles are keyed by vessel so permissive limits from a
+  // larger vessel can never leak into a traditional or very small craft when
+  // the vessel selector changes.
   const [suitabilityMode, setSuitabilityMode] = useState('preset');
-  const [customEnvelope, setCustomEnvelope] = useState(null);
+  const [customEnvelopesByVessel, setCustomEnvelopesByVessel] = useState({});
+  const customEnvelope = getCustomEnvelopeForVessel(customEnvelopesByVessel, selectedVessel);
+  const setCustomEnvelope = useCallback((update) => {
+    setCustomEnvelopesByVessel((profiles) => (
+      updateCustomEnvelopeForVessel(profiles, selectedVessel, update)
+    ));
+  }, [selectedVessel]);
   const [showBottomCanvas, setShowBottomCanvas] = useState(false);
   const [bottomCanvasData, setBottomCanvasData] = useState(null);
   const [showBuoyCanvas, setShowBuoyCanvas] = useState(false);
@@ -215,6 +221,8 @@ function Home() {
     error: overlayError,
     overlayStats,
     suitabilityBuffering,
+    suitabilityCustomSummary,
+    suitabilityCustomStatus,
     fitBounds,
     setBasemap,
     removePinMarker,
@@ -642,6 +650,8 @@ function Home() {
         setTimeDisplayZone={setTimeDisplayZone}
         overlayStats={overlayStats}
         suitabilityBuffering={suitabilityBuffering}
+        suitabilityCustomSummary={suitabilityCustomSummary}
+        suitabilityCustomStatus={suitabilityCustomStatus}
         activeLayers={activeLayers}
         setActiveLayers={setActiveLayers}
         mapRef={mapRef}

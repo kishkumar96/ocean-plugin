@@ -17,8 +17,11 @@ import {
   SUITABILITY_HAZARD_COLORS,
   VESSEL_OPERATING_ENVELOPE,
   VESSEL_OPERATING_ENVELOPE_STATUS,
+  operatingEnvelopeMatchesPreset,
 } from '../lib/NiueSuitabilityOverlay';
 import EnvelopeRangeSlider from './suitability/EnvelopeRangeSlider';
+import { applyEnvelopeEdit, envelopeSliderMax } from '../domain/suitability/customEnvelopeProfiles';
+import SuitabilityReadinessCard from './suitability/SuitabilityReadinessCard';
 import AdvisoryPdfModal from './advisory/AdvisoryPdfModal';
 import UserGuide from './UserGuide';
 import LandingAreaPanel from './landingArea/LandingAreaPanel';
@@ -32,6 +35,7 @@ import {
   //StatusBar
 } from './shared/UIComponents';
 import wmsStyleManager from '../utils/WMSStyleManager';
+import { formatZoned } from '../utils/timeZoneFormat';
 import { Waves, Wind, Navigation, Activity, Info, Settings, Timer, Triangle,  BadgeInfo , CloudRain, FastForward, SlidersHorizontal, FileDown, Crosshair, MapPin, Route as RouteIcon, FileText, Ship, HelpCircle, Loader2 } from 'lucide-react';
 import FancyIcon from './FancyIcon';
 import '../styles/fancyIcons.css';
@@ -331,6 +335,8 @@ const ForecastApp = ({
   currentModelRunStart = null,
   overlayStats = null,
   suitabilityBuffering = false,
+  suitabilityCustomSummary = null,
+  suitabilityCustomStatus = null,
   onSaveCurrentAsScenario,
   onDuplicateScenario,
   onRemoveScenario,
@@ -361,10 +367,13 @@ const ForecastApp = ({
   const selectedVesselEnvelope = VESSEL_OPERATING_ENVELOPE[selectedVessel] ?? null;
   const isCustomEnvelope = suitabilityMode === 'custom';
   // What the map is actually rendering right now, regardless of mode —
-  // Custom mode always starts as an exact copy of the vessel's preset (see
-  // enableCustomEnvelope below), so this is never a jump to arbitrary
-  // numbers the first time a slider is touched.
-  const effectiveEnvelope = isCustomEnvelope ? (customEnvelope ?? selectedVesselEnvelope) : selectedVesselEnvelope;
+  // a vessel without saved custom values starts at its own preset, while a
+  // previously edited vessel restores only that vessel's session profile.
+  const effectiveEnvelope = isCustomEnvelope
+    ? { ...selectedVesselEnvelope, ...(customEnvelope ?? {}) }
+    : selectedVesselEnvelope;
+  const customEnvelopeChanged = isCustomEnvelope
+    && !operatingEnvelopeMatchesPreset(selectedVessel, effectiveEnvelope);
 
   // Slider track range scales to the selected vessel's own preset (not the
   // live-editing effectiveEnvelope — that would make the track grow while
@@ -373,8 +382,7 @@ const ForecastApp = ({
   // Craft's entire meaningful range (0-12kt) sits inside the first 30% of
   // the same track Larger Vessels uses out to 25kt+, making fine control
   // cramped for smaller vessel classes specifically.
-  const windSliderMax = selectedVesselEnvelope ? Math.max(selectedVesselEnvelope.maxWindKt * 2, 20) : 40;
-  const waveSliderMax = selectedVesselEnvelope ? Math.max(selectedVesselEnvelope.maxWaveHeightM * 2, 2) : 5;
+  const { windMax: windSliderMax, waveMax: waveSliderMax } = envelopeSliderMax(selectedVessel);
 
   // One formatter used by both the Preset read-only numbers and the Custom
   // sliders' readout — without this, a vessel preset with a whole-number
@@ -384,32 +392,20 @@ const ForecastApp = ({
   const formatWind = useCallback((v) => `${Math.round(v)} kt`, []);
 
   const enableCustomEnvelope = useCallback(() => {
-    setCustomEnvelope?.({ ...selectedVesselEnvelope });
     setSuitabilityMode?.('custom');
-  }, [selectedVesselEnvelope, setCustomEnvelope, setSuitabilityMode]);
+  }, [setSuitabilityMode]);
 
   const resetCustomEnvelope = useCallback(() => {
     setCustomEnvelope?.(null);
-    setSuitabilityMode?.('preset');
-  }, [setCustomEnvelope, setSuitabilityMode]);
+  }, [setCustomEnvelope]);
 
-  // Keeps caution < danger for both wind and wave: moving one slider past
-  // the other pushes the other along with it rather than accepting an
-  // inverted (and meaningless) envelope silently. Matches the 1kt / 0.1m
-  // minimum separation NiueSuitabilityDynamicOverlay.setEnvelope enforces
-  // (it throws if caution >= max), so a slider drag can never produce a
-  // value that overlay would reject.
+  // Clamping, caution < avoid push-along and step rounding live in
+  // domain/suitability/customEnvelopeProfiles.js (applyEnvelopeEdit), which
+  // keeps every result acceptable to NiueSuitabilityOverlay's
+  // resolveOperatingEnvelope.
   const updateCustomEnvelope = useCallback((field, value) => {
-    setCustomEnvelope?.((prev) => {
-      const base = prev ?? selectedVesselEnvelope;
-      const next = { ...base, [field]: value };
-      if (field === 'cautionWindKt') next.cautionWindKt = Math.min(value, base.maxWindKt - 1);
-      if (field === 'maxWindKt') next.maxWindKt = Math.max(value, base.cautionWindKt + 1);
-      if (field === 'cautionWaveHeightM') next.cautionWaveHeightM = Math.min(value, base.maxWaveHeightM - 0.1);
-      if (field === 'maxWaveHeightM') next.maxWaveHeightM = Math.max(value, base.cautionWaveHeightM + 0.1);
-      return next;
-    });
-  }, [selectedVesselEnvelope, setCustomEnvelope]);
+    setCustomEnvelope?.((prev) => applyEnvelopeEdit(selectedVessel, prev, field, value));
+  }, [selectedVessel, setCustomEnvelope]);
 
   // A dominant single-class summary renders most/all of the raster tile as one
   // flat color (e.g. mostly "Avoid"), which can read as visually indistinguishable
@@ -419,7 +415,40 @@ const ForecastApp = ({
   // no gradient, so even a ~80% dominant class can visually look "flat" to a
   // viewer — the threshold is set well below 100% to match that perception.
   const DOMINANT_HAZARD_THRESHOLD_PERCENT = 75;
-  const selectedVesselSummary = vesselSuitabilitySummaries[selectedVessel] ?? null;
+
+  // vesselIconHazards/vesselSuitabilitySummaries always come from the
+  // backend's preset-vessel summary endpoint, regardless of Preset/Custom
+  // mode — so on their own they'd show every vessel's badge (including the
+  // one actually being edited) using its fixed preset thresholds even while
+  // the map paints the user's custom envelope. Override just the selected
+  // vessel's entry from the live grid-derived summary the dynamic overlay
+  // fires (see NiueSuitabilityDynamicOverlay's onSummaryChange) so its badge
+  // and percentages agree with what Custom mode is actually showing on the
+  // map — the other three vessels stay preset-based since custom envelope
+  // only ever applies to whichever vessel is currently selected.
+  const effectiveVesselSummaries = useMemo(() => {
+    if (!isCustomEnvelope) return vesselSuitabilitySummaries;
+    const summaries = { ...vesselSuitabilitySummaries };
+    if (suitabilityCustomSummary) {
+      summaries[selectedVessel] = normaliseVesselSummaryForIcon(suitabilityCustomSummary);
+    } else {
+      delete summaries[selectedVessel];
+    }
+    return summaries;
+  }, [vesselSuitabilitySummaries, isCustomEnvelope, suitabilityCustomSummary, selectedVessel]);
+
+  const effectiveVesselIconHazards = useMemo(() => {
+    if (!isCustomEnvelope) return vesselIconHazards;
+    const hazards = { ...vesselIconHazards };
+    if (suitabilityCustomSummary) {
+      hazards[selectedVessel] = deriveVesselIconHazard(suitabilityCustomSummary);
+    } else {
+      delete hazards[selectedVessel];
+    }
+    return hazards;
+  }, [vesselIconHazards, isCustomEnvelope, suitabilityCustomSummary, selectedVessel]);
+
+  const selectedVesselSummary = effectiveVesselSummaries[selectedVessel] ?? null;
   const dominantSuitabilityHazard = (() => {
     if (!selectedVesselSummary) return null;
     const { warning_percent: warn, caution_percent: caution, suitable_percent: suitable } = selectedVesselSummary;
@@ -442,6 +471,13 @@ const ForecastApp = ({
 
     let cancelled = false;
     const base = suitabilityApiBase.replace(/\/$/, '');
+
+    // Scrubbing the timeline or holding play fires this effect on every
+    // sliderIndex tick — without a debounce, each tick starts its own batch
+    // of requests (up to one per vessel class, see the fallback below) that
+    // outlives the next tick's own batch, piling up concurrent fetches for
+    // timesteps the user has already scrubbed past.
+    const ICON_HAZARD_DEBOUNCE_MS = 250;
 
     const fetchJson = async (url) => {
       const response = await fetch(url);
@@ -489,9 +525,10 @@ const ForecastApp = ({
       }
     };
 
-    loadIconHazards();
+    const timer = setTimeout(loadIconHazards, ICON_HAZARD_DEBOUNCE_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [isSuitabilitySelected, sliderIndex, suitabilityApiBase]);
 
@@ -960,7 +997,8 @@ const ForecastApp = ({
                   </div>
                 ))}
               </div>
-              {dominantSuitabilityHazard && showSuitabilityHazardInfo && (
+              {dominantSuitabilityHazard && showSuitabilityHazardInfo
+                && (!isCustomEnvelope || suitabilityCustomStatus?.status === 'ready') && (
                 <div
                   className="marine-legend-suitability-note"
                   style={{
@@ -972,11 +1010,13 @@ const ForecastApp = ({
                     color: 'rgba(255,255,255,0.85)',
                   }}
                 >
-                  Confirmed forecast: {Math.round(dominantSuitabilityHazard.pct)}% of the visible area is{' '}
+                  {isCustomEnvelope ? 'Map + point what-if estimate' : 'Vessel-preset forecast'}:{' '}
+                  {Math.round(dominantSuitabilityHazard.pct)}% of the valid forecast grid is{' '}
                   <strong style={{ color: SUITABILITY_HAZARD_COLORS[dominantSuitabilityHazard.hazardVal] }}>
                     {SUITABILITY_MAP_HAZARD_LABELS[dominantSuitabilityHazard.hazardVal]}
                   </strong>{' '}
-                  for {selectedVesselMeta?.label ?? 'this vessel'} — this is model data, not a display error.
+                  for {selectedVesselMeta?.label ?? 'this vessel'} — conditions come from the forecast model;
+                  classification uses {isCustomEnvelope ? 'your client-side wind/wave thresholds' : 'the configured vessel preset'}.
                 </div>
               )}
               <OceanStationsLegend stations={oceanStations} onSelect={onOceanStationSelect} />
@@ -1412,7 +1452,10 @@ const ForecastApp = ({
                   </div>
                   <div className="map-display-option__segmented suitability-vessel-grid" role="radiogroup" aria-label="Vessel class" onKeyDown={handleSegmentedKeyDown}>
                     {VESSEL_CLASSES.map((v) => {
-                      const iconHazard = vesselIconHazards[v.value] ?? 0;
+                      const customHazardUnavailable = isCustomEnvelope
+                        && selectedVessel === v.value
+                        && !suitabilityCustomSummary;
+                      const iconHazard = effectiveVesselIconHazards[v.value] ?? 0;
                       const iconSrc = getVesselSelectorIconSrc(v.value, iconHazard);
                       return (
                       <button
@@ -1424,7 +1467,11 @@ const ForecastApp = ({
                         onClick={() => setSelectedVessel?.(v.value)}
                       >
                         <span className="suitability-vessel-card__top">
-                          {iconSrc ? (
+                          {customHazardUnavailable && suitabilityCustomStatus?.status === 'loading' ? (
+                            <Loader2 size={13} className="update-spinner" aria-hidden="true" />
+                          ) : customHazardUnavailable ? (
+                            <Ship size={13} aria-hidden="true" />
+                          ) : iconSrc ? (
                             <img
                               src={iconSrc}
                               alt=""
@@ -1457,33 +1504,79 @@ const ForecastApp = ({
                     {VESSEL_OPERATING_ENVELOPE_STATUS}
                   </div>
                 </div>
+                <SuitabilityReadinessCard
+                  apiBase={suitabilityApiBase}
+                  selectedVessel={selectedVessel}
+                  forecastTimeLabel={currentSliderDate ? formatZoned(currentSliderDate, timeDisplayZone) : null}
+                />
                 </>
               )}
 
-              {/* ── Operating envelope ── Preset shows the vessel's fixed
-                   caution/danger numbers read-only; Custom turns those same
-                   numbers into sliders. Enabling Custom seeds it from the
-                   current vessel's preset (enableCustomEnvelope), so the map
-                   never jumps on mode switch — only a slider drag changes it. */}
+              {/* ── Wind/wave classification basis ── The vessel domain object
+                   also contains daylight/offshore/landing guidance, none of
+                   which this editor evaluates. Name this control for the two
+                   inputs it actually changes rather than implying it edits the
+                   vessel's complete operating envelope. */}
               {isSuitabilitySelected && effectiveEnvelope && (
                 <div className="map-display-option suitability-control-card suitability-control-card--envelope">
                   <div className="suitability-control-card__header">
-                    <div className="map-display-option__label">Operating envelope</div>
-                    {/* Custom mode's canvas is only as current as its last
-                        successful grid fetch — this says so honestly rather
-                        than leaving the map looking frozen while a fetch
-                        (currently ~15MB/~2s against the still-undeployed
-                        quantized backend) catches up, especially visible
-                        during timeline playback. Not a fallback showing
-                        different data as if it were current — just an
-                        honest "still loading" signal. */}
-                    {isCustomEnvelope && suitabilityBuffering && (
-                      <span className="suitability-envelope-buffering" title="Loading the map for this forecast time — the display may lag behind the time slider">
-                        <Loader2 size={12} className="update-spinner" />
-                        Updating…
+                    <div className="map-display-option__label">Wind &amp; wave classification</div>
+                    {isCustomEnvelope && suitabilityCustomStatus?.status === 'error' ? (
+                      <span className="suitability-envelope-error-label" role="alert">
+                        Custom map unavailable
                       </span>
-                    )}
+                    ) : isCustomEnvelope && (
+                      suitabilityBuffering || suitabilityCustomStatus?.status === 'loading'
+                    ) ? (
+                      <span
+                        className="suitability-envelope-buffering"
+                        role="status"
+                        aria-live="polite"
+                      >
+                        <Loader2 size={12} className="update-spinner" />
+                        Updating custom map…
+                      </span>
+                    ) : null}
                   </div>
+
+                  <div
+                    className="map-display-option__segmented"
+                    role="radiogroup"
+                    aria-label="Suitability classification basis"
+                    onKeyDown={handleSegmentedKeyDown}
+                  >
+                    <button
+                      type="button"
+                      className={`map-display-option__btn${!isCustomEnvelope ? ' map-display-option__btn--active' : ''}`}
+                      role="radio"
+                      aria-checked={!isCustomEnvelope}
+                      onClick={() => setSuitabilityMode?.('preset')}
+                    >
+                      Vessel preset
+                    </button>
+                    <button
+                      type="button"
+                      className={`map-display-option__btn${isCustomEnvelope ? ' map-display-option__btn--active' : ''}`}
+                      role="radio"
+                      aria-checked={isCustomEnvelope}
+                      onClick={enableCustomEnvelope}
+                    >
+                      Map + point what-if
+                    </button>
+                  </div>
+
+                  <div className={`suitability-envelope-scope${isCustomEnvelope ? ' suitability-envelope-scope--custom' : ''}`}>
+                    {isCustomEnvelope
+                      ? `User-defined estimate for ${selectedVesselMeta?.label ?? 'this vessel'}. Applies to the map and point inspection only; Landing, Route, comparisons, and advisory exports continue to use the vessel preset.`
+                      : 'Uses the configured wind/wave thresholds for the selected vessel across the suitability tools.'}
+                  </div>
+
+                  {isCustomEnvelope && suitabilityCustomStatus?.status === 'error' && (
+                    <div className="suitability-envelope-error" role="alert">
+                      The selected forecast frame could not be loaded. The previous frame may remain visible,
+                      but point inspection is paused so it cannot be reported as current.
+                    </div>
+                  )}
 
                   {!isCustomEnvelope ? (
                     <>
@@ -1491,15 +1584,8 @@ const ForecastApp = ({
                         Caution — Wind {formatWind(effectiveEnvelope.cautionWindKt)} · Wave {formatWave(effectiveEnvelope.cautionWaveHeightM)}
                       </div>
                       <div className="suitability-control-card__subtext">
-                        Danger — Wind {formatWind(effectiveEnvelope.maxWindKt)} · Wave {formatWave(effectiveEnvelope.maxWaveHeightM)}
+                        Avoid — Wind {formatWind(effectiveEnvelope.maxWindKt)} · Wave {formatWave(effectiveEnvelope.maxWaveHeightM)}
                       </div>
-                      <button
-                        type="button"
-                        className="map-display-option__btn"
-                        onClick={enableCustomEnvelope}
-                      >
-                        Customize operating envelope
-                      </button>
                     </>
                   ) : (
                     <>
@@ -1510,9 +1596,9 @@ const ForecastApp = ({
                         max={windSliderMax}
                         step={1}
                         cautionValue={effectiveEnvelope.cautionWindKt}
-                        dangerValue={effectiveEnvelope.maxWindKt}
+                        avoidValue={effectiveEnvelope.maxWindKt}
                         onCautionChange={(v) => updateCustomEnvelope('cautionWindKt', v)}
-                        onDangerChange={(v) => updateCustomEnvelope('maxWindKt', v)}
+                        onAvoidChange={(v) => updateCustomEnvelope('maxWindKt', v)}
                         formatValue={formatWind}
                       />
                       <EnvelopeRangeSlider
@@ -1522,18 +1608,24 @@ const ForecastApp = ({
                         max={waveSliderMax}
                         step={0.1}
                         cautionValue={effectiveEnvelope.cautionWaveHeightM}
-                        dangerValue={effectiveEnvelope.maxWaveHeightM}
+                        avoidValue={effectiveEnvelope.maxWaveHeightM}
                         onCautionChange={(v) => updateCustomEnvelope('cautionWaveHeightM', v)}
-                        onDangerChange={(v) => updateCustomEnvelope('maxWaveHeightM', v)}
+                        onAvoidChange={(v) => updateCustomEnvelope('maxWaveHeightM', v)}
                         formatValue={formatWave}
                       />
-                      <button
-                        type="button"
-                        className="map-display-option__btn"
-                        onClick={resetCustomEnvelope}
-                      >
-                        Reset to {selectedVesselMeta?.label ?? 'vessel'} defaults
-                      </button>
+                      <div className="suitability-envelope-actions">
+                        <button
+                          type="button"
+                          className="map-display-option__btn"
+                          disabled={!customEnvelopeChanged}
+                          onClick={resetCustomEnvelope}
+                        >
+                          Restore preset values
+                        </button>
+                        <span className="suitability-control-card__subtext">
+                          Custom values are kept separately for each vessel during this session.
+                        </span>
+                      </div>
                     </>
                   )}
                 </div>
@@ -1587,6 +1679,7 @@ const ForecastApp = ({
                   >
                     <div className="map-display-option__hint suitability-tool-panel__hint">
                       Click the map to inspect the current forecast suitability class for {selectedVesselMeta?.label ?? 'the selected vessel'} at a specific point.
+                      {isCustomEnvelope && ' This result uses the Map + point what-if thresholds.'}
                     </div>
                   </div>
 
@@ -1597,6 +1690,11 @@ const ForecastApp = ({
                     hidden={suitabilityTab !== 'landing'}
                     className="suitability-tool-panel"
                   >
+                    {isCustomEnvelope && (
+                      <div className="suitability-tool-panel__basis" role="status">
+                        Vessel preset thresholds — custom what-if values do not alter landing-area classifications.
+                      </div>
+                    )}
                     <LandingAreaPanel
                       landingArea={landingArea}
                       setLandingArea={setLandingArea}
@@ -1612,6 +1710,11 @@ const ForecastApp = ({
                     hidden={suitabilityTab !== 'route'}
                     className="suitability-tool-panel"
                   >
+                    {isCustomEnvelope && (
+                      <div className="suitability-tool-panel__basis" role="status">
+                        Vessel preset thresholds — route results and saved comparisons remain backend-classified.
+                      </div>
+                    )}
                     <RouteForecastControls
                       routePoints={routePoints}
                       routePickMode={routePickMode}
@@ -1651,6 +1754,11 @@ const ForecastApp = ({
                     hidden={suitabilityTab !== 'advisory'}
                     className="suitability-tool-panel"
                   >
+                    {isCustomEnvelope && (
+                      <div className="suitability-tool-panel__basis" role="status">
+                        Vessel preset thresholds — advisory maps and statistics exclude the custom preview.
+                      </div>
+                    )}
                     <div className="map-display-option__hint suitability-tool-panel__hint">
                       Generate a PDF advisory for {selectedVesselMeta?.label ?? 'the selected vessel'} using the current forecast window.
                     </div>
@@ -1718,6 +1826,7 @@ const ForecastApp = ({
         timeIndex={sliderIndex}
         validTime={currentSliderDate?.toISOString?.() ?? null}
         selectedVessel={selectedVessel}
+        suitabilityMode={suitabilityMode}
         suitabilityBaseUrl={ALL_LAYERS.find((l) => l.sourceType === 'niue-suitability-raster')?.apiBase ?? ''}
         mapInstance={mapInstance}
         landingArea={landingArea}

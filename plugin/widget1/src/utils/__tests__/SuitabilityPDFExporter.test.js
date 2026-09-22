@@ -1,5 +1,6 @@
 import {
   assertBoundedStatisticsResponse,
+  canUseLiveSuitabilityMap,
   canonicalSuitabilityBounds,
   computeExceedance,
   deriveDriverForVessel,
@@ -40,6 +41,32 @@ describe('bounded advisory contract', () => {
       requested_bounds: bounds,
       applied_bounds: bounds,
     }, bounds, 'Test endpoint')).not.toThrow();
+  });
+});
+
+describe('advisory map classification provenance', () => {
+  const mapElement = {};
+
+  test('allows a live capture only when its preset vessel matches the report', () => {
+    expect(canUseLiveSuitabilityMap({
+      mapElement,
+      mapVessel: 'small_craft',
+      effectiveVessel: 'small_craft',
+    })).toBe(true);
+    expect(canUseLiveSuitabilityMap({
+      mapElement,
+      mapVessel: 'traditional_craft',
+      effectiveVessel: 'small_craft',
+    })).toBe(false);
+  });
+
+  test('blocks live-map capture for Custom what-if reports', () => {
+    expect(canUseLiveSuitabilityMap({
+      allowMapCapture: false,
+      mapElement,
+      mapVessel: 'small_craft',
+      effectiveVessel: 'small_craft',
+    })).toBe(false);
   });
 });
 

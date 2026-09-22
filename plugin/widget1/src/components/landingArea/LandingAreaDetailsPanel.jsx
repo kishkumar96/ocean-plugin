@@ -86,7 +86,7 @@ function LandingAreaDetailsPanel({ landingArea, selectedVessel, steps, loading, 
       <div className="landing-panel__header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem' }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: TEXT_MUTED }}>
-            Landing assessment
+            Landing assessment · Vessel preset thresholds
           </div>
           <div style={{ fontSize: '1.15rem', fontWeight: 700, lineHeight: 1.3, marginTop: 2 }}>{displayName}</div>
           <div style={{ fontSize: '0.78rem', color: TEXT_MUTED, marginTop: 2 }}>

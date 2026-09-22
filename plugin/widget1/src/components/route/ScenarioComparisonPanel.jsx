@@ -89,7 +89,7 @@ function ScenarioComparisonPanel({
     <div className="map-display-option">
       <div className="map-display-option__label">Scenario comparison</div>
       <div className="map-display-option__hint">
-        Save the current route as a scenario, duplicate it with a different vessel, speed, or departure time, and compare up to {MAX_SCENARIOS} side by side.
+        Save the current route as a scenario, duplicate it with a different vessel, speed, or departure time, and compare up to {MAX_SCENARIOS} side by side. Classifications use each vessel&apos;s preset thresholds.
       </div>
 
       <div className="map-display-option__segmented" role="group" aria-label="Scenario comparison actions" style={{ marginTop: '0.5rem' }}>

@@ -206,7 +206,9 @@ function RouteForecastPanel({
             <TriangleAlert size={17} />
             {summary?.recommendation ?? 'Route forecast'}
           </div>
-          <div style={{ color: TEXT_MUTED, fontSize: 12, marginTop: 4 }}>{vesselLabel}</div>
+          <div style={{ color: TEXT_MUTED, fontSize: 12, marginTop: 4 }}>
+            {vesselLabel} · Vessel preset thresholds
+          </div>
         </div>
         <Stat label="Distance" value={fmtNumber(summary?.distance_nm, 1, ' nm')} />
         <Stat label="Duration" value={fmtNumber(summary?.duration_hours, 1, ' h')} />
