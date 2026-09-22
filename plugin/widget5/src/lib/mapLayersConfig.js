@@ -26,9 +26,22 @@ const COOK_ISLANDS_WAVE_BOUNDS = {
   northEast: [-8.9,  -156.0],
 };
 
+// Exact outer cell EDGES of sfincs_hmax_forecast.zarr's lat/lon grid (1926 x
+// 2540 @ ~4.7e-5 deg/cell, confirmed against the run's own
+// sfincs_web_outputs/.../sfincs_hmax_forecast.zarr and cross-checked against
+// step12_export_riskscape_hazards.py's GeoTIFF export of the same array,
+// which agrees to 1e-9 deg -- edge = outermost cell CENTER +/- half a cell,
+// not the cell centers themselves). Previously a rounded approximation
+// ([-21.282,-159.838] / [-21.191,-159.717]) that was up to ~84m wider than
+// the real grid on every side; MapLibre stretches the raster image to fill
+// whatever box it's given, so that mismatch silently shifted every rendered
+// pixel by an amount growing with distance from the domain's own center --
+// confirmed live: RiskScape's hazard depth at a point near Avarua lined up
+// with QGIS's correctly-georeferenced GeoTIFF of the identical array, but
+// was offset by several meters in widget5's rendering of that same array.
 const RAROTONGA_INUNDATION_BOUNDS = {
-  southWest: [-21.282, -159.838],
-  northEast: [-21.191, -159.717],
+  southWest: [-21.281691330162346, -159.83719981816142],
+  northEast: [-21.19116171455621, -159.71780977472582],
 };
 
 // The DEM tile pyramid has two different real extents depending on zoom:
@@ -233,6 +246,17 @@ export const MAP_LAYERS = [
     },
 
     description: 'Peak wave period — SWAN UGRID model',
+  },
+
+  {
+    id: 'cok-suitability',
+    value: 'cok-suitability',
+    label: 'Vessel Suitability',
+    type: 'cok-suitability',
+    sourceType: 'cok-suitability',
+    bounds: COOK_ISLANDS_WAVE_BOUNDS,
+    defaultVesselClass: 'traditional_craft',
+    description: 'Marine vessel suitability — Cook Islands (wind & wave hazard, forereef points)',
   },
 
   {

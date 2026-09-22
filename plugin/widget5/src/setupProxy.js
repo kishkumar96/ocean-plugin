@@ -1,6 +1,29 @@
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 module.exports = function(app) {
+  // Cook Islands suitability endpoints — served by production zarr-api (the
+  // same backend widget1 uses for Niue), not a standalone local service.
+  app.use(
+    '/cok',
+    createProxyMiddleware({
+      target: process.env.REACT_APP_COK_API_TARGET || 'https://ocean-zarr.spc.int',
+      changeOrigin: true,
+      timeout: 15000,
+      proxyTimeout: 15000,
+      pathRewrite: (path) => '/cok' + path,
+      on: {
+        error: (err, req, res) => {
+          console.error('🚨 COK Suitability Proxy Error:', err.message);
+          res.writeHead(502, { 'Content-Type': 'text/plain' });
+          res.end('COK suitability proxy error: ' + err.message);
+        },
+        proxyReq: (_proxyReq, req) => {
+          console.log('🐠 Proxying COK suitability request:', req.url);
+        },
+      },
+    })
+  );
+
   app.use(
     '/api/sfincs',
     createProxyMiddleware({
@@ -8,13 +31,16 @@ module.exports = function(app) {
       changeOrigin: true,
       timeout: 30000,
       proxyTimeout: 30000,
-      onError: (err, req, res) => {
-        console.error('🚨 SFINCS Proxy Error:', err.message);
-        res.status(500).send('SFINCS proxy error: ' + err.message);
+      on: {
+        error: (err, req, res) => {
+          console.error('🚨 SFINCS Proxy Error:', err.message);
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          res.end('SFINCS proxy error: ' + err.message);
+        },
+        proxyReq: (proxyReq, req) => {
+          console.log('🌊 Proxying SFINCS raster request:', req.url);
+        },
       },
-      onProxyReq: (proxyReq, req) => {
-        console.log('🌊 Proxying SFINCS raster request:', req.url);
-      }
     })
   );
 
@@ -26,14 +52,17 @@ module.exports = function(app) {
       changeOrigin: true,
       timeout: 30000,
       proxyTimeout: 30000,
-      logLevel: 'debug',
-      onError: (err, req, res) => {
-        console.error('🚨 Zarr Proxy Error:', err.message);
-        res.status(500).send('Zarr proxy error: ' + err.message);
+      logger: console,
+      on: {
+        error: (err, req, res) => {
+          console.error('🚨 Zarr Proxy Error:', err.message);
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          res.end('Zarr proxy error: ' + err.message);
+        },
+        proxyReq: (proxyReq, req) => {
+          console.log('🌊 Proxying Zarr request:', req.url);
+        },
       },
-      onProxyReq: (proxyReq, req) => {
-        console.log('🌊 Proxying Zarr request:', req.url);
-      }
     })
   );
 
@@ -48,13 +77,16 @@ module.exports = function(app) {
       },
       timeout: 30000,
       proxyTimeout: 30000,
-      onError: (err, req, res) => {
-        console.error('🚨 Zarr Proxy Error:', err.message);
-        res.status(500).send('Zarr proxy error: ' + err.message);
+      on: {
+        error: (err, req, res) => {
+          console.error('🚨 Zarr Proxy Error:', err.message);
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          res.end('Zarr proxy error: ' + err.message);
+        },
+        proxyReq: (proxyReq, req) => {
+          console.log('🌊 Proxying Zarr request:', req.url);
+        },
       },
-      onProxyReq: (proxyReq, req) => {
-        console.log('🌊 Proxying Zarr request:', req.url);
-      }
     })
   );
 
@@ -74,13 +106,16 @@ module.exports = function(app) {
         'Accept': 'image/png,image/*,*/*',
         'User-Agent': 'Marine-Forecast-Widget/1.0'
       },
-      onError: (err, req, res) => {
-        console.error('🚨 THREDDS Proxy Error:', err.message);
-        res.status(500).send('Proxy Error: ' + err.message);
+      on: {
+        error: (err, req, res) => {
+          console.error('🚨 THREDDS Proxy Error:', err.message);
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          res.end('Proxy Error: ' + err.message);
+        },
+        proxyReq: (proxyReq, req) => {
+          console.log('🌐 Proxying THREDDS request:', req.url);
+        },
       },
-      onProxyReq: (proxyReq, req) => {
-        console.log('🌐 Proxying THREDDS request:', req.url);
-      }
     })
   );
 };

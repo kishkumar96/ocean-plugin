@@ -7,17 +7,29 @@
 // grid -- see that endpoint's docstring for why it's coarser than the
 // tile-rendering raster) instead of pre-rendered per-vessel PNG tiles.
 //
-// Deliberately simpler than widget1's NiueSuitabilityDynamicOverlay.js: no
-// prefetching, no legacy float32 grid fallback (this endpoint only ever
-// speaks the quantized int16 format, so there's no older deployment to stay
-// compatible with). setTimeIndex() is the only method that touches the
-// network (one fetch per timestep, cached); setEnvelope() repaints a canvas
-// already held in memory.
+// Simpler than widget1's NiueSuitabilityDynamicOverlay.js in one respect:
+// no legacy float32 grid fallback (this endpoint only ever speaks the
+// quantized int16 format, so there's no older deployment to stay compatible
+// with). setTimeIndex() is the only method that touches the network (one
+// fetch per timestep, cached, plus a one-frame-ahead background prefetch --
+// see _prefetchNext()); setEnvelope() repaints a canvas already held in
+// memory.
+//
+// The summary fetch (/cok/suitability/summary, time metadata) is deferred
+// until the first real setTimeIndex() call rather than firing from the
+// constructor: the controller constructs this overlay alongside the
+// fixed/preset one and keeps it warm even while Custom mode is never used
+// (see CookIslandsSuitabilityController.js), so an eager fetch here used to
+// cost a summary + grid-0 request on every suitability layer mount
+// regardless of which mode the user ends up in.
 
 import { classifyAgainstOperatingEnvelope } from './CookIslandsSuitabilityOverlay';
+import { SUITABILITY_DEBUG_TIMING, logSuitabilityFrameTiming } from './suitabilityDebugTiming';
 
 const SOURCE_ID = 'cok-suitability-dynamic-source';
 const LAYER_ID = 'cok-suitability-dynamic-layer';
+
+const KM_PER_DEGREE_LAT = 111.32;
 
 const HAZARD_RGB = {
   0: [42, 157, 143],   // #2A9D8F Suitable
@@ -48,13 +60,28 @@ export class CookIslandsSuitabilityDynamicOverlay {
     // requestAnimationFrame handle for a pending _repaint(), see
     // _scheduleRepaint().
     this._repaintFrame = null;
+    // Memoized summary fetch -- see _ensureSummary(). Not started until the
+    // first real setTimeIndex() call.
+    this._summaryLoaded = false;
+    this._summaryPromise = null;
+    // One-frame-ahead prefetch state, see _prefetchNext(). _prefetchPromise
+    // is the raw in-flight fetch (before its own .then/.catch handling) so
+    // setTimeIndex() can await the same request instead of firing a
+    // duplicate one when playback reaches this step before the prefetch
+    // has resolved.
+    this._prefetchIndex = null;
+    this._prefetchController = null;
+    this._prefetchPromise = null;
 
     this.onLoadingChange = null;
     this.onTimeChange = null;
     this.onErrorChange = null;
     this.onStatsChange = null;
+  }
 
-    this._fetchSummary();
+  _ensureSummary() {
+    if (!this._summaryPromise) this._summaryPromise = this._fetchSummary();
+    return this._summaryPromise;
   }
 
   async _fetchSummary() {
@@ -63,17 +90,19 @@ export class CookIslandsSuitabilityDynamicOverlay {
       const res = await fetch('/cok/suitability/summary');
       if (!res.ok) throw new Error(`Suitability summary: HTTP ${res.status}`);
       const data = await res.json();
-      if (this._destroyed) return;
+      if (this._destroyed) return false;
       this._timeCount = data.n_timesteps || 0;
       this._timeLabels = this._buildTimeLabels(data.forecast_start, data.forecast_end, this._timeCount);
-      this.onTimeChange?.(this._timeLabels[0] ?? '', 0, this._timeCount - 1);
-      this._setLoading(false);
-      if (this._envelope) this.setTimeIndex(0);
+      this._summaryLoaded = true;
+      return true;
     } catch (err) {
-      if (!this._destroyed) {
-        this.onErrorChange?.(err.message);
-        this._setLoading(false);
-      }
+      if (!this._destroyed) this.onErrorChange?.(err.message);
+      // Let a later setTimeIndex() call retry instead of permanently
+      // remembering this failure as "the" summary result.
+      this._summaryPromise = null;
+      return false;
+    } finally {
+      if (!this._destroyed) this._setLoading(false);
     }
   }
 
@@ -90,13 +119,59 @@ export class CookIslandsSuitabilityDynamicOverlay {
   }
 
   async setTimeIndex(timeIndex) {
+    const frameStart = SUITABILITY_DEBUG_TIMING ? performance.now() : 0;
     this._timeIndex = timeIndex;
+
+    if (!this._summaryLoaded) {
+      const ok = await this._ensureSummary();
+      if (this._destroyed || !ok) return; // error already reported by _fetchSummary
+      // A newer setTimeIndex() call may have superseded this one while the
+      // summary request was in flight.
+      if (this._timeIndex !== timeIndex) return;
+    }
+
     this.onTimeChange?.(this._timeLabels[timeIndex] ?? '', timeIndex, this._timeCount - 1);
 
     if (this._gridCache.has(timeIndex)) {
       this._grid = this._gridCache.get(timeIndex);
+      const repaintStart = SUITABILITY_DEBUG_TIMING ? performance.now() : 0;
       if (this._envelope) this._repaint();
+      if (SUITABILITY_DEBUG_TIMING) {
+        logSuitabilityFrameTiming({
+          timeIndex, cacheHit: true, fetchMs: 0, downloadDecodeMs: 0,
+          repaintMs: performance.now() - repaintStart,
+          totalMs: performance.now() - frameStart,
+        });
+      }
+      this._prefetchNext(timeIndex);
       return;
+    }
+
+    // Reuse an already in-flight prefetch for this exact step instead of
+    // firing a duplicate request. Playback reaching a step before its
+    // one-frame-ahead prefetch has resolved is the common case whenever a
+    // grid fetch takes longer than the step interval (see
+    // suitabilityDebugTiming's custom-mode findings) -- without this, the
+    // foreground request and the prefetch raced each other for the same
+    // bytes with no benefit from either.
+    if (this._prefetchIndex === timeIndex && this._prefetchPromise) {
+      const requestId = ++this._requestId;
+      this._setLoading(true);
+      try {
+        const grid = await this._prefetchPromise;
+        if (this._destroyed || requestId !== this._requestId) return;
+        this._cacheGrid(timeIndex, grid);
+        this._grid = grid;
+        if (this._envelope) this._repaint();
+        this._setLoading(false);
+        this._prefetchNext(timeIndex);
+        return;
+      } catch (err) {
+        if (this._destroyed || requestId !== this._requestId) return;
+        // The prefetch we tried to reuse failed/was aborted -- fall through
+        // to a fresh foreground fetch below rather than surfacing an error
+        // for a frame playback still wants to display.
+      }
     }
 
     // A stale, still-in-flight fetch for whatever time_index this call
@@ -111,19 +186,25 @@ export class CookIslandsSuitabilityDynamicOverlay {
 
     const requestId = ++this._requestId;
     this._setLoading(true);
+    const timing = SUITABILITY_DEBUG_TIMING ? {} : null;
     try {
-      const grid = await CookIslandsSuitabilityDynamicOverlay._fetchGrid(timeIndex, controller.signal);
+      const grid = await CookIslandsSuitabilityDynamicOverlay._fetchGrid(timeIndex, controller.signal, timing);
       if (this._destroyed || requestId !== this._requestId) return;
-      this._gridCache.set(timeIndex, grid);
-      // Bound memory: current + a few recent frames is enough, this isn't
-      // meant to hold a whole forecast's worth of decoded grids in the tab.
-      if (this._gridCache.size > 5) {
-        const oldestKey = this._gridCache.keys().next().value;
-        this._gridCache.delete(oldestKey);
-      }
+      this._cacheGrid(timeIndex, grid);
       this._grid = grid;
+      const repaintStart = SUITABILITY_DEBUG_TIMING ? performance.now() : 0;
       if (this._envelope) this._repaint();
+      if (SUITABILITY_DEBUG_TIMING) {
+        logSuitabilityFrameTiming({
+          timeIndex, cacheHit: false,
+          fetchMs: timing.headersReceived - timing.fetchStart,
+          downloadDecodeMs: timing.decodeComplete - timing.headersReceived,
+          repaintMs: performance.now() - repaintStart,
+          totalMs: performance.now() - frameStart,
+        });
+      }
       this._setLoading(false);
+      this._prefetchNext(timeIndex);
     } catch (err) {
       // A superseded fetch rejects (aborted above) at the same moment a
       // newer setTimeIndex() call has already bumped _requestId, so this
@@ -136,8 +217,61 @@ export class CookIslandsSuitabilityDynamicOverlay {
     }
   }
 
-  static async _fetchGrid(timeIndex, signal) {
+  _cacheGrid(idx, grid) {
+    this._gridCache.set(idx, grid);
+    // Bound memory: current + a few recent/prefetched frames is enough,
+    // this isn't meant to hold a whole forecast's worth of decoded grids.
+    if (this._gridCache.size > 5) {
+      const oldestKey = this._gridCache.keys().next().value;
+      this._gridCache.delete(oldestKey);
+    }
+  }
+
+  // Loads the next timestep's grid in the background while the current one
+  // is on screen, so useZarrMap's load-aware Play pacing finds the frame
+  // already cached instead of paying a fresh network round-trip on every
+  // tick -- the sequential fetch-wait-render loop this overlay used to have
+  // no way around. Best-effort: a failure here is silently dropped, since
+  // the real setTimeIndex() call for that frame (once Play actually reaches
+  // it) retries the fetch itself and reports any genuine error normally.
+  _prefetchNext(currentIndex) {
+    const nextIndex = currentIndex + 1;
+    if (nextIndex >= this._timeCount) return;
+    if (this._gridCache.has(nextIndex) || this._prefetchIndex === nextIndex) return;
+
+    this._prefetchController?.abort();
+    const controller = new AbortController();
+    this._prefetchController = controller;
+    this._prefetchIndex = nextIndex;
+
+    const fetchPromise = CookIslandsSuitabilityDynamicOverlay._fetchGrid(nextIndex, controller.signal);
+    this._prefetchPromise = fetchPromise;
+
+    fetchPromise
+      .then((grid) => {
+        if (this._destroyed || this._prefetchIndex !== nextIndex) return;
+        this._cacheGrid(nextIndex, grid);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (this._prefetchIndex === nextIndex) {
+          this._prefetchIndex = null;
+          this._prefetchPromise = null;
+        }
+      });
+  }
+
+  // timing (optional): when provided, filled in with performance.now()
+  // marks at each stage -- see setTimeIndex()'s SUITABILITY_DEBUG_TIMING
+  // block for how these turn into fetchMs/downloadDecodeMs. Left null for
+  // prefetch calls (see _prefetchNext()), which aren't the frame the user
+  // is actually waiting on.
+  static async _fetchGrid(timeIndex, signal, timing = null) {
+    if (timing) timing.fetchStart = performance.now();
     const resp = await fetch(`/cok/suitability/grid/${timeIndex}`, { signal });
+    // fetch() resolves once response headers arrive; the body may still be
+    // streaming in, hence the separate bufferComplete mark below.
+    if (timing) timing.headersReceived = performance.now();
     if (!resp.ok) throw new Error(`Suitability grid t${timeIndex}: HTTP ${resp.status}`);
 
     const width = Number(resp.headers.get('X-Grid-Width'));
@@ -166,6 +300,7 @@ export class CookIslandsSuitabilityDynamicOverlay {
 
     const cellCount = width * height;
     const buffer = await resp.arrayBuffer();
+    if (timing) timing.bufferComplete = performance.now();
     const expectedBytes = cellCount * 5; // i16 + i16 + u8
     if (buffer.byteLength !== expectedBytes) {
       throw new Error(`Suitability grid payload length mismatch: expected ${expectedBytes} bytes, got ${buffer.byteLength}.`);
@@ -181,6 +316,7 @@ export class CookIslandsSuitabilityDynamicOverlay {
       wave[i] = waveRaw[i] / waveScale;
     }
     const valid = new Uint8Array(buffer, int16Bytes * 2, cellCount);
+    if (timing) timing.decodeComplete = performance.now();
 
     return { width, height, bounds, wind, wave, valid, validTime: resp.headers.get('X-Valid-Time') || null };
   }
@@ -188,6 +324,37 @@ export class CookIslandsSuitabilityDynamicOverlay {
   setEnvelope(envelope) {
     this._envelope = envelope;
     if (this._grid) this._scheduleRepaint();
+  }
+
+  // The grid cell under a map position, classified against the envelope in
+  // force. Uses the same pixel mapping _repaint()/_ensureMapSource() draw with
+  // (canvas spans lonMin..lonMax x latMax..latMin, row 0 north), so the hazard
+  // returned is always the colour visibly under the cursor. Null when there is
+  // no grid/envelope yet, the position is outside the grid, or the cell is
+  // land/no-data (painted transparent).
+  getPointAt(lng, lat) {
+    const grid = this._grid;
+    const envelope = this._envelope;
+    if (!grid || !envelope || !Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+
+    const { width, height, bounds, wind, wave, valid, validTime } = grid;
+    if (lng < bounds.lonMin || lng >= bounds.lonMax || lat <= bounds.latMin || lat > bounds.latMax) return null;
+
+    const x = Math.floor(((lng - bounds.lonMin) / (bounds.lonMax - bounds.lonMin)) * width);
+    const canvasRow = Math.floor(((bounds.latMax - lat) / (bounds.latMax - bounds.latMin)) * height);
+    const sourceIndex = (height - 1 - canvasRow) * width + x;
+    if (!valid[sourceIndex]) return null;
+
+    const windKt = wind[sourceIndex];
+    const waveM = wave[sourceIndex];
+    const hazardClass = classifyAgainstOperatingEnvelope(envelope, windKt, waveM);
+    if (hazardClass === null) return null;
+    // Cell height derived from the grid's own bounds (row spacing = span / (rows - 1)),
+    // not the backend's COK_SUITABILITY_GRID_STRIDE, so it stays right if that changes.
+    const cellSizeKm = height > 1
+      ? ((bounds.latMax - bounds.latMin) / (height - 1)) * KM_PER_DEGREE_LAT
+      : null;
+    return { hazardClass, windKt, waveM, validTime, cellSizeKm, envelope: { ...envelope } };
   }
 
   // Range inputs can emit many changes inside one display frame. Painting
@@ -291,12 +458,13 @@ export class CookIslandsSuitabilityDynamicOverlay {
     }
 
     this._map.addSource(SOURCE_ID, { type: 'canvas', canvas: this._canvas, coordinates, animate: false });
+    const beforeId = this._map.getLayer('risk-circles') ? 'risk-circles' : undefined;
     this._map.addLayer({
       id: LAYER_ID,
       type: 'raster',
       source: SOURCE_ID,
       paint: { 'raster-opacity': this._opacity },
-    });
+    }, beforeId);
   }
 
   _setLoading(val) {
@@ -324,6 +492,7 @@ export class CookIslandsSuitabilityDynamicOverlay {
       this._repaintFrame = null;
     }
     this._activeFetchController?.abort();
+    this._prefetchController?.abort();
     this._gridCache.clear();
     const map = this._map;
     this._map = null;

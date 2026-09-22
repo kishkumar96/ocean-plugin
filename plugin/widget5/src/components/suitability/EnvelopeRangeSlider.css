@@ -1,0 +1,173 @@
+.envelope-range {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.envelope-range__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.envelope-range__label {
+  color: rgba(194, 218, 245, 0.78);
+  font-size: 0.68rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.envelope-range__readout {
+  font-size: 0.72rem;
+  color: rgba(226, 240, 255, 0.92);
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.envelope-range__readout-caution,
+.envelope-range__readout-avoid {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Lets a slider drag stay exact-value-free (visual) while typing an exact
+   value stays possible -- same tabular-nums/color language as the readout
+   text it replaces, just editable. Sized for 3 digits + a decimal, which
+   covers every value either metric can reach (wind up to ~99kt, wave up to
+   ~9.9m per the sliders' own max bounds). */
+.envelope-range__number {
+  width: 3.4rem;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+
+.envelope-range__number:hover {
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.envelope-range__number:focus-visible {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.envelope-range__number--caution { color: var(--envelope-caution-color); }
+.envelope-range__number--avoid { color: var(--envelope-avoid-color); }
+
+/* Colors come from CSS custom properties set inline by the component (from
+   SUITABILITY_HAZARD_COLORS — the same source the legend two cards up
+   reads) rather than hex literals here, so the readout text, the track
+   gradient, and each thumb can never independently drift out of sync with
+   each other or with what the rest of the panel calls "caution"/"avoid". */
+.envelope-range__readout-caution { color: var(--envelope-caution-color); }
+.envelope-range__readout-avoid { color: var(--envelope-avoid-color); }
+
+.envelope-range__constraint {
+  color: rgba(194, 218, 245, 0.52);
+  font-size: 0.62rem;
+  line-height: 1.2;
+}
+
+/* Two <input type="range"> stacked on one track: each is fully transparent
+   except its own thumb (pointer-events: none on the input, re-enabled only
+   on the ::-webkit-slider-thumb/::-moz-range-thumb pseudo-element), so both
+   handles are independently draggable even though they occupy the same
+   horizontal space. This is the standard technique for a dual-handle range
+   without a bespoke drag implementation — native keyboard/touch/ARIA
+   behavior for each thumb comes for free. */
+.envelope-range__track-wrap {
+  position: relative;
+  height: 34px;
+  display: flex;
+  align-items: center;
+}
+
+.envelope-range__track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.envelope-range__input {
+  position: absolute;
+  left: 0;
+  right: 0;
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: none; /* only the thumb (below) re-enables interaction */
+}
+
+.envelope-range__input:focus-visible {
+  outline: none;
+}
+
+.envelope-range__input::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 6px;
+}
+
+.envelope-range__input::-moz-range-track {
+  background: transparent;
+  height: 6px;
+}
+
+.envelope-range__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--envelope-thumb-color, #e7f1ff);
+  border: 2px solid #0b1220;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  margin-top: -11px;
+  touch-action: none;
+}
+
+.envelope-range__input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--envelope-thumb-color, #e7f1ff);
+  border: 2px solid #0b1220;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.envelope-range__input:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.45);
+}
+
+.envelope-range__input:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.45);
+}
+
+.envelope-range__input--caution { --envelope-thumb-color: var(--envelope-caution-color); }
+.envelope-range__input--avoid { --envelope-thumb-color: var(--envelope-avoid-color); }
+
+/* When handles overlap, the safety-critical Avoid threshold remains reachable. */
+.envelope-range__input--caution { z-index: 2; }
+.envelope-range__input--avoid { z-index: 3; }

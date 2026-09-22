@@ -6,7 +6,7 @@ import Header from './components/header';
 import './utils/NotificationManager'; // Initialize notification system
 import { initConsoleErrorSuppressor } from './utils/ConsoleErrorSuppressor';
 import TokenError from './components/TokenError';
-import { validateTokenOnLoad, extractTokenFromURL } from './utils/tokenValidator';
+import { validateTokenOnLoad, extractTokenFromURL, getStoredToken } from './utils/tokenValidator';
 
 function App() {
   // Authentication enabled
@@ -24,8 +24,10 @@ function App() {
     initConsoleErrorSuppressor();
     
     const initializeApp = async () => {
-      // Check if token exists in URL first
-      const token = extractTokenFromURL('token');
+      // Shared links intentionally omit bearer tokens. A previously
+      // authenticated recipient can therefore continue with their own stored
+      // token; first-time recipients still receive the normal no-token screen.
+      const token = extractTokenFromURL('token') || getStoredToken();
       
       if (!token) {
         console.log('No token found in URL');
