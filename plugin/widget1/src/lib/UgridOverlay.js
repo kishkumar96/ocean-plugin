@@ -272,8 +272,12 @@ async function openZarrArray(storeUrl, varPath, signal) {
   return openArray({ store, path: varPath, mode: 'r' });
 }
 
-async function getSlice(arr, selection) {
-  const result = await arr.get(selection);
+async function getSlice(arr, selection, signal) {
+  // storeOptions flows down to every chunk fetch this selection touches
+  // (zarr.js's chunkGetItem -> HTTPStore.getItem spreads it over the
+  // store's own fetchOptions), so this signal — not the store's original
+  // metadata-time one — is what actually governs cancellation here.
+  const result = await arr.get(selection, { storeOptions: { signal } });
   return result.data; // TypedArray
 }
 
@@ -303,7 +307,7 @@ export class UgridOverlay {
     // per session, not on every switch. Falls back to a private flag if no
     // shared state was passed in.
     this.autoFitState = config.autoFitState ?? { done: false };
-    // Cancels every zarr metadata/chunk fetch this instance has in flight —
+    // Cancels every zarr metadata fetch this instance has in flight —
     // aborted in destroy(). Without this, switching layers left abandoned
     // fetches (HTTPStore has no cancellation of its own) running to
     // completion in the background; rapid switching (e.g. clicking through
@@ -311,7 +315,22 @@ export class UgridOverlay {
     // them to exhaust the browser's per-origin connection limit, starving
     // the *current* layer's own fetch and surfacing as a genuine
     // "TypeError: Failed to fetch" even though nothing was really broken.
+    // Scoped to metadata only — per-frame chunk fetches get their own
+    // controller (_frameAbortController) since they're superseded far more
+    // often, during ordinary playback.
     this._abortController = new AbortController();
+    // Aborts the previous frame's still-in-flight value/direction chunk
+    // fetches whenever a new frame is requested. renderRequestId already
+    // discards a stale frame's *result* if it arrives late, but on its own
+    // that leaves the underlying fetch running to completion for nothing.
+    // During playback the per-tick interval (~700ms) is routinely shorter
+    // than a Wasabi chunk fetch (no Cache-Control there, and this is a
+    // cold/uncached frame — unlike ZarrOverlay, this class doesn't even
+    // cache frames) — a few ticks in, every previous tick's unaborted fetch
+    // is still competing for the same limited per-origin connections as the
+    // frame the user is actually waiting on now, and playback stalls harder
+    // with every tick instead of just showing the current frame late.
+    this._frameAbortController = null;
 
     // UI callbacks
     this.onTimeChange   = null;
@@ -462,14 +481,14 @@ export class UgridOverlay {
 
   getTimeLabels() { return this.timeLabels ?? []; }
 
-  async _fetchValues(timeIdx) {
+  async _fetchValues(timeIdx, signal) {
     if (!this.variableArr) await this._loadMetadata();
-    return getSlice(this.variableArr, [timeIdx, null]);
+    return getSlice(this.variableArr, [timeIdx, null], signal);
   }
 
-  async _fetchDirections(timeIdx) {
+  async _fetchDirections(timeIdx, signal) {
     if (!this.directionArr) return null;
-    return getSlice(this.directionArr, [timeIdx, null]).catch(() => null);
+    return getSlice(this.directionArr, [timeIdx, null], signal).catch(() => null);
   }
 
   _scheduleRender(delay = 0) {
@@ -482,12 +501,19 @@ export class UgridOverlay {
     if (!this.mounted) return;
     if (!this.dataset) return;
     const requestId = ++this.renderRequestId;
+    // This frame supersedes whatever the previous call was waiting on —
+    // cancel its chunk fetches rather than letting them run to completion
+    // unused. See _frameAbortController's constructor comment for why this
+    // matters specifically during playback.
+    this._frameAbortController?.abort();
+    const frameAbort = new AbortController();
+    this._frameAbortController = frameAbort;
     this.onLoadingChange?.(true);
     try {
       const ds = this.dataset;
       const [values, dirValues] = await Promise.all([
-        this._fetchValues(this.timeIndex),
-        this._fetchDirections(this.timeIndex),
+        this._fetchValues(this.timeIndex, frameAbort.signal),
+        this._fetchDirections(this.timeIndex, frameAbort.signal),
       ]);
       if (!this.mounted || requestId !== this.renderRequestId) return;
 
@@ -870,6 +896,7 @@ export class UgridOverlay {
   destroy() {
     this.mounted = false;
     this._abortController.abort();
+    this._frameAbortController?.abort();
     this.stopPlayback();
     if (this.renderTimeout) clearTimeout(this.renderTimeout);
     this.overlay.setProps({ layers: [] });

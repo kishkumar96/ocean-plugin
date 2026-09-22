@@ -1,4 +1,5 @@
 import { NiueSuitabilityController } from '../NiueSuitabilityController';
+import { NiueSuitabilityDynamicOverlay } from '../NiueSuitabilityDynamicOverlay';
 
 // Constructing a real controller pulls in NiueSuitabilityOverlay's
 // map.on('error', ...) + live /niue/suitability/timesteps fetch, which is
@@ -8,6 +9,7 @@ import { NiueSuitabilityController } from '../NiueSuitabilityController';
 function makeController() {
   const controller = Object.create(NiueSuitabilityController.prototype);
   controller._mode = 'preset';
+  controller._timeIndex = 0;
   controller.fixed = {
     setTimeIndex: jest.fn(),
     setOpacity: jest.fn(),
@@ -15,6 +17,7 @@ function makeController() {
     setVisible: jest.fn(),
     getSuitabilityAtPoint: jest.fn(() => Promise.resolve({ hazard_class: 0 })),
     getTimeLabels: jest.fn(() => ['2026-08-20 00:00 UTC']),
+    getIsoTimeAt: jest.fn(() => '2026-08-20T00:00:00.000Z'),
     destroy: jest.fn(),
     onTimeChange: null,
     onLoadingChange: null,
@@ -25,22 +28,23 @@ function makeController() {
     setTimeIndex: jest.fn(() => Promise.resolve()),
     setOpacity: jest.fn(),
     setEnvelope: jest.fn(),
+    setMaxTimeIndex: jest.fn(),
     setVisible: jest.fn(),
+    cancelPendingRequests: jest.fn(),
+    getSuitabilityAtPoint: jest.fn(() => Promise.resolve({ hazard_class: 1, time_index: 0 })),
+    getStatus: jest.fn(() => ({ status: 'idle' })),
     destroy: jest.fn(),
     onBufferingChange: null,
+    onSummaryChange: null,
+    onStatusChange: null,
   };
   return controller;
 }
 
-// Regression coverage for a real production bug: a freshly constructed
-// controller only got its dynamic overlay synced (first grid fetch, mode,
-// envelope) via useZarrMap's sliderIndex/mode effects — both of which are
-// no-ops if the relevant React state doesn't happen to *change* value on
-// this particular layer switch (e.g. sliderIndex is already 0). That left
-// the dynamic overlay's _grid permanently null, so every setEnvelope() call
-// from dragging a Custom-mode slider silently no-opped in _repaint() with
-// nothing ever appearing on the map. These tests exercise the real
-// constructor (not the harness pattern above) since the bug lived there.
+// Constructor coverage uses the real overlays, but spies on the dynamic
+// overlay's network entry point. Preset mode must not fetch the large custom
+// grid at all; a controller that starts in Custom must still seed the current
+// index immediately rather than waiting for a React dependency to change.
 function fakeMap() {
   return {
     on: jest.fn(),
@@ -89,8 +93,11 @@ describe('NiueSuitabilityController constructor seeding', () => {
     delete global.fetch;
   });
 
-  test('seeds the dynamic overlay with an initial grid fetch even when timeIndex is 0', async () => {
+  test('starting in preset mode does not load the dynamic grid', () => {
     mockFetchForGridAndTimesteps();
+    const setDynamicTimeIndex = jest
+      .spyOn(NiueSuitabilityDynamicOverlay.prototype, 'setTimeIndex')
+      .mockResolvedValue();
     const map = fakeMap();
     const controller = new NiueSuitabilityController(map, {
       apiBase: 'https://example.test',
@@ -100,14 +107,15 @@ describe('NiueSuitabilityController constructor seeding', () => {
       customEnvelope: null,
     });
 
-    await Promise.resolve().then(() => Promise.resolve()).then(() => Promise.resolve());
-
-    expect(controller.dynamic._grid).not.toBeNull();
-    expect(controller.dynamic._grid.width).toBe(1);
+    expect(setDynamicTimeIndex).not.toHaveBeenCalled();
+    expect(controller.dynamic._grid).toBeNull();
   });
 
-  test('starting in custom mode makes the dynamic overlay visible and seeds its envelope', async () => {
+  test('starting in custom mode makes the dynamic overlay visible and loads the current index', () => {
     mockFetchForGridAndTimesteps();
+    const setDynamicTimeIndex = jest
+      .spyOn(NiueSuitabilityDynamicOverlay.prototype, 'setTimeIndex')
+      .mockResolvedValue();
     const map = fakeMap();
     const controller = new NiueSuitabilityController(map, {
       apiBase: 'https://example.test',
@@ -119,16 +127,13 @@ describe('NiueSuitabilityController constructor seeding', () => {
 
     expect(controller._mode).toBe('custom');
     expect(controller.dynamic._envelope).toMatchObject({ cautionWindKt: 12, maxWindKt: 18 });
-
-    await Promise.resolve().then(() => Promise.resolve()).then(() => Promise.resolve());
-    // Both the grid (from setTimeIndex) and the envelope (seeded synchronously
-    // above) are present, so the very first repaint has something to paint —
-    // the bug this covers left _grid null forever in this exact scenario.
-    expect(controller.dynamic._grid).not.toBeNull();
+    expect(setDynamicTimeIndex).toHaveBeenCalledTimes(1);
+    expect(setDynamicTimeIndex).toHaveBeenCalledWith(0);
   });
 
   test('starting in preset mode leaves the dynamic canvas layer hidden, custom mode shows it', () => {
     mockFetchForGridAndTimesteps();
+    jest.spyOn(NiueSuitabilityDynamicOverlay.prototype, 'setTimeIndex').mockResolvedValue();
 
     const presetController = new NiueSuitabilityController(fakeMap(), {
       apiBase: 'https://example.test',
@@ -153,19 +158,30 @@ describe('NiueSuitabilityController constructor seeding', () => {
 });
 
 describe('NiueSuitabilityController mode toggling', () => {
-  test('setMode("custom") hides the fixed overlay and shows the dynamic one', () => {
+  test('entering custom mode hides the fixed overlay, shows dynamic, and loads the remembered time', () => {
     const controller = makeController();
+    controller.setTimeIndex(5);
+    expect(controller.dynamic.setTimeIndex).not.toHaveBeenCalled();
+
     controller.setMode('custom');
+
     expect(controller.fixed.setVisible).toHaveBeenCalledWith(false);
     expect(controller.dynamic.setVisible).toHaveBeenCalledWith(true);
+    expect(controller.dynamic.setTimeIndex).toHaveBeenCalledTimes(1);
+    expect(controller.dynamic.setTimeIndex).toHaveBeenCalledWith(5);
   });
 
-  test('setMode("preset") shows the fixed overlay and hides the dynamic one', () => {
+  test('leaving custom mode shows the fixed overlay, hides dynamic, and cancels pending custom loads', () => {
     const controller = makeController();
+    const onSummaryChange = jest.fn();
+    controller.dynamic.onSummaryChange = onSummaryChange;
     controller.setMode('custom');
     controller.setMode('preset');
+
     expect(controller.fixed.setVisible).toHaveBeenLastCalledWith(true);
     expect(controller.dynamic.setVisible).toHaveBeenLastCalledWith(false);
+    expect(controller.dynamic.cancelPendingRequests).toHaveBeenCalledTimes(1);
+    expect(onSummaryChange).toHaveBeenCalledWith(null);
   });
 
   test('rejects an unknown mode', () => {
@@ -175,24 +191,52 @@ describe('NiueSuitabilityController mode toggling', () => {
 });
 
 describe('NiueSuitabilityController time/envelope/vessel delegation', () => {
-  test('setTimeIndex drives both overlays regardless of active mode', () => {
+  test('setTimeIndex updates only the fixed overlay while preset mode is active', () => {
+    const controller = makeController();
+    controller.setTimeIndex(5);
+
+    expect(controller.fixed.setTimeIndex).toHaveBeenCalledWith(5);
+    expect(controller.dynamic.setTimeIndex).not.toHaveBeenCalled();
+    expect(controller._timeIndex).toBe(5);
+  });
+
+  test('setTimeIndex updates both overlays while custom mode is active', () => {
     const controller = makeController();
     controller.setMode('custom');
+    controller.dynamic.setTimeIndex.mockClear();
+
     controller.setTimeIndex(5);
+
     expect(controller.fixed.setTimeIndex).toHaveBeenCalledWith(5);
     expect(controller.dynamic.setTimeIndex).toHaveBeenCalledWith(5);
   });
 
-  test('a rejected dynamic.setTimeIndex forwards its error to onErrorChange instead of throwing', async () => {
+  test('a rejected custom grid load forwards its error to onErrorChange instead of throwing', async () => {
     const controller = makeController();
     const onErrorChange = jest.fn();
     controller.onErrorChange = onErrorChange;
+    controller._mode = 'custom';
     controller.dynamic.setTimeIndex.mockReturnValueOnce(Promise.reject(new Error('grid fetch failed')));
 
     controller.setTimeIndex(3);
     await Promise.resolve().then(() => Promise.resolve()); // flush the .catch microtask
 
     expect(onErrorChange).toHaveBeenCalledWith('grid fetch failed');
+  });
+
+  test('an aborted custom grid load is ignored when leaving custom mode', async () => {
+    const controller = makeController();
+    const onErrorChange = jest.fn();
+    const abortError = Object.assign(new Error('request aborted'), { name: 'AbortError' });
+    controller.onErrorChange = onErrorChange;
+    controller.dynamic.setTimeIndex.mockReturnValueOnce(Promise.reject(abortError));
+
+    controller.setMode('custom');
+    controller.setMode('preset');
+    await Promise.resolve().then(() => Promise.resolve());
+
+    expect(controller.dynamic.cancelPendingRequests).toHaveBeenCalledTimes(1);
+    expect(onErrorChange).not.toHaveBeenCalled();
   });
 
   test('setVessel only touches the fixed (preset) overlay', () => {
@@ -209,6 +253,40 @@ describe('NiueSuitabilityController time/envelope/vessel delegation', () => {
     expect(controller.fixed.setVessel).not.toHaveBeenCalled();
   });
 
+  test('an invalid envelope override reports the error and falls back to the vessel preset instead of throwing', () => {
+    const controller = makeController();
+    const onErrorChange = jest.fn();
+    controller.onErrorChange = onErrorChange;
+    const badOverrides = { cautionWaveHeightM: 3, maxWaveHeightM: 2 }; // caution >= avoid
+    controller.dynamic.setEnvelope.mockImplementationOnce(() => {
+      throw new Error('Caution wave threshold must be lower than the avoid wave threshold.');
+    });
+
+    expect(() => controller.setEnvelope('small_craft', badOverrides)).not.toThrow();
+
+    expect(onErrorChange).toHaveBeenCalledWith(
+      'Caution wave threshold must be lower than the avoid wave threshold.'
+    );
+    expect(controller.dynamic.setEnvelope).toHaveBeenNthCalledWith(1, 'small_craft', badOverrides);
+    expect(controller.dynamic.setEnvelope).toHaveBeenNthCalledWith(2, 'small_craft', {});
+  });
+
+  test('an unknown vessel passed to setEnvelope reports the error without a second throw', () => {
+    const controller = makeController();
+    const onErrorChange = jest.fn();
+    controller.onErrorChange = onErrorChange;
+    controller.dynamic.setEnvelope.mockImplementation(() => {
+      throw new Error('Unknown vessel class: bogus_vessel');
+    });
+
+    expect(() => controller.setEnvelope('bogus_vessel', {})).not.toThrow();
+
+    expect(onErrorChange).toHaveBeenCalledWith('Unknown vessel class: bogus_vessel');
+    // overrides was already {}, so there is nothing sensible to fall back to —
+    // must not retry (which would just throw again for the same reason).
+    expect(controller.dynamic.setEnvelope).toHaveBeenCalledTimes(1);
+  });
+
   test('setOpacity applies to both overlays', () => {
     const controller = makeController();
     controller.setOpacity(0.5);
@@ -220,7 +298,7 @@ describe('NiueSuitabilityController time/envelope/vessel delegation', () => {
 describe('NiueSuitabilityController callback forwarding', () => {
   test('onTimeChange/onLoadingChange/onErrorChange/onStatsChange assign onto the fixed overlay', () => {
     const controller = makeController();
-    const onTimeChange = () => {};
+    const onTimeChange = jest.fn();
     const onLoadingChange = () => {};
     const onErrorChange = () => {};
     const onStatsChange = () => {};
@@ -230,7 +308,10 @@ describe('NiueSuitabilityController callback forwarding', () => {
     controller.onErrorChange = onErrorChange;
     controller.onStatsChange = onStatsChange;
 
-    expect(controller.fixed.onTimeChange).toBe(onTimeChange);
+    expect(controller.fixed.onTimeChange).toEqual(expect.any(Function));
+    controller.fixed.onTimeChange('2026-08-20 00:00 UTC', 0, 15);
+    expect(controller.dynamic.setMaxTimeIndex).toHaveBeenCalledWith(15);
+    expect(onTimeChange).toHaveBeenCalledWith('2026-08-20 00:00 UTC', 0, 15);
     expect(controller.fixed.onLoadingChange).toBe(onLoadingChange);
     expect(controller.fixed.onErrorChange).toBe(onErrorChange);
     expect(controller.fixed.onStatsChange).toBe(onStatsChange);

@@ -1,8 +1,13 @@
 import {
   NiueSuitabilityOverlay,
+  CUSTOM_ENVELOPE_FIELDS,
+  VESSEL_OPERATING_ENVELOPE,
+  classifyAgainstOperatingEnvelope,
   classifySuitability,
   deriveSuitabilityDriver,
   fetchSuitabilityTimeseries,
+  operatingEnvelopeMatchesPreset,
+  resolveOperatingEnvelope,
   seaLevelHeightM,
   nearestSeaLevelStep,
   nearestSeaLevelStepWithTrend,
@@ -29,7 +34,7 @@ describe('NiueSuitabilityOverlay tile URL handling', () => {
       .mockImplementation(() => {});
 
     const overlay = new NiueSuitabilityOverlay(
-      {},
+      { on: jest.fn() },
       {
         apiBase: 'https://example.test/',
         vessel: 'larger_vessels',
@@ -69,6 +74,64 @@ describe('classifySuitability', () => {
 
   test('returns null for an unknown vessel code', () => {
     expect(classifySuitability('not_a_vessel', 30, 3)).toBeNull();
+  });
+});
+
+describe('custom operating-envelope validation', () => {
+  test('only applies the four supported numeric threshold fields', () => {
+    const envelope = resolveOperatingEnvelope('small_craft', {
+      cautionWindKt: 16,
+      label: 'Untrusted replacement',
+      daylightOnly: true,
+    });
+
+    expect(CUSTOM_ENVELOPE_FIELDS).toEqual([
+      'cautionWindKt',
+      'maxWindKt',
+      'cautionWaveHeightM',
+      'maxWaveHeightM',
+    ]);
+    expect(envelope.cautionWindKt).toBe(16);
+    expect(envelope.label).toBe(VESSEL_OPERATING_ENVELOPE.small_craft.label);
+    expect(envelope.daylightOnly).toBe(VESSEL_OPERATING_ENVELOPE.small_craft.daylightOnly);
+  });
+
+  test.each([
+    [{ cautionWindKt: 20 }, 'Caution wind threshold'],
+    [{ cautionWaveHeightM: 2 }, 'Caution wave threshold'],
+    [{ maxWindKt: Number.NaN }, 'maxWindKt'],
+    [{ maxWaveHeightM: Number.POSITIVE_INFINITY }, 'maxWaveHeightM'],
+    [{ cautionWindKt: -1 }, 'cautionWindKt'],
+  ])('rejects invalid overrides %p', (overrides, expectedMessage) => {
+    expect(() => resolveOperatingEnvelope('small_craft', overrides)).toThrow(expectedMessage);
+  });
+
+  test('rejects unknown vessel classes', () => {
+    expect(() => resolveOperatingEnvelope('not_a_vessel')).toThrow('Unknown vessel class');
+  });
+
+  test('classifies exact custom thresholds with the same boundary rule as presets', () => {
+    const envelope = resolveOperatingEnvelope('small_craft', {
+      cautionWindKt: 11,
+      maxWindKt: 13,
+      cautionWaveHeightM: 0.8,
+      maxWaveHeightM: 1.2,
+    });
+
+    expect(classifyAgainstOperatingEnvelope(envelope, 10.9, 0.7)).toBe(0);
+    expect(classifyAgainstOperatingEnvelope(envelope, 11, 0.7)).toBe(1);
+    expect(classifyAgainstOperatingEnvelope(envelope, 10, 1.2)).toBe(2);
+    expect(classifyAgainstOperatingEnvelope(envelope, Number.NaN, 0.7)).toBeNull();
+  });
+
+  test('detects whether the effective values still match the selected vessel preset', () => {
+    expect(operatingEnvelopeMatchesPreset('small_craft', {
+      ...VESSEL_OPERATING_ENVELOPE.small_craft,
+    })).toBe(true);
+    expect(operatingEnvelopeMatchesPreset('small_craft', {
+      ...VESSEL_OPERATING_ENVELOPE.small_craft,
+      maxWindKt: 21,
+    })).toBe(false);
   });
 });
 

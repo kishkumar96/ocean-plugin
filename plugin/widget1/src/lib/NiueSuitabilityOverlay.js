@@ -8,6 +8,8 @@
 // Implements the same public interface as the other overlay classes so
 // useZarrMap.js can treat it as a drop-in.
 
+import VESSEL_THRESHOLDS from './vesselThresholds.generated.json';
+
 const SOURCE_ID = 'niue-suitability-raster-source';
 const LAYER_ID  = 'niue-suitability-raster-layer';
 
@@ -53,12 +55,10 @@ export const SUITABILITY_MAP_HAZARD_LABELS = {
 // Numeric cutoffs are unchanged from the original PDF methodology table;
 // daylightOnly/offshoreCautionNm/exposedLandingCaution are new and are
 // explicitly unverified — see VESSEL_OPERATING_ENVELOPE_STATUS.
-export const VESSEL_OPERATING_ENVELOPE = {
+const VESSEL_ADVISORY_META = {
   traditional_craft: {
     label: 'Traditional Craft',
     examples: 'Canoes, vaka, outrigger canoes',
-    cautionWindKt: 10, maxWindKt: 12,
-    cautionWaveHeightM: 0.5, maxWaveHeightM: 1.0,
     waveText: '0.5-1.0 m or steep chop',
     advisoryLevel: 'Small Boat Caution',
     daylightOnly: true,
@@ -68,8 +68,6 @@ export const VESSEL_OPERATING_ENVELOPE = {
   very_small_motorised_craft: {
     label: 'Very Small Motorised Craft',
     examples: 'Dinghies, open skiffs under 6 m',
-    cautionWindKt: 12, maxWindKt: 15,
-    cautionWaveHeightM: 1.0, maxWaveHeightM: 1.5,
     waveText: '1.0-1.5 m',
     advisoryLevel: 'Small Boat Advisory',
     daylightOnly: true,
@@ -79,8 +77,6 @@ export const VESSEL_OPERATING_ENVELOPE = {
   small_craft: {
     label: 'Small Craft',
     examples: 'Fibreglass boats 6-10 m, inter-island skiffs',
-    cautionWindKt: 15, maxWindKt: 20,
-    cautionWaveHeightM: 1.5, maxWaveHeightM: 2.0,
     waveText: '1.5-2.0 m',
     advisoryLevel: 'Small Craft Advisory',
     daylightOnly: false,
@@ -90,8 +86,6 @@ export const VESSEL_OPERATING_ENVELOPE = {
   larger_vessels: {
     label: 'Larger Vessels',
     examples: 'Decked vessels over 10-12 m',
-    cautionWindKt: 20, maxWindKt: 25,
-    cautionWaveHeightM: 2.5, maxWaveHeightM: 3.0,
     waveText: '2.5-3.0 m',
     advisoryLevel: 'Gale Watch / Strong Wind Warning',
     daylightOnly: false,
@@ -100,7 +94,71 @@ export const VESSEL_OPERATING_ENVELOPE = {
   },
 };
 
-export const VESSEL_OPERATING_ENVELOPE_STATUS = '';
+// Wind/wave cutoffs come from vesselThresholds.generated.json, which
+// ocean-plugin/scripts/sync_vessel_thresholds.py regenerates from the
+// pipeline's vessel_suitability_rules.yaml. Never edit the numbers by hand --
+// change the yaml and re-run the script. waveText below is prose, so a test
+// checks it still quotes the generated range.
+export const VESSEL_OPERATING_ENVELOPE = Object.fromEntries(
+  Object.entries(VESSEL_ADVISORY_META).map(([code, meta]) => [code, { ...meta, ...VESSEL_THRESHOLDS[code] }])
+);
+
+export const VESSEL_OPERATING_ENVELOPE_STATUS =
+  'Wind/wave thresholds follow the original PDF advisory methodology. Daylight-only, offshore-caution, ' +
+  'and exposed-landing flags are provisional and have not yet been operationally verified.';
+
+// Only these four numeric fields are user-adjustable. Keeping the allow-list
+// beside the presets prevents a custom-envelope object from accidentally
+// replacing labels or qualitative advisory metadata when it is merged onto a
+// vessel class.
+export const CUSTOM_ENVELOPE_FIELDS = [
+  'cautionWindKt',
+  'maxWindKt',
+  'cautionWaveHeightM',
+  'maxWaveHeightM',
+];
+
+export function resolveOperatingEnvelope(vesselCode, overrides = {}) {
+  const base = VESSEL_OPERATING_ENVELOPE[vesselCode];
+  if (!base) throw new Error(`Unknown vessel class: ${vesselCode}`);
+
+  const envelope = { ...base };
+  for (const field of CUSTOM_ENVELOPE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(overrides ?? {}, field)) {
+      envelope[field] = overrides[field];
+    }
+  }
+
+  for (const field of CUSTOM_ENVELOPE_FIELDS) {
+    if (!Number.isFinite(envelope[field]) || envelope[field] < 0) {
+      throw new Error(`${field} must be a finite, non-negative number.`);
+    }
+  }
+  if (envelope.cautionWindKt >= envelope.maxWindKt) {
+    throw new Error('Caution wind threshold must be lower than the avoid wind threshold.');
+  }
+  if (envelope.cautionWaveHeightM >= envelope.maxWaveHeightM) {
+    throw new Error('Caution wave threshold must be lower than the avoid wave threshold.');
+  }
+
+  return envelope;
+}
+
+export function operatingEnvelopeMatchesPreset(vesselCode, envelope) {
+  const preset = VESSEL_OPERATING_ENVELOPE[vesselCode];
+  if (!preset || !envelope) return false;
+  return CUSTOM_ENVELOPE_FIELDS.every((field) => envelope[field] === preset[field]);
+}
+
+// Pure classifier used by both preset and custom renderers. Accepting the
+// resolved envelope rather than a vessel code lets custom map pixels, custom
+// point readings, and preset classification share exactly one boundary rule.
+export function classifyAgainstOperatingEnvelope(envelope, windKt, waveM) {
+  if (!envelope || !Number.isFinite(windKt) || !Number.isFinite(waveM)) return null;
+  const windHazard = windKt >= envelope.maxWindKt ? 2 : windKt >= envelope.cautionWindKt ? 1 : 0;
+  const waveHazard = waveM >= envelope.maxWaveHeightM ? 2 : waveM >= envelope.cautionWaveHeightM ? 1 : 0;
+  return Math.max(windHazard, waveHazard);
+}
 
 // Real 0/1/2 hazard classification for a vessel against wind/wave values —
 // the single source of truth deriveSuitabilityDriver and suggestBetterVessel
@@ -112,9 +170,7 @@ export const VESSEL_OPERATING_ENVELOPE_STATUS = '';
 export function classifySuitability(vesselCode, windKt, waveM) {
   const rule = VESSEL_OPERATING_ENVELOPE[vesselCode];
   if (!rule) return null;
-  const windHazard = windKt >= rule.maxWindKt ? 2 : windKt >= rule.cautionWindKt ? 1 : 0;
-  const waveHazard = waveM  >= rule.maxWaveHeightM ? 2 : waveM  >= rule.cautionWaveHeightM ? 1 : 0;
-  return Math.max(windHazard, waveHazard);
+  return classifyAgainstOperatingEnvelope(rule, windKt, waveM);
 }
 
 // Explains which parameter(s) drove a hazard reading from wind/wave values
@@ -465,6 +521,14 @@ export class NiueSuitabilityOverlay {
     return this._timesteps.map((t) =>
       t.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
     );
+  }
+
+  // Raw ISO timestamp for a given index — used by NiueSuitabilityController
+  // to stamp a valid_time onto Custom-mode point readings, which have no
+  // timestep list of their own (the dynamic overlay only ever sees a numeric
+  // time_index against /niue/suitability/grid/{time_index}).
+  getIsoTimeAt(timeIndex) {
+    return this._timesteps[timeIndex]?.toISOString() ?? null;
   }
 
   destroy() {

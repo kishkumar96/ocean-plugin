@@ -145,14 +145,27 @@ export class ZarrOverlay {
     this.cachedFrames = new Map(); // timeIndex → {canvas, values}
     this._sliderTimer = null;
     this.didAutoFit = false;
-    // Cancels every zarr metadata/chunk fetch this instance has in flight —
-    // aborted in destroy(). Without this, switching layers left abandoned
-    // fetches running to completion in the background; rapid switching could
-    // pile up enough of them to exhaust the browser's per-origin connection
-    // limit, starving the *current* layer's own fetch and surfacing as a
-    // genuine "TypeError: Failed to fetch" even though nothing was really
-    // broken. Mirrors UgridOverlay's _abortController.
+    // Cancels every zarr metadata fetch this instance has in flight — aborted
+    // in destroy(). Without this, switching layers left abandoned fetches
+    // running to completion in the background; rapid switching could pile up
+    // enough of them to exhaust the browser's per-origin connection limit,
+    // starving the *current* layer's own fetch and surfacing as a genuine
+    // "TypeError: Failed to fetch" even though nothing was really broken.
+    // Mirrors UgridOverlay's _abortController. Scoped to metadata only —
+    // per-frame chunk fetches get their own controller (_frameAbortController)
+    // since they're superseded far more often, during ordinary playback.
     this._abortController = new AbortController();
+    // Aborts the previous frame's still-in-flight chunk fetch whenever a new
+    // one is requested. renderRequestId (below) already discards a stale
+    // frame's *result* if it arrives late, but on its own that leaves the
+    // underlying fetch running to completion for nothing. During playback the
+    // per-tick interval (~700ms) is routinely shorter than a Wasabi chunk
+    // fetch (no Cache-Control there, and this is a cold/uncached frame) — a
+    // few ticks in, every previous tick's unaborted fetch is still competing
+    // for the same limited per-origin connections as the frame the user is
+    // actually waiting on now, and playback stalls harder with every tick
+    // instead of just showing the current frame late.
+    this._frameAbortController = null;
 
     // UI callbacks — assign before initialize fires
     this.onTimeChange   = null;
@@ -255,25 +268,36 @@ export class ZarrOverlay {
     this.onTimeChange?.(timeLabels[0] ?? '', 0, timeCount - 1);
   }
 
-  async _fetchValues(timeIndex) {
+  async _fetchValues(timeIndex, signal) {
     await this._loadMetadata();
     const selection = this.variableArr.shape.length === 3
       ? [timeIndex, null, null]
       : this.variableArr.shape.length === 2
         ? [null, null]
         : [timeIndex];
-    const raw = await this.variableArr.get(selection).then(r => r.data);
+    // storeOptions flows down to every chunk fetch this selection touches
+    // (zarr.js's chunkGetItem -> HTTPStore.getItem spreads it over the
+    // store's own fetchOptions), so this signal — not the store's original
+    // metadata-time one — is what actually governs cancellation here.
+    const raw = await this.variableArr.get(selection, { storeOptions: { signal } }).then(r => r.data);
     return applyScaleOffset(raw, this.varAttrs);
   }
 
   async _renderFrame(timeIndex) {
     if (!this.mounted) return;
     const requestId = ++this.renderRequestId;
+    // This frame supersedes whatever the previous call was waiting on —
+    // cancel its chunk fetch rather than letting it run to completion unused.
+    // See _frameAbortController's constructor comment for why this matters
+    // specifically during playback.
+    this._frameAbortController?.abort();
     this.onLoadingChange?.(true);
     try {
       let cached = this.cachedFrames.get(timeIndex);
       if (!cached) {
-        const values = await this._fetchValues(timeIndex);
+        const frameAbort = new AbortController();
+        this._frameAbortController = frameAbort;
+        const values = await this._fetchValues(timeIndex, frameAbort.signal);
         if (!this.mounted || requestId !== this.renderRequestId) return;
         const { rows, cols } = this.dataset;
         const vmin = this.config.colorRange?.min ?? 0;
@@ -373,6 +397,7 @@ export class ZarrOverlay {
   destroy() {
     this.mounted = false;
     this._abortController.abort();
+    this._frameAbortController?.abort();
     this.stopPlayback();
     if (this._sliderTimer) { clearTimeout(this._sliderTimer); this._sliderTimer = null; }
     this.overlay.setProps({ layers: [] });

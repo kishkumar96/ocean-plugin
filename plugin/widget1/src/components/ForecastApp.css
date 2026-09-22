@@ -2930,6 +2930,62 @@
   white-space: nowrap;
 }
 
+.suitability-envelope-error-label {
+  color: #fca5a5;
+  font-size: 0.66rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.suitability-envelope-error {
+  padding: 0.5rem 0.55rem;
+  border: 1px solid rgba(248, 113, 113, 0.38);
+  border-radius: 6px;
+  background: rgba(127, 29, 29, 0.2);
+  color: rgba(254, 226, 226, 0.94);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.suitability-envelope-scope {
+  padding: 0.5rem 0.55rem;
+  border: 1px solid rgba(100, 180, 220, 0.18);
+  border-radius: 6px;
+  background: rgba(6, 18, 32, 0.45);
+  color: rgba(194, 218, 245, 0.7);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.suitability-envelope-scope--custom {
+  border-color: rgba(251, 191, 36, 0.34);
+  background: rgba(120, 73, 8, 0.16);
+  color: rgba(254, 240, 190, 0.9);
+}
+
+.suitability-envelope-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.suitability-envelope-actions .map-display-option__btn {
+  border-color: rgba(100, 180, 220, 0.24);
+}
+
+.suitability-tool-panel__basis {
+  margin-bottom: 0.55rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 6px;
+  background: rgba(120, 73, 8, 0.14);
+  color: rgba(254, 240, 190, 0.88);
+  font-size: 0.67rem;
+  line-height: 1.35;
+}
+
 .suitability-control-card__subtext {
   margin-top: 0.15rem;
   color: rgba(194, 218, 245, 0.62);

@@ -12,12 +12,17 @@ const HAZARD_ICONS = {
 const TEXT_PRIMARY = '#f8fafc';
 const TEXT_MUTED = 'rgba(203, 213, 225, 0.65)';
 
-// Single-point vessel-suitability reading — driven by the Niue suitability
-// API's /niue/suitability/point endpoint, which returns one hazard reading
-// at the current time index (no batch timeseries endpoint exists yet, unlike
-// the Cook Islands inundation API).
+// Single-point vessel-suitability reading. In Preset mode this is the Niue
+// suitability API's /niue/suitability/point endpoint (no batch timeseries
+// endpoint exists yet, unlike the Cook Islands inundation API); in Custom
+// mode there's no backend endpoint for an arbitrary envelope, so it's a
+// client-side reading from the already-loaded grid (see
+// NiueSuitabilityController.getSuitabilityAtPoint) — flagged via
+// result.is_custom_envelope so this reads as an estimate, not a backend-
+// confirmed classification.
 function SuitabilityDetailsPanel({ data, timeDisplayZone = 'Pacific/Niue' }) {
   const loading = data?.loading;
+  const error = data?.error;
   const result = data?.result;
 
   // This panel always renders on the bottom offcanvas's fixed dark-navy
@@ -33,6 +38,9 @@ function SuitabilityDetailsPanel({ data, timeDisplayZone = 'Pacific/Niue' }) {
   if (loading) {
     return <div style={{ ...wrapperStyle, textAlign: 'center' }}>Loading suitability…</div>;
   }
+  if (error) {
+    return <div style={{ ...wrapperStyle, textAlign: 'center', color: '#fca5a5' }}>{error}</div>;
+  }
   if (!result) {
     return <div style={{ ...wrapperStyle, textAlign: 'center', color: TEXT_MUTED }}>No suitability data at this location.</div>;
   }
@@ -45,6 +53,8 @@ function SuitabilityDetailsPanel({ data, timeDisplayZone = 'Pacific/Niue' }) {
   const nearestLat = Number(result.nearest_face_lat);
   const nearestLon = Number(result.nearest_face_lon);
   const hasNearestPoint = Number.isFinite(nearestLat) && Number.isFinite(nearestLon);
+  const isInterpolatedGridCell = result.is_custom_envelope && Number.isFinite(Number(result.grid_cell_lat));
+  const customThresholds = result.is_custom_envelope ? result.thresholds_used : null;
 
   const stats = [
     { icon: Ship, label: 'Vessel class', value: vesselLabel },
@@ -71,9 +81,20 @@ function SuitabilityDetailsPanel({ data, timeDisplayZone = 'Pacific/Niue' }) {
         </span>
         <div>
           <div style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '0.01em' }}>{hazardLabel}</div>
-          <div style={{ fontSize: '0.72rem', color: TEXT_MUTED }}>Vessel suitability</div>
+          <div style={{ fontSize: '0.72rem', color: TEXT_MUTED }}>
+            Vessel suitability
+            {result.is_custom_envelope && ' · custom wind/wave estimate'}
+          </div>
         </div>
       </div>
+
+      {customThresholds && (
+        <div style={{ margin: '-0.35rem 0 0.85rem', fontSize: '0.7rem', color: TEXT_MUTED }}>
+          Threshold snapshot — Wind {customThresholds.cautionWindKt}/{customThresholds.maxWindKt} kt;
+          {' '}Wave {Number(customThresholds.cautionWaveHeightM).toFixed(1)}/{Number(customThresholds.maxWaveHeightM).toFixed(1)} m
+          {' '}(Caution/Avoid)
+        </div>
+      )}
 
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem',
@@ -106,7 +127,7 @@ function SuitabilityDetailsPanel({ data, timeDisplayZone = 'Pacific/Niue' }) {
         {hasNearestPoint
           ? (
             <>
-              Nearest model point: {nearestLat.toFixed(4)}, {nearestLon.toFixed(4)}
+              {isInterpolatedGridCell ? 'Interpolated grid cell' : 'Nearest model point'}: {nearestLat.toFixed(4)}, {nearestLon.toFixed(4)}
               {Number.isFinite(result.distance_deg) && ` (~${(result.distance_deg * 111).toFixed(1)} km away)`}
             </>
           )
