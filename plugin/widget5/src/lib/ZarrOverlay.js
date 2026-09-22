@@ -141,7 +141,7 @@ export class ZarrOverlay {
       latData, lonData,
     };
 
-    if (!this.didAutoFit) {
+    if (!this.didAutoFit && !this.config.skipAutoFit) {
       this.didAutoFit = true;
       this.map.fitBounds(this.dataset.bounds, { padding: 30, animate: false });
     }

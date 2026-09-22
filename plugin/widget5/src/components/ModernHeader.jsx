@@ -1,18 +1,44 @@
 import React from 'react';
+import { AlertCircle, Check, Share2 } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 import { formatZoned } from '../utils/timeZoneFormat';
 
-const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga' }) => {
+const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga', onShareView }) => {
   const [currentTime, setCurrentTime] = React.useState(new Date());
+  const [shareStatus, setShareStatus] = React.useState('idle');
+  const shareResetTimerRef = React.useRef(null);
 
   React.useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(shareResetTimerRef.current);
+    };
   }, []);
 
   const formatDateTime = (date) => formatZoned(date, timeDisplayZone, { second: '2-digit' });
+
+  const handleShare = async () => {
+    if (!onShareView || shareStatus === 'working') return;
+    setShareStatus('working');
+    const result = await onShareView();
+    setShareStatus(result?.ok ? 'copied' : 'error');
+    clearTimeout(shareResetTimerRef.current);
+    shareResetTimerRef.current = setTimeout(() => setShareStatus('idle'), 3500);
+  };
+
+  const ShareIcon = shareStatus === 'copied'
+    ? Check
+    : shareStatus === 'error'
+      ? AlertCircle
+      : Share2;
+  const shareLabel = shareStatus === 'copied'
+    ? 'Link copied'
+    : shareStatus === 'error'
+      ? 'Could not copy link'
+      : 'Copy shareable view link';
 
   return (
     <nav className="modern-header" style={{
@@ -70,6 +96,23 @@ const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga' }) => {
         alignItems: 'center',
         gap: '20px'
       }}>
+        {onShareView && (
+          <div className="modern-header__share-wrap">
+            <button
+              type="button"
+              className={`modern-header__share-btn modern-header__share-btn--${shareStatus}`}
+              onClick={handleShare}
+              disabled={shareStatus === 'working'}
+              title={shareLabel}
+              aria-label={shareLabel}
+            >
+              <ShareIcon size={17} aria-hidden="true" />
+            </button>
+            <span className="modern-header__share-status" aria-live="polite">
+              {shareStatus === 'copied' || shareStatus === 'error' ? shareLabel : ''}
+            </span>
+          </div>
+        )}
         <ThemeToggle />
 
         {/* Connection Status */}

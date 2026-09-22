@@ -475,6 +475,22 @@ export class UgridOverlay {
       ]);
       if (!this.mounted || requestId !== this.renderRequestId) return;
 
+      // Guards against a race with useZarrMap's map-init 'style.load' handler,
+      // which adds the 'risk-circles' layer this overlay's own layers are
+      // always meant to render below. addControl()'s timing depends on this
+      // overlay's own async metadata fetch (see _initialize), not on that
+      // handler having already run -- if this overlay's very first _render()
+      // ever wins that race, a beforeId pointing at a still-nonexistent layer
+      // makes deck.gl's MapboxOverlay permanently wedge: the failed addLayer
+      // is never recognized as failed, so every later render frame re-attempts
+      // and re-fails the same add/move forever (the "Cannot add layer 'ugrid'
+      // before non-existing layer 'risk-circles'" console spam). Recomputed
+      // fresh on every _render() call (unlike CookIslandsSuitabilityOverlay's
+      // one-time beforeId, since this overlay's layers are rebuilt from
+      // scratch each render) -- matches CookIslandsSuitabilityOverlay.js's
+      // own map.getLayer('risk-circles') guard for the identical hazard.
+      const beforeId = this.map.getLayer('risk-circles') ? 'risk-circles' : undefined;
+
       const nums = Array.from(values, Number);
       const finiteNums = nums.filter(Number.isFinite);
       const dataMin = finiteNums.length ? Math.min(...finiteNums) : 0;
@@ -536,7 +552,7 @@ export class UgridOverlay {
 
       const fillLayer = new PolygonLayer({
         id: 'ugrid',
-        beforeId: 'risk-circles',
+        beforeId,
         data: ds.polygons,
         getPolygon: (d) => d,
         getFillColor: (_, { index }) => colors[index] ?? [0, 0, 0, 0],
@@ -580,7 +596,7 @@ export class UgridOverlay {
           // Dark halo behind white lines — visible over any wave colour
           layers.push(new PathLayer({
             id: 'ugrid-contours-halo',
-            beforeId: 'risk-circles',
+            beforeId,
             data: segments,
             pickable: false,
             getPath: (d) => d.path,
@@ -593,7 +609,7 @@ export class UgridOverlay {
           }));
           layers.push(new PathLayer({
             id: 'ugrid-contours',
-            beforeId: 'risk-circles',
+            beforeId,
             data: segments,
             pickable: false,
             getPath: (d) => d.path,
@@ -627,7 +643,7 @@ export class UgridOverlay {
             if (labelData.length > 0) {
               layers.push(new TextLayer({
                 id: 'ugrid-contour-labels',
-                beforeId: 'risk-circles',
+                beforeId,
                 data: labelData,
                 pickable: false,
                 getPosition: (d) => d.position,
@@ -691,7 +707,7 @@ export class UgridOverlay {
 
         layers.push(new IconLayer({
           id: 'ugrid-dir',
-          beforeId: 'risk-circles',
+          beforeId,
           data: arrows,
           pickable: false,
           iconAtlas: DIRECTION_ARROW_ICON,

@@ -123,6 +123,7 @@
 
 .risk-threshold-controls {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
@@ -134,6 +135,43 @@
   color: #fbbf24;
   font-size: 0.82rem;
   font-weight: 700;
+}
+
+.risk-threshold-save-note {
+  /* Forces this onto its own row inside .risk-threshold-controls's flex
+     layout, regardless of how much space the warning/actions siblings
+     leave on the current line. */
+  flex-basis: 100%;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.risk-threshold-save-note--error {
+  color: #ef4444;
+}
+
+.risk-threshold-draft-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: inherit;
+  opacity: 0.85;
+}
+
+.risk-threshold-draft-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #0f172a;
+  /* Dashed border, not a solid-filled badge like .risk-status-badge --
+     deliberately reads as "preview", not as an official status pill, so
+     it can't be mistaken for the header badge at a glance. */
+  border: 1px dashed rgba(15, 23, 42, 0.35);
 }
 
 .risk-threshold-actions {
@@ -183,12 +221,30 @@
   cursor: not-allowed;
 }
 
-.risk-threshold-save--flash {
+.risk-threshold-save--flash.risk-threshold-save--server {
   background: #16a34a;
 }
 
-.risk-threshold-save--flash:hover {
+.risk-threshold-save--flash.risk-threshold-save--server:hover {
   background: #16a34a;
+}
+
+/* Confirmed to this browser only -- the server never got it, so this is a
+   warning colour, not the same green as a real confirmed save. */
+.risk-threshold-save--flash.risk-threshold-save--local {
+  background: #d97706;
+}
+
+.risk-threshold-save--flash.risk-threshold-save--local:hover {
+  background: #d97706;
+}
+
+.risk-threshold-save--flash.risk-threshold-save--failed {
+  background: #dc2626;
+}
+
+.risk-threshold-save--flash.risk-threshold-save--failed:hover {
+  background: #dc2626;
 }
 
 .risk-summary-meta {
@@ -265,8 +321,16 @@
   background: #2563eb;
 }
 
-.risk-panel-dark .risk-threshold-save--flash {
+.risk-panel-dark .risk-threshold-save--flash.risk-threshold-save--server {
   background: #16a34a;
+}
+
+.risk-panel-dark .risk-threshold-save--flash.risk-threshold-save--local {
+  background: #d97706;
+}
+
+.risk-panel-dark .risk-threshold-save--flash.risk-threshold-save--failed {
+  background: #dc2626;
 }
 
 .risk-panel-dark .risk-summary-card:hover {

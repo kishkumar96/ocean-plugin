@@ -6,6 +6,22 @@ import {
   getRiskThresholdUrl
 } from '../config/riskDataConfig';
 
+// Canonical risk-level color/label maps -- previously duplicated identically in
+// RiskDetailsPanel.jsx and useZarrMap.js (and a third, dead copy in the unused
+// useRiskOverlay.js Leaflet hook). Import from here rather than re-declaring;
+// any future risk level (e.g. a 4th severity tier) then only needs updating once.
+export const RISK_COLORS = {
+  0: '#3498db',
+  1: '#f39c12',
+  2: '#e74c3c'
+};
+
+export const RISK_LABELS = {
+  0: 'No Risk',
+  1: 'Minor Risk',
+  2: 'Moderate Risk'
+};
+
 let riskPointsPromise = null;
 
 const normalizeIsland = (value) => {
@@ -28,7 +44,16 @@ const normalizeIsland = (value) => {
   return '';
 };
 
+// Number(null) === 0 and Number('') === 0, both finite -- a bare
+// Number.isFinite(Number(value)) check would silently turn a genuinely
+// missing/absent value into a real 0 instead of falling through to
+// `fallback`, before this file's own callers' explicit intent (most pass
+// `null` here specifically so missing TWL/tide/surge/threshold data stays
+// missing, not "safely" zero) ever gets applied. null/undefined/empty
+// string must short-circuit before the Number() coercion -- same fix as
+// toNumber() in cookIslandsRouteForecastService.js.
 const coerceNumber = (value, fallback = null) => {
+  if (value === null || value === undefined || value === '') return fallback;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
 };

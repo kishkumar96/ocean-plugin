@@ -207,6 +207,22 @@ export class SfincsRasterOverlay {
       });
     }
 
+    // Inserted below the RiskScape impact-assets layers (buildings/roads,
+    // added once at map init -- see useZarrMap's onLoad) so they stay
+    // visible on top of the flood raster instead of being painted over by
+    // it. addLayer() with no beforeId always goes to the very top of the
+    // whole stack, which is what this used to do -- confirmed live: the
+    // impact assets layer was completely hidden under this raster whenever
+    // both were on screen together. 'cok-impact-assets-fill' is the bottom
+    // of that three-layer group (fill/line/circle all share one beforeId at
+    // init, each stacking directly above the last), so targeting it puts
+    // this raster below all three, not just the first. Falls back to
+    // 'risk-circles' (still above this raster, just not below impact
+    // assets) if that layer somehow isn't there yet, matching the same
+    // fallback UgridOverlay already uses for the same reason.
+    const beforeId = this._map.getLayer('cok-impact-assets-fill')
+      ? 'cok-impact-assets-fill'
+      : (this._map.getLayer('risk-circles') ? 'risk-circles' : undefined);
     this._map.addLayer({
       id: LAYER_ID,
       type: 'raster',
@@ -216,7 +232,7 @@ export class SfincsRasterOverlay {
       // blurs between threshold-colored bands when overscaled. 'nearest'
       // keeps threshold-band edges crisp instead of smearing colors together.
       paint: { 'raster-opacity': this._opacity, 'raster-resampling': 'nearest' },
-    });
+    }, beforeId);
     this._sourceReady = true;
 
     if (coords) this._loadFrame(this._timeIndex);

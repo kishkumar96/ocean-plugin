@@ -179,6 +179,17 @@ export const clearStoredToken = () => {
   console.log('Token cleared from localStorage');
 };
 
+/** Remove bearer-token query parameters while preserving share state/hash. */
+export const removeTokenFromURL = () => {
+  const url = new URL(window.location.href);
+  const hadToken = ['token', 'access_token', 'auth_token']
+    .map((name) => url.searchParams.delete(name))
+    .some(Boolean);
+  if (hadToken) {
+    window.history.replaceState(window.history.state, '', url.toString());
+  }
+};
+
 /**
  * Checks if the current page should load based on token and country validation
  * @param {Function} onValidToken - Callback function when token is valid
@@ -222,6 +233,8 @@ export const validateTokenOnLoad = async (
     onInvalidToken();
     return { tokenValid: false, countryValid: false, widgetData: null };
   }
+
+  removeTokenFromURL();
   
   // Token is valid, now check countries if any are specified
   const requestedCountries = extractCountriesFromURL(countryParamName);
@@ -324,6 +337,7 @@ const tokenValidator = {
   storeToken,
   getStoredToken,
   clearStoredToken,
+  removeTokenFromURL,
   validateTokenOnLoad,
   withTokenValidation
 };

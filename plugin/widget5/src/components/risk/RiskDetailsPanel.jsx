@@ -1,20 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import WaterLevelChart from './WaterLevelChart';
-import { getRiskThresholdOverride, saveRiskThresholdOverride } from '../../services/riskDataService';
+import { getRiskThresholdOverride, saveRiskThresholdOverride, getEffectiveRiskLevel, RISK_COLORS, RISK_LABELS } from '../../services/riskDataService';
 import { formatZoned } from '../../utils/timeZoneFormat';
 import './RiskDetailsPanel.css';
-
-const RISK_COLORS = {
-  0: '#3498db',
-  1: '#f39c12',
-  2: '#e74c3c'
-};
-
-const RISK_LABELS = {
-  0: 'No Risk',
-  1: 'Minor Risk',
-  2: 'Moderate Risk'
-};
 
 const normalizeIsland = (value) => {
   if (typeof value === 'string') {
@@ -58,6 +46,10 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
   const [badgePulse, setBadgePulse] = useState(false);
   const [saveFlash, setSaveFlash] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // 'server' | 'local' | 'failed' | null (null = no save attempted yet this
+  // session, or the draft has changed since the last attempt) -- distinct
+  // from saveFlash, which only controls the brief highlight animation.
+  const [saveOutcome, setSaveOutcome] = useState(null);
   const saveFlashTimerRef = useRef(null);
 
   const selectedIndex = useMemo(() => {
@@ -109,16 +101,31 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
     editableThresholds.every((value) => Number.isFinite(value)) &&
     editableThresholds[0] < editableThresholds[1]
   );
-  const derivedRiskLevel = (() => {
+  // What the badge shows: the same effective risk level the map marker for
+  // this point uses (getEffectiveRiskLevel reads the saved server/localStorage
+  // override, or falls back to the pipeline's own riskLevel -- never the
+  // live input boxes below). Previously this badge was driven by
+  // draftRiskLevel instead, so an in-progress, unsaved edit rendered as if
+  // it were the point's actual current risk status -- a screenshot or a
+  // glance mid-edit misrepresented live coastal risk. Recomputed fresh each
+  // render (cheap, synchronous) rather than memoized, so it picks up a
+  // just-saved override immediately without needing a separate effect.
+  const savedRiskLevel = getEffectiveRiskLevel(point);
+  const riskColor = RISK_COLORS[savedRiskLevel] || RISK_COLORS[0];
+  const riskLabel = RISK_LABELS[savedRiskLevel] || RISK_LABELS[0];
+
+  // What the two input boxes would produce if saved right now -- shown
+  // separately (see the "would become" note near the inputs below), never
+  // fed into the badge above.
+  const draftRiskLevel = (() => {
     const fallback = Number.isFinite(point?.riskLevel) ? point.riskLevel : Number(details?.riskLevel) || 0;
     if (!Number.isFinite(maxTWL) || !thresholdsValid) return fallback;
     if (maxTWL >= editableThresholds[1]) return 2;
     if (maxTWL >= editableThresholds[0]) return 1;
     return 0;
   })();
-  const riskColor = RISK_COLORS[derivedRiskLevel] || RISK_COLORS[0];
-  const riskLabel = RISK_LABELS[derivedRiskLevel] || RISK_LABELS[0];
-  const previousRiskLevelRef = useRef(derivedRiskLevel);
+  const draftDiffersFromSaved = thresholdsValid && draftRiskLevel !== savedRiskLevel;
+  const previousRiskLevelRef = useRef(savedRiskLevel);
 
   const formatCoord = (value) => {
     const numeric = Number(value);
@@ -135,12 +142,16 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
   const modelRunLabel = formatMetadataTimestamp(metadata?.model_run);
   const generatedAtLabel = formatMetadataTimestamp(metadata?.generated_at);
 
+  // Pulses on savedRiskLevel changes only -- a real, persisted change (a
+  // confirmed save, or another user's override loading in), not every
+  // keystroke in the threshold inputs (that's what draftDiffersFromSaved's
+  // own "would become" note below is for).
   useEffect(() => {
-    if (previousRiskLevelRef.current === derivedRiskLevel) {
+    if (previousRiskLevelRef.current === savedRiskLevel) {
       return undefined;
     }
 
-    previousRiskLevelRef.current = derivedRiskLevel;
+    previousRiskLevelRef.current = savedRiskLevel;
     setBadgePulse(true);
 
     const timeoutId = window.setTimeout(() => {
@@ -148,7 +159,7 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
     }, 340);
 
     return () => window.clearTimeout(timeoutId);
-  }, [derivedRiskLevel]);
+  }, [savedRiskLevel]);
 
   const resetThresholds = () => {
     setMinorInput(Number.isFinite(minorThreshold) ? minorThreshold.toFixed(2) : '');
@@ -161,26 +172,45 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
     const [minor, moderate] = editableThresholds;
 
     setIsSaving(true);
+    setSaveOutcome(null);
 
     // Local draft first — guarantees this browser reflects the edit even if the
     // network save below fails (offline, server down, etc).
+    let localSaved = false;
     try {
       localStorage.setItem(
         `risk-thresholds-${pointId}`,
         JSON.stringify({ minor: minorInput, moderate: moderateInput })
       );
+      localSaved = true;
     } catch {
       // storage unavailable — silent fail
     }
 
+    let serverSaved = false;
     try {
       await saveRiskThresholdOverride(pointId, minor, moderate);
+      serverSaved = true;
     } catch (error) {
       console.error('Failed to save risk thresholds to server (kept as a local-only draft):', error);
     }
 
     setIsSaving(false);
-    onThresholdsSaved?.(pointId);
+
+    // The map's marker colour is driven by whatever the server has on
+    // record, not this browser's local draft -- refreshing it here for a
+    // server save that didn't actually happen would recolour the marker
+    // based on data no one else (and not even this browser, after a reload)
+    // can actually see. Only a confirmed server save gets to trigger that.
+    if (serverSaved) {
+      onThresholdsSaved?.(pointId);
+      setSaveOutcome('server');
+    } else if (localSaved) {
+      setSaveOutcome('local');
+    } else {
+      setSaveOutcome('failed');
+    }
+
     setSaveFlash(true);
     if (saveFlashTimerRef.current) clearTimeout(saveFlashTimerRef.current);
     saveFlashTimerRef.current = window.setTimeout(() => setSaveFlash(false), 1500);
@@ -203,7 +233,20 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
   }
 
   if (data?.status === 'error') {
-    return null;
+    return (
+      <div className={wrapperClassName}>
+        <div className="risk-error">
+          {data?.error || 'Could not load coastal risk details for this point.'}
+          {data?.onRetry && (
+            <div style={{ marginTop: '0.6rem' }}>
+              <button type="button" className="risk-threshold-save" onClick={data.onRetry}>
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -218,6 +261,7 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
         <span
           className={`risk-status-badge${badgePulse ? ' risk-changed' : ''}`}
           style={{ backgroundColor: riskColor }}
+          title="Based on the forecast's peak total water level over the full horizon, not the currently selected time."
         >
           {riskLabel}
         </span>
@@ -225,7 +269,9 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
 
       <div className="risk-summary-compact">
         <div className="risk-summary-primary risk-summary-card">
-          <span className="risk-summary-label">Max TWL</span>
+          <span className="risk-summary-label" title="Peak total water level over the full forecast horizon shown in the chart below, not the level at the currently selected time.">
+            Max TWL <span style={{ opacity: 0.6, fontWeight: 500, textTransform: 'none' }}>(forecast peak)</span>
+          </span>
           <strong>{Number.isFinite(maxTWL) ? `${maxTWL.toFixed(2)} m` : 'N/A'}</strong>
         </div>
         <div className="risk-summary-metric risk-summary-card">
@@ -238,7 +284,7 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
               min="0"
               step="0.01"
               value={minorInput}
-              onChange={(event) => setMinorInput(event.target.value)}
+              onChange={(event) => { setMinorInput(event.target.value); setSaveOutcome(null); }}
               aria-label="Minor flood threshold in metres"
             />
             <span>m</span>
@@ -254,7 +300,7 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
               min="0"
               step="0.01"
               value={moderateInput}
-              onChange={(event) => setModerateInput(event.target.value)}
+              onChange={(event) => { setModerateInput(event.target.value); setSaveOutcome(null); }}
               aria-label="Moderate flood threshold in metres"
             />
             <span>m</span>
@@ -268,13 +314,31 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
             Moderate flood must be greater than minor flood.
           </span>
         )}
+        {/* Only rendered when the unsaved edit would actually change the
+            outcome -- distinct element from the header badge above (which
+            never reflects this draft), styled as a preview rather than a
+            status, so it can't be mistaken for the point's current risk. */}
+        {draftDiffersFromSaved && (
+          <span className="risk-threshold-draft-note">
+            Unsaved — would become
+            <span
+              className="risk-threshold-draft-pill"
+              style={{ backgroundColor: RISK_COLORS[draftRiskLevel] || RISK_COLORS[0] }}
+            >
+              {RISK_LABELS[draftRiskLevel] || RISK_LABELS[0]}
+            </span>
+            once saved
+          </span>
+        )}
         <div className="risk-threshold-actions">
           <button type="button" className="risk-threshold-reset" onClick={resetThresholds}>
             Reset
           </button>
           <button
             type="button"
-            className={`risk-threshold-save${saveFlash ? ' risk-threshold-save--flash' : ''}`}
+            className={
+              `risk-threshold-save${saveFlash ? ` risk-threshold-save--flash risk-threshold-save--${saveOutcome}` : ''}`
+            }
             onClick={saveThresholds}
             disabled={!thresholdsValid || point?.id == null || isSaving}
             title={point?.id == null ? 'No point selected' : 'Save thresholds for this point'}
@@ -284,9 +348,28 @@ function RiskDetailsPanel({ data, isDarkMode = false, currentSliderDate, onTimeS
               <path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7" />
               <path d="M7 3v4a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V3" />
             </svg>
-            {isSaving ? 'Saving...' : saveFlash ? 'Saved' : 'Save'}
+            {isSaving
+              ? 'Saving...'
+              : saveFlash && saveOutcome === 'server'
+                ? 'Saved'
+                : saveFlash && saveOutcome === 'local'
+                  ? 'Saved locally'
+                  : saveFlash && saveOutcome === 'failed'
+                    ? 'Save failed'
+                    : 'Save'}
           </button>
         </div>
+        {saveFlash && saveOutcome === 'local' && (
+          <span className="risk-threshold-warning risk-threshold-save-note">
+            Saved to this browser only — the server didn't confirm the change, so other users and this browser after
+            a reload won't see it yet.
+          </span>
+        )}
+        {saveFlash && saveOutcome === 'failed' && (
+          <span className="risk-threshold-warning risk-threshold-save-note risk-threshold-save-note--error">
+            Couldn't save — check your connection and try again.
+          </span>
+        )}
       </div>
 
       <div className="risk-summary-meta">

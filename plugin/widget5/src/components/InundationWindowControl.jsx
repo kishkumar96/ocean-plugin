@@ -16,7 +16,11 @@ const PROVIDERS = [
   { id: 'zarr', label: 'Zarr', Icon: Database },
 ];
 
-function findNearestIndex(timestamps, targetDate) {
+// Exported so callers outside this component (e.g. Home.jsx's handler for
+// jumping the map to an impact-assessment window) can compute the same
+// startIndex/endIndex this component sends via setRangeWindow, against
+// whichever layer's own availableTimestamps is authoritative at the time.
+export function findNearestIndex(timestamps, targetDate) {
   if (!timestamps?.length || !targetDate) return 0;
   const t = new Date(targetDate).getTime();
   let best = 0;
@@ -40,11 +44,25 @@ export default function InundationWindowControl({ rangeWindow, setRangeWindow, a
   // uiMode tracks which button is highlighted; may be 'custom' before Apply is hit
   const [uiMode, setUiMode] = useState(committedMode);
 
-  // Keep uiMode in sync when parent resets to single externally
+  // Keep uiMode in sync whenever the parent changes rangeWindow from outside
+  // this component's own handleModeSelect/handleCustomApply -- originally
+  // this only synced the "reset to single" direction (e.g. handleVariableChange
+  // resetting rangeWindow when leaving the inundation layer), since 'custom'
+  // could previously only ever be reached through this component's own
+  // handlers (which already set uiMode themselves in the same call, so no
+  // external->custom case existed). That's no longer true: Home.jsx's
+  // impact-window handler can now set rangeWindow to 'custom' directly (e.g.
+  // this component wasn't even mounted yet, mid-layer-switch), so the sync
+  // must cover both directions or the Custom Max button and date fields
+  // silently fail to reflect a window that's already active on the map.
   const prevCommittedMode = useRef(committedMode);
   if (prevCommittedMode.current !== committedMode) {
     prevCommittedMode.current = committedMode;
-    if (committedMode !== 'custom') setUiMode(committedMode);
+    setUiMode(committedMode);
+    if (committedMode === 'custom' && rangeWindow?.startTime && rangeWindow?.endTime) {
+      setCustomStart(toZonedInputValue(rangeWindow.startTime, timeDisplayZone));
+      setCustomEnd(toZonedInputValue(rangeWindow.endTime, timeDisplayZone));
+    }
     // rangeWindow updated → server request dispatched, clear applying spinner
     setIsApplying(false);
     clearTimeout(applyTimerRef.current);
