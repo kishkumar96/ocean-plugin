@@ -1098,20 +1098,29 @@ async function drawPage1(doc, { mapDataUrl, summary, validTime, runId, selectedV
   // ── Selected vessel badge (centre of header) ──────────────────────────────
   const vessels   = summary?.vessels ?? {};
   const vcKeys    = VESSEL_CLASSES.map(v => v.code);
-  const overallHaz = Math.max(
-    ...vcKeys.map(vc => domainHazard(vessels[vc]?.warning_percent ?? 0, vessels[vc]?.caution_percent ?? 0))
-  );
+  // A vessel absent from the backend response must not be treated as a
+  // confirmed 0%-Avoid/Caution (Suitable) reading when rolling up the fleet
+  // hazard — see hasVesselData's header comment. Only classes the backend
+  // actually reported feed the fleet-wide max.
+  const dataPresentKeys = vcKeys.filter(vc => hasVesselData(vessels, vc));
+  const anyVesselData   = dataPresentKeys.length > 0;
+  const overallHaz = anyVesselData
+    ? Math.max(...dataPresentKeys.map(vc => domainHazard(vessels[vc].warning_percent ?? 0, vessels[vc].caution_percent ?? 0)))
+    : 0;
   const vesselVc    = VESSEL_BY_CODE[selectedVessel];
   const vesselLabel = vesselVc?.label ?? selectedVessel.replaceAll('_', ' ');
   const selectedData = vessels[selectedVessel] ?? {};
-  const selectedHaz  = domainHazard(selectedData.warning_percent ?? 0, selectedData.caution_percent ?? 0);
+  const selectedDataPresent = hasVesselData(vessels, selectedVessel);
+  const selectedHaz  = selectedDataPresent
+    ? domainHazard(selectedData.warning_percent ?? 0, selectedData.caution_percent ?? 0)
+    : 0;
 
   const badgeW = 60, badgeX = W / 2 - badgeW / 2;
-  setFill(doc, hazardColor(selectedHaz));
+  setFill(doc, selectedDataPresent ? hazardColor(selectedHaz) : NO_DATA_GREY);
   doc.roundedRect(badgeX, 1.5, badgeW, HDR_H - 3, 1.5, 1.5, 'F');
   setFont(doc, [255, 255, 255], 8, 'bold');
   doc.text(
-    fitTextToWidth(doc, `${vesselLabel.toUpperCase()} — ${hazardLabel(selectedHaz).toUpperCase()}`, badgeW - 6),
+    fitTextToWidth(doc, `${vesselLabel.toUpperCase()} — ${selectedDataPresent ? hazardLabel(selectedHaz).toUpperCase() : 'NO DATA'}`, badgeW - 6),
     W / 2, HDR_H * 0.68, { align: 'center' }
   );
 
@@ -1119,18 +1128,22 @@ async function drawPage1(doc, { mapDataUrl, summary, validTime, runId, selectedV
   // Light hazard-tinted band: one sentence describing the selected vessel outlook.
   const SUM_H = 10;
   const SUM_Y = HDR_H;
-  rect(doc, 0, SUM_Y, W, SUM_H, hazardLight(selectedHaz));
+  rect(doc, 0, SUM_Y, W, SUM_H, selectedDataPresent ? hazardLight(selectedHaz) : [238, 238, 238]);
   const selectedAvoid   = Math.round(selectedData.warning_percent   ?? 0);
   const selectedCaution = Math.round(selectedData.caution_percent   ?? 0);
   const page1Finding = (() => {
-    if (!summary || !vesselVc) {
+    if (!summary || !vesselVc || !selectedDataPresent) {
       return !summary
         ? 'Forecast summary unavailable — vessel percentages and drivers could not be loaded.'
         : 'Suitability data unavailable for selected vessel.';
     }
-    if (selectedAvoid >= 20)   return `${vesselLabel} faces ${selectedAvoid}% Avoid waters — check conditions before departure.`;
-    if (selectedCaution >= 20) return `${vesselLabel} is mostly operable, but ${selectedCaution}% of waters require caution.`;
-    if (selectedCaution > 0) {
+    // Branch on selectedHaz (derived from the same raw, unrounded values as
+    // the badge/strip color above), not on the rounded display percentages —
+    // rounding a real 0.3% Caution reading down to a displayed "0%" must not
+    // fall through to an "All Suitable" sentence under an amber Caution tint.
+    if (selectedHaz === 2) return `${vesselLabel} faces ${selectedAvoid}% Avoid waters — check conditions before departure.`;
+    if (selectedHaz === 1) {
+      if (selectedCaution >= 20) return `${vesselLabel} is mostly operable, but ${selectedCaution}% of waters require caution.`;
       return overallHaz > selectedHaz
         ? `${vesselLabel} suitable with minor caution zones — smaller vessel classes face greater restrictions.`
         : `${vesselLabel} has mostly Suitable conditions — ${selectedCaution}% of waters are Caution.`;
@@ -1139,7 +1152,7 @@ async function drawPage1(doc, { mapDataUrl, summary, validTime, runId, selectedV
       ? `All modelled waters are Suitable for ${vesselLabel} — restrictions apply for smaller vessel classes.`
       : `All modelled waters are Suitable for ${vesselLabel} — safe conditions for departure.`;
   })();
-  setFont(doc, summary ? hazardText(selectedHaz) : hazardColor(2), 8, 'bold');
+  setFont(doc, summary && selectedDataPresent ? hazardText(selectedHaz) : hazardColor(2), 8, 'bold');
   doc.text(fitTextToWidth(doc, page1Finding, W - 20), W / 2, SUM_Y + SUM_H * 0.64, { align: 'center' });
 
   // ── Layout constants ──────────────────────────────────────────────────────
@@ -1355,12 +1368,11 @@ async function drawPage1(doc, { mapDataUrl, summary, validTime, runId, selectedV
   const COND_Y = PAGE_BTM + 1;
   rect(doc, 2.5, COND_Y, W - 5, COND_H, HEADER_BG);
 
-  const anyVesselData = vcKeys.some(vc => hasVesselData(vessels, vc));
   const maxWind  = Math.max(...vcKeys.map(vc => vessels[vc]?.max_wind_kt ?? 0));
   const waveVals = vcKeys.map(vc => vessels[vc]?.max_wave_height_m).filter(v => Number.isFinite(v) && v > 0);
   const maxWave  = waveVals.length ? Math.max(...waveVals) : 0;
-  const hazardedKeys = vcKeys.filter(vc =>
-    domainHazard(vessels[vc]?.warning_percent ?? 0, vessels[vc]?.caution_percent ?? 0) > 0
+  const hazardedKeys = dataPresentKeys.filter(vc =>
+    domainHazard(vessels[vc].warning_percent ?? 0, vessels[vc].caution_percent ?? 0) > 0
   );
   const drivers = hazardedKeys.map(vc => vessels[vc]?.main_driver ?? 'none');
   const mainDriver = drivers.length
@@ -1369,9 +1381,9 @@ async function drawPage1(doc, { mapDataUrl, summary, validTime, runId, selectedV
   const driverLabel = DRIVER_LABELS[mainDriver] ?? mainDriver;
 
   // Fleet advisory badge — right side of bar
-  const badgeLabel = `Fleet: ${hazardLabel(overallHaz).toUpperCase()}`;
+  const badgeLabel = anyVesselData ? `Fleet: ${hazardLabel(overallHaz).toUpperCase()}` : 'Fleet: NO DATA';
   const fleetBadgeW = 30;
-  setFill(doc, hazardColor(overallHaz));
+  setFill(doc, anyVesselData ? hazardColor(overallHaz) : NO_DATA_GREY);
   doc.roundedRect(W - fleetBadgeW - 5, COND_Y + 1.5, fleetBadgeW, COND_H - 3, 1.5, 1.5, 'F');
   setFont(doc, [255, 255, 255], 7, 'bold');
   doc.text(badgeLabel, W - 5 - fleetBadgeW / 2, COND_Y + COND_H * 0.55, { align: 'center' });
@@ -1382,7 +1394,10 @@ async function drawPage1(doc, { mapDataUrl, summary, validTime, runId, selectedV
   // one. Not equal weight to the headline (still 0.5pt smaller), but no
   // longer easy to skip past.
   setFont(doc, [235, 242, 252], 6.5, 'bold');
-  doc.text(hazardLabel(overallHaz) === 'Suitable' ? 'All classes' : 'most sensitive class', W - 5 - fleetBadgeW / 2, COND_Y + COND_H * 0.82, { align: 'center' });
+  doc.text(
+    !anyVesselData ? 'all classes' : hazardLabel(overallHaz) === 'Suitable' ? 'All classes' : 'most sensitive class',
+    W - 5 - fleetBadgeW / 2, COND_Y + COND_H * 0.82, { align: 'center' }
+  );
 
   // Conditions — two-line layout: values + driver
   setFont(doc, TEXT_LT, 8.5, 'bold');
@@ -1910,8 +1925,21 @@ async function drawPage3(doc, { baseUrl, timeIndex = 0, endTimeIndex = null, run
 
   rect(doc, 0, 0, W, H, PAGE_BG);
 
-  // Fetch the best-contrast timestep first
-  const best = await fetchBestContrastTimestep(baseUrl, statisticsBounds, timeIndex, endTimeIndex);
+  // Fetch the best-contrast timestep first. fetchBestContrastTimestep
+  // rethrows (rather than returning null) when statisticsBounds is set, the
+  // same bounds-integrity convention fetchSummary uses so a bounded PAGE 1
+  // never silently substitutes mismatched-area data. This page is different:
+  // it's a supplementary contrast comparison, and its own UI below already
+  // renders an explicit "Comparison timestep unavailable" amber fallback for
+  // best === null — so a fetch failure here must degrade only this page,
+  // not abort the whole multi-page export (which would also discard the
+  // pages already drawn before this one).
+  let best = null;
+  try {
+    best = await fetchBestContrastTimestep(baseUrl, statisticsBounds, timeIndex, endTimeIndex);
+  } catch (error) {
+    console.warn('[SuitabilityPDFExporter] Best-contrast-timestep unavailable for Page 4; falling back to current timestep:', error);
+  }
   const comparisonUnavailable = !best;
   const compTimeIndex = best?.time_index ?? timeIndex;
   const vessels  = best?.vessels ?? {};
@@ -2068,7 +2096,15 @@ export function selectDailyTimelineSteps(timeIndex, timeSeriesData, nDays = 6) {
   const startTime = new Date(future[0].time);
   const steps = [];
   const seen  = new Set();
-  for (let day = 1; day <= nDays; day++) {
+  // day starts at 0 (today's 18:00 UTC target), not 1 — the loop previously
+  // always began at tomorrow, so a same-day daily checkpoint that was still
+  // hours away (e.g. current step 08:00 UTC, target 18:00 UTC the same day)
+  // was skipped even though real forecast data existed for it. If today's
+  // target has already passed, the nearest-future-step search below simply
+  // won't find a match within the 4h tolerance and that day renders as the
+  // existing "beyond/outside horizon" unavailable placeholder — no different
+  // from today's other not-yet-reached days.
+  for (let day = 0; day < nDays; day++) {
     const target = new Date(startTime);
     target.setUTCDate(startTime.getUTCDate() + day);
     target.setUTCHours(TARGET_UTC_HOUR, 0, 0, 0);
@@ -3093,7 +3129,13 @@ export async function exportSuitabilityPDF({
   const vesselIcons = {};
   if (summary?.vessels) {
     await Promise.all(VESSEL_CLASSES.map(async vc => {
-      const vd  = summary.vessels[vc.code] ?? {};
+      // Same fix as the landing-area icon load above: `?? 0` here would
+      // silently request the GREEN ("Suitable") icon for a vessel entirely
+      // missing from the backend response. Leave the icon null instead —
+      // the Page 1 card render already falls back to drawVesselFallbackIcon
+      // (a neutral initials box) when vesselIcons[code] is null.
+      if (!hasVesselData(summary.vessels, vc.code)) { vesselIcons[vc.code] = null; return; }
+      const vd  = summary.vessels[vc.code];
       const haz = domainHazard(vd.warning_percent ?? 0, vd.caution_percent ?? 0);
       vesselIcons[vc.code] = await loadVesselSvgIcon(vc.code, haz);
     }));
@@ -3209,9 +3251,14 @@ function drawRouteSketch(doc, x, y, w, h, samples) {
   for (let i = 1; i < points.length; i++) {
     const [x0, y0] = project(points[i - 1].lon, points[i - 1].lat);
     const [x1, y1] = project(points[i].lon, points[i].lat);
-    const segColor = (points[i - 1].hazard_class !== null && points[i - 1].hazard_class !== undefined)
-      ? hazardColor(Math.max(points[i - 1].hazard_class, points[i].hazard_class ?? points[i - 1].hazard_class))
-      : NO_DATA_GREY;
+    const h0 = points[i - 1].hazard_class;
+    const h1 = points[i].hazard_class;
+    // A missing reading at either end must not borrow the other end's
+    // hazard class — that can paint a segment Suitable-green when the
+    // missing end's true reading was actually Avoid. Render unknown grey
+    // instead whenever either endpoint lacks a real classification.
+    const bothKnown = h0 !== null && h0 !== undefined && h1 !== null && h1 !== undefined;
+    const segColor = bothKnown ? hazardColor(Math.max(h0, h1)) : NO_DATA_GREY;
     setDraw(doc, segColor);
     doc.setLineWidth(0.9);
     doc.line(x0, y0, x1, y1);
@@ -3556,9 +3603,18 @@ async function exportRouteForecastPDF({ advisoryConfig, onProgress }) {
 
   const unavailableCount = decision?.unavailableSamples
     ?? samples.filter(s => s.available === false || s.hazard_class === null || s.hazard_class === undefined).length;
+  // `?? 0` before Math.max would fabricate a maxWind/maxWave of 0 for a
+  // route entirely outside model domain (every sample unscored), making
+  // deriveDriverForVessel report "None" — implying calm, assessed
+  // conditions — directly beside execSentence's own "Unavailable /
+  // insufficient model coverage" text on the same page. Only feed readings
+  // that actually exist; if a metric has none, its max is left undefined so
+  // the fallback below can bail out to "no driver" instead of guessing 0.
+  const windReadings = samples.map(s => Number(s.wind_speed_kt)).filter(Number.isFinite);
+  const waveReadings = samples.map(s => Number(s.wave_height_m)).filter(Number.isFinite);
   const primaryDriver = decision?.primaryDriver
-    ?? (vesselType && samples.length
-      ? deriveDriverForVessel(vesselType, Math.max(...samples.map(s => s.wind_speed_kt ?? 0)), Math.max(...samples.map(s => s.wave_height_m ?? 0)))
+    ?? (vesselType && windReadings.length && waveReadings.length
+      ? deriveDriverForVessel(vesselType, Math.max(...windReadings), Math.max(...waveReadings))
       : null);
   const driverText = DRIVER_LABELS[primaryDriver] ?? '—';
 
@@ -4955,8 +5011,17 @@ async function exportLandingAreaSuitabilityPDF({
     throw new Error('No suitability timeseries returned for configured landing areas.');
   }
 
+  // No `?? landingAreaRows[0]` fallback here: if the user's own point failed
+  // its timeseries fetch (and got dropped by the `.filter(row => row.steps.
+  // length)` above) while unrelated presets succeeded, substituting an
+  // arbitrary different preset's row would carry that preset's hazard
+  // badge/wind/wave/best-window numbers under this point's own name,
+  // coordinates and map pin. Leaving selectedRow null instead routes into
+  // the existing "point && selectedRow" branch below, which already
+  // degrades to a heatmap-only page when there's no confirmed row for the
+  // selected point.
   const selectedRow = point
-    ? landingAreaRows.find(row => isSameLandingPoint(row, point)) ?? landingAreaRows[0]
+    ? landingAreaRows.find(row => isSameLandingPoint(row, point)) ?? null
     : null;
   const steps = selectedRow?.steps ?? landingAreaRows[0]?.steps ?? [];
   const effectiveTimeIndex = Math.max(0, Math.min(Math.max(0, steps.length - 1), Number(timeIndex) || 0));
@@ -5115,10 +5180,20 @@ function drawPosterPage(doc, { vessels, posterMapImg, posterVessel, timeSeriesDa
   doc.text('RANKING', LADDER_W / 2, MAP_Y0 + 10, { align: 'center' });
 
   const sortedVC = [...VESSEL_CLASSES].sort((a, b) => {
-    const wa = vessels[a.code]?.warning_percent ?? 0;
-    const wb = vessels[b.code]?.warning_percent ?? 0;
-    const ca = vessels[a.code]?.caution_percent ?? 0;
-    const cb = vessels[b.code]?.caution_percent ?? 0;
+    // A vessel missing from the response must never compete on domainHazard
+    // terms with one that has a real reading — `?? 0` here previously let a
+    // no-data vessel sort exactly like a confirmed 100%-Suitable one, while
+    // this same rung's own badge/bar render (below) correctly shows it as
+    // grey "NO DATA". Vessels with a real reading always outrank (sort
+    // above) any vessel whose risk is simply unknown.
+    const aPresent = hasVesselData(vessels, a.code);
+    const bPresent = hasVesselData(vessels, b.code);
+    if (aPresent !== bPresent) return aPresent ? -1 : 1;
+    if (!aPresent) return 0;
+    const wa = vessels[a.code].warning_percent ?? 0;
+    const wb = vessels[b.code].warning_percent ?? 0;
+    const ca = vessels[a.code].caution_percent ?? 0;
+    const cb = vessels[b.code].caution_percent ?? 0;
     return domainHazard(wb, cb) - domainHazard(wa, ca) || wb - wa;
   });
 
@@ -5206,10 +5281,13 @@ function drawPosterPage(doc, { vessels, posterMapImg, posterVessel, timeSeriesDa
     const mx = MAP_X0;
     const my = MAP_Y0;
     const vcObj = VESSEL_BY_CODE[posterVessel] ?? VESSEL_CLASSES[0];
+    const dataPresent = hasVesselData(vessels, vcObj.code);
     const vd  = vessels[vcObj.code] ?? {};
     const warn = vd.warning_percent ?? 0;
     const caut = vd.caution_percent ?? 0;
     const haz  = domainHazard(warn, caut);
+    const hazColor = dataPresent ? hazardColor(haz) : NO_DATA_GREY;
+    const hazLabel = dataPresent ? hazardLabel(haz).toUpperCase() : 'NO DATA';
 
     if (posterMapImg) {
       const fmt = posterMapImg.startsWith('data:image/png') ? 'PNG' : 'JPEG';
@@ -5222,7 +5300,7 @@ function drawPosterPage(doc, { vessels, posterMapImg, posterVessel, timeSeriesDa
 
     // Vessel context pill — top-left of image
     {
-      const lbl = `${vcObj.label.toUpperCase()} — ${hazardLabel(haz).toUpperCase()}`;
+      const lbl = `${vcObj.label.toUpperCase()} — ${hazLabel}`;
       setFont(doc, [220, 235, 255], 7, 'bold');
       const pw = doc.getTextWidth(lbl) + 6;
       rect(doc, mx + 3, my + 3, pw, 8, [8, 16, 42]);
@@ -5230,7 +5308,7 @@ function drawPosterPage(doc, { vessels, posterMapImg, posterVessel, timeSeriesDa
     }
 
     // Avoid/Caution annotation pill — top-right
-    if (warn > 0 || caut > 0) {
+    if (dataPresent && (warn > 0 || caut > 0)) {
       const ann = warn > 0 ? `${Math.round(warn)}% Avoid` : `${Math.round(caut)}% Caution`;
       setFont(doc, [255, 255, 255], 6.5, 'bold');
       const aw = doc.getTextWidth(ann) + 4;
@@ -5239,12 +5317,12 @@ function drawPosterPage(doc, { vessels, posterMapImg, posterVessel, timeSeriesDa
     }
 
     // Hazard badge strip below map
-    setFill(doc, hazardColor(haz));
+    setFill(doc, hazColor);
     doc.rect(mx, my + IMG_H, MAP_W, BADGE_H, 'F');
     setFont(doc, [255, 255, 255], 6.5, 'bold');
     doc.text(vcObj.label.toUpperCase(), mx + MAP_W / 2, my + IMG_H + BADGE_H * 0.33, { align: 'center' });
     setFont(doc, [255, 255, 255], 9, 'bold');
-    doc.text(hazardLabel(haz).toUpperCase(), mx + MAP_W / 2, my + IMG_H + BADGE_H * 0.80, { align: 'center' });
+    doc.text(hazLabel, mx + MAP_W / 2, my + IMG_H + BADGE_H * 0.80, { align: 'center' });
   }
 
   // ── Editorial pull-quote strip ────────────────────────────────────────
@@ -5306,7 +5384,12 @@ function drawPosterPage(doc, { vessels, posterMapImg, posterVessel, timeSeriesDa
 
       let px0 = null, py0 = null;
       for (let si = 0; si < n; si++) {
-        const warn = timeSeriesData[si]?.vessels?.[vc.code]?.warning_percent ?? 0;
+        // A timestep missing this vessel's data must break the line, not
+        // pull it down to 0% (i.e. "Suitable") — `?? 0` here would draw a
+        // real dip to the chart floor for a step with no reading at all,
+        // indistinguishable from a genuine all-clear sample.
+        if (!hasVesselData(timeSeriesData[si]?.vessels, vc.code)) { px0 = null; py0 = null; continue; }
+        const warn = timeSeriesData[si].vessels[vc.code].warning_percent ?? 0;
         const px = CX + (CW / (n - 1)) * si;
         const py = CY + CH * (1 - Math.min(1, warn / 100));
         if (px0 !== null) doc.line(px0, py0, px, py);
