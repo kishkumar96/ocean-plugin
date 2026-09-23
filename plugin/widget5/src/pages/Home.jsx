@@ -17,7 +17,16 @@ import {
   updateCustomEnvelopeForVessel,
 } from '../domain/suitability/customEnvelopeProfiles';
 import { fetchCookIslandsRouteForecast, parseAsUtcWallClock } from '../services/cookIslandsRouteForecastService';
+import {
+  MAX_SCENARIOS,
+  createScenario,
+  duplicateScenario,
+  findBetterDeparture,
+  runAllScenarios,
+  runScenario,
+} from '../services/cookIslandsScenarioService';
 import { fetchCookIslandsImpactLatest, fetchCookIslandsImpactAssets } from '../services/cookIslandsImpactService';
+import { exportCookIslandsScenarioComparisonPdf } from '../utils/CookIslandsScenarioComparisonPdf';
 import { findNearestIndex } from '../components/InundationWindowControl';
 import { findIslandZoomTarget } from '../config/islandConfig';
 import { createAppShareUrl, readAppShareState } from '../domain/share/appStateSnapshot';
@@ -142,6 +151,41 @@ function CookIslandsForecast() {
   const [routeForecastResult, setRouteForecastResult] = useState(null);
   const [routeForecastLoading, setRouteForecastLoading] = useState(false);
   const [routeForecastError, setRouteForecastError] = useState('');
+
+  // Scenario comparison: saved snapshots of route/vessel/speed/departure,
+  // each independently run against /cok/suitability/route and kept
+  // side-by-side, unlike routeForecastResult above which is a single slot
+  // that gets clobbered on every new run.
+  const [scenarios, setScenarios] = useState([]);
+  const [runningScenarioIds, setRunningScenarioIds] = useState([]);
+  // Set to the scenario's id right after "Confirm & compare" creates it, so
+  // CookIslandsScenarioComparisonPanel can scroll to and briefly highlight
+  // that specific card -- the confirm button lives in the route-forecast
+  // results panel (BottomOffCanvas), a different part of the screen than
+  // where its result appears (ForecastApp's suitability tools).
+  const [confirmedScenarioId, setConfirmedScenarioId] = useState(null);
+
+  // "Suggest a better vessel" is computed client-side inline in
+  // CookIslandsRouteForecastPanel (pure, no fetch -- see
+  // handleConfirmVesselSuggestion below for its one-call confirm step).
+  // "Suggest a better departure" makes several real backend calls, so its
+  // progress/result live here alongside the other routeForecast* state it
+  // parallels.
+  const [departureSuggestionLoading, setDepartureSuggestionLoading] = useState(false);
+  const [departureSuggestionProgress, setDepartureSuggestionProgress] = useState(null);
+  const [departureSuggestionResult, setDepartureSuggestionResult] = useState(null);
+  const [departureSuggestionError, setDepartureSuggestionError] = useState('');
+
+  // A stale suggestion must not be applyable/exportable against inputs it no
+  // longer describes -- clear it whenever any of those inputs change, or a
+  // fresh route forecast is run.
+  const clearRouteSuggestions = useCallback(() => {
+    setDepartureSuggestionResult(null);
+    setDepartureSuggestionError('');
+  }, []);
+  useEffect(() => {
+    clearRouteSuggestions();
+  }, [routePoints, vesselClass, routeSpeedKt, routeDepartureTime, clearRouteSuggestions]);
 
   const handleRoutePointPick = useCallback((lng, lat) => {
     setRoutePoints((prev) => [...prev, { lon: lng, lat }]);
@@ -342,6 +386,152 @@ function CookIslandsForecast() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routePoints, vesselClass, routeSpeedKt, routeDepartureTime, currentSliderDate, forecastEndTime, forecastStartTime]);
 
+  // ── Scenario comparison ──────────────────────────────────────────────────
+  const handleSaveCurrentAsScenario = useCallback(() => {
+    setScenarios((prev) => {
+      if (prev.length >= MAX_SCENARIOS || routePoints.length < 2) return prev;
+      const departureTime = routeDepartureTime || currentSliderDate?.toISOString?.() || '';
+      return [...prev, createScenario({
+        vessel: vesselClass,
+        routePoints,
+        departureTime,
+        speedKt: routeSpeedKt,
+        existingScenarios: prev,
+      })];
+    });
+  }, [currentSliderDate, routeDepartureTime, routePoints, routeSpeedKt, vesselClass]);
+
+  const handleDuplicateScenario = useCallback((scenarioId) => {
+    setScenarios((prev) => {
+      if (prev.length >= MAX_SCENARIOS) return prev;
+      const original = prev.find((s) => s.id === scenarioId);
+      if (!original) return prev;
+      return [...prev, duplicateScenario(original, {}, prev)];
+    });
+  }, []);
+
+  const handleRemoveScenario = useCallback((scenarioId) => {
+    setScenarios((prev) => prev.filter((s) => s.id !== scenarioId));
+    setRunningScenarioIds((prev) => prev.filter((id) => id !== scenarioId));
+  }, []);
+
+  const handleRunScenario = useCallback(async (scenarioId) => {
+    const target = scenarios.find((s) => s.id === scenarioId);
+    if (!target) return;
+    setRunningScenarioIds((prev) => (prev.includes(scenarioId) ? prev : [...prev, scenarioId]));
+    setScenarios((prev) => prev.map((s) => (s.id === scenarioId ? { ...s, status: 'running' } : s)));
+    const updated = await runScenario(target, { modelRunStart: capTime.modelRunStart });
+    setScenarios((prev) => prev.map((s) => (s.id === scenarioId ? updated : s)));
+    setRunningScenarioIds((prev) => prev.filter((id) => id !== scenarioId));
+  }, [scenarios, capTime.modelRunStart]);
+
+  const handleRunAllScenarios = useCallback(async () => {
+    if (!scenarios.length) return;
+    const ids = scenarios.map((s) => s.id);
+    setRunningScenarioIds(ids);
+    setScenarios((prev) => prev.map((s) => (ids.includes(s.id) ? { ...s, status: 'running' } : s)));
+    await runAllScenarios(scenarios, {
+      modelRunStart: capTime.modelRunStart,
+      onScenarioSettled: (updated) => {
+        setScenarios((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+        setRunningScenarioIds((prev) => prev.filter((id) => id !== updated.id));
+      },
+    });
+  }, [scenarios, capTime.modelRunStart]);
+
+  // config here is already the fully-built object from
+  // cookIslandsScenarioService.js's buildScenarioComparisonBriefConfig
+  // (CookIslandsScenarioComparisonPanel.jsx builds it itself before calling
+  // this, since it's the one that knows which scenarios are ready and who's
+  // recommended) -- this handler only supplies what that pure-data config
+  // doesn't carry (timeDisplayZone) and calls the actual exporter. Errors
+  // are left to the panel's own handleExportComparisonBrief, which already
+  // catches and logs them around this call.
+  const handleExportScenarioComparisonBrief = useCallback((config) => (
+    exportCookIslandsScenarioComparisonPdf(config, { timeDisplayZone })
+  ), [timeDisplayZone]);
+
+  // ── Route-forecast suggestions ───────────────────────────────────────────
+  // "Suggest a better vessel"'s initial estimate is computed inline in
+  // CookIslandsRouteForecastPanel (pure, no fetch). This "Confirm & compare"
+  // step is its only network call: exactly one real
+  // fetchCookIslandsRouteForecast (via the existing runScenario), which
+  // becomes a normal comparable scenario -- no bespoke fetch logic needed.
+  const handleConfirmVesselSuggestion = useCallback(async (vesselCode) => {
+    if (!vesselCode || scenarios.length >= MAX_SCENARIOS) return;
+    const departureTime = routeForecastResult?.departure_time || routeDepartureTime || currentSliderDate?.toISOString?.() || '';
+    const draft = createScenario({
+      vessel: vesselCode, routePoints, departureTime, speedKt: routeSpeedKt, existingScenarios: scenarios,
+    });
+    setScenarios((prev) => [...prev, draft]);
+    setRunningScenarioIds((prev) => [...prev, draft.id]);
+    const updated = await runScenario(draft, { modelRunStart: capTime.modelRunStart });
+    setScenarios((prev) => prev.map((s) => (s.id === draft.id ? updated : s)));
+    setRunningScenarioIds((prev) => prev.filter((id) => id !== draft.id));
+    setConfirmedScenarioId(updated.id);
+    return updated;
+  }, [scenarios, routeForecastResult, routeDepartureTime, currentSliderDate, routePoints, routeSpeedKt, capTime.modelRunStart]);
+
+  const handleSuggestBetterDeparture = useCallback(async () => {
+    if (!routeForecastResult || departureSuggestionLoading) return;
+    setDepartureSuggestionLoading(true);
+    setDepartureSuggestionError('');
+    setDepartureSuggestionResult(null);
+    setDepartureSuggestionProgress(null);
+    try {
+      const result = await findBetterDeparture({
+        routePoints,
+        vessel: vesselClass,
+        departureTime: routeForecastResult.departure_time,
+        speedKt: routeSpeedKt,
+        maxDepartureTime: forecastEndTime,
+      }, { onProgress: setDepartureSuggestionProgress });
+      setDepartureSuggestionResult(result.found ? result : null);
+      if (!result.found) {
+        setDepartureSuggestionError(
+          result.checkedOffsets.length === 0
+            ? 'Already at the end of the available forecast -- no later departure times to check.'
+            : result.skippedOffsets.length > 0
+              ? `No better departure window found in the next ${Math.max(...result.checkedOffsets)}h (the forecast ends before later options could be checked).`
+              : 'No better departure window found in the next 24 hours.'
+        );
+      }
+    } catch (err) {
+      console.error('[Home] Departure suggestion failed:', err);
+      setDepartureSuggestionError(err.message || 'Could not check alternative departure times.');
+    } finally {
+      setDepartureSuggestionLoading(false);
+      setDepartureSuggestionProgress(null);
+    }
+  }, [routeForecastResult, departureSuggestionLoading, routePoints, vesselClass, routeSpeedKt, forecastEndTime]);
+
+  // Applies an already-fetched suggestion directly -- no redundant re-fetch,
+  // we already have the real result from findBetterDeparture. Setting
+  // routeDepartureTime triggers the clearRouteSuggestions effect above,
+  // which is fine: departureTime/result are already captured locally here.
+  const handleApplyDepartureSuggestion = useCallback(() => {
+    if (!departureSuggestionResult) return;
+    const { departureTime, result } = departureSuggestionResult;
+    setRouteDepartureTime(departureTime.slice(0, 16));
+    setRouteForecastResult(result);
+    setBottomCanvasData({ mode: 'route-forecast', result, vessel: vesselClass, speedKt: routeSpeedKt });
+    setShowBottomCanvas(true);
+  }, [departureSuggestionResult, vesselClass, routeSpeedKt]);
+
+  // Also skips a redundant re-fetch -- builds a ready scenario directly from
+  // the result findBetterDeparture already confirmed.
+  const handleSaveDepartureSuggestionAsScenario = useCallback(() => {
+    if (!departureSuggestionResult || scenarios.length >= MAX_SCENARIOS) return;
+    const { departureTime, result } = departureSuggestionResult;
+    const now = new Date().toISOString();
+    const draft = createScenario({
+      vessel: vesselClass, routePoints, departureTime, speedKt: routeSpeedKt, existingScenarios: scenarios,
+    });
+    setScenarios((prev) => [...prev, {
+      ...draft, status: 'ready', forecastResult: result, updatedAt: now, generatedAt: now, modelRunStartAtRun: capTime.modelRunStart,
+    }]);
+  }, [departureSuggestionResult, scenarios, vesselClass, routePoints, routeSpeedKt, capTime.modelRunStart]);
+
   // Impact assessment data — fetched once on mount rather than on-demand from
   // a button click, since desktop's Impacts tab (ForecastApp.jsx) is now a
   // persistent part of the right panel, not something opened after a click.
@@ -410,6 +600,20 @@ function CookIslandsForecast() {
     setBottomCanvasData({ mode: 'impact', ...impactData, assets: impactAssets, onRetry: loadImpact });
     setShowBottomCanvas(true);
   }, [impactData, impactAssets, loadImpact]);
+
+  // "Compare landing areas" — opens the multi-site suitability heatmap in the
+  // bottom sheet instead of rendering it inline in the sidebar. The old
+  // sidebar placement forced that table's own horizontal scroll inside an
+  // already-narrow column; the bottom sheet has the full viewport width to
+  // work with, matching how every other detail view (risk/suitability/route/
+  // impact) already uses this space rather than the sidebar. vesselClass and
+  // currentSliderDate ride along in bottomCanvasData rather than the panel
+  // reading them from closure, mirroring how route-forecast/impact already
+  // pass their own parameters through this same mode-tagged data object.
+  const handleShowLandingAreaComparison = useCallback(() => {
+    setBottomCanvasData({ mode: 'landing-area-comparison', vesselClass, currentSliderDate });
+    setShowBottomCanvas(true);
+  }, [vesselClass, currentSliderDate]);
 
   // Layer errors are dev/ops signal, not something to alarm the end user with —
   // log to console instead of the "Layer error" banner this used to render.
@@ -726,8 +930,19 @@ function CookIslandsForecast() {
         forecastStartTime={forecastStartTime}
         onRunRouteForecast={handleRunRouteForecast}
         onShowImpact={handleShowImpactDetail}
+        onShowLandingAreaComparison={handleShowLandingAreaComparison}
         onClearRoute={handleClearRoute}
         onUndoRoutePoint={handleUndoRoutePoint}
+        scenarios={scenarios}
+        confirmedScenarioId={confirmedScenarioId}
+        runningScenarioIds={runningScenarioIds}
+        currentModelRunStart={capTime.modelRunStart}
+        onSaveCurrentAsScenario={handleSaveCurrentAsScenario}
+        onDuplicateScenario={handleDuplicateScenario}
+        onRemoveScenario={handleRemoveScenario}
+        onRunScenario={handleRunScenario}
+        onRunAllScenarios={handleRunAllScenarios}
+        onExportScenarioComparisonBrief={handleExportScenarioComparisonBrief}
         impactData={impactData}
         impactAssets={impactAssets}
         onSelectImpactAsset={flyToImpactAsset}
@@ -745,10 +960,20 @@ function CookIslandsForecast() {
         currentSliderDate={currentSliderDate}
         timeDisplayZone={timeDisplayZone}
         mapCustomEnvelope={mapCustomEnvelope}
+        modelRunStart={capTime.modelRunStart}
         onRiskThresholdsSaved={refreshRiskMarkerColors}
         onImpactWindowSelect={handleImpactWindowSelect}
         onImpactScenarioChange={setImpactSelectedScenario}
         onSelectImpactAsset={flyToImpactAsset}
+        scenarioCount={scenarios.length}
+        onConfirmVesselSuggestion={handleConfirmVesselSuggestion}
+        departureSuggestionLoading={departureSuggestionLoading}
+        departureSuggestionProgress={departureSuggestionProgress}
+        departureSuggestionResult={departureSuggestionResult}
+        departureSuggestionError={departureSuggestionError}
+        onSuggestBetterDeparture={handleSuggestBetterDeparture}
+        onApplyDepartureSuggestion={handleApplyDepartureSuggestion}
+        onSaveDepartureSuggestionAsScenario={handleSaveDepartureSuggestionAsScenario}
       />
       <BottomBuoyOffCanvas
         show={showBuoyCanvas}

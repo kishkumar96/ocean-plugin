@@ -52,6 +52,17 @@ export class CookIslandsSuitabilityDynamicOverlay {
     this._canvas = document.createElement('canvas');
     this._ctx = null;
     this._imageData = null;
+    // Desired visibility, tracked independently of whether LAYER_ID exists
+    // yet. setVisible() below used to be a no-op until the layer was first
+    // created (by _ensureMapSource(), from the first repaint) -- if the
+    // controller switched back to preset mode while that first custom-mode
+    // grid fetch was still in flight, the fetch would later resolve and
+    // _ensureMapSource() would create the layer with no layout.visibility
+    // (MapLibre defaults to visible), silently showing the custom overlay
+    // over a map the user had already switched away from. Recorded here and
+    // applied in _ensureMapSource() so a layer created late still comes up
+    // in whatever visibility state was most recently requested.
+    this._visible = true;
     // Aborts whichever grid fetch a new setTimeIndex() call supersedes, so a
     // slow, no-longer-wanted request doesn't keep competing for bandwidth
     // with the one actually being waited on now (rapid scrubbing otherwise
@@ -463,7 +474,8 @@ export class CookIslandsSuitabilityDynamicOverlay {
       id: LAYER_ID,
       type: 'raster',
       source: SOURCE_ID,
-      paint: { 'raster-opacity': this._opacity },
+      layout: { visibility: this._visible ? 'visible' : 'none' },
+      paint: { 'raster-opacity': this._opacity, 'raster-resampling': 'nearest' },
     }, beforeId);
   }
 
@@ -476,6 +488,7 @@ export class CookIslandsSuitabilityDynamicOverlay {
   }
 
   setVisible(visible) {
+    this._visible = visible;
     if (this._map?.getLayer(LAYER_ID)) {
       this._map.setLayoutProperty(LAYER_ID, 'visibility', visible ? 'visible' : 'none');
     }

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import './ForecastTimeline.css';
 
 const SPEED_OPTIONS = [
@@ -88,8 +88,29 @@ export default function ForecastTimeline({
   // where a brief disable is expected rather than a repeating flash.
   const isDisabled = disabled || (loading && !isPlaying);
 
+  // The floating (non-inline) form is absolutely positioned over the map at a
+  // fixed bottom offset, and its height varies with content -- most notably
+  // the stale-forecast chip above, which only renders sometimes. Other
+  // floating overlays sharing the map corner (e.g. .marine-legend) used to
+  // reserve space for us via a hardcoded pixel guess that didn't account for
+  // the chip, so they'd overlap us whenever it appeared (see ForecastApp.css's
+  // --ft-height consumer). Publish our real rendered height as a CSS custom
+  // property on our container instead, so anything reserving clearance above
+  // us tracks it exactly rather than guessing.
+  const rootRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    const container = el?.parentElement;
+    if (!el || !container || inline) return undefined;
+    const sync = () => container.style.setProperty('--ft-height', `${el.offsetHeight}px`);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [inline]);
+
   return (
-    <div className={`ft-root${inline ? ' ft-root--inline' : ''}`} aria-label="Forecast timeline">
+    <div ref={rootRef} className={`ft-root${inline ? ' ft-root--inline' : ''}`} aria-label="Forecast timeline">
       {/* Stale forecast chip */}
       {capTime?.isStale && (
         <div className="ft-stale-chip" role="alert">

@@ -63,7 +63,12 @@
 
 .marine-legend {
   position: absolute;
-  bottom: 152px;   /* clear the ForecastTimeline overlay (~120px tall + 16px gap + 16px margin) */
+  /* Clear the ForecastTimeline overlay: its actual rendered height (published
+     as --ft-height by that component, since it grows when the stale-forecast
+     chip appears) plus its own 16px bottom margin and a 16px gap. Falls back
+     to the old fixed guess if --ft-height hasn't been set yet (first paint,
+     or the timeline isn't mounted in floating mode). */
+  bottom: calc(var(--ft-height, 120px) + 32px);
   right: 20px;
   z-index: 999;
   pointer-events: auto; /* Enable clicks on legend */
