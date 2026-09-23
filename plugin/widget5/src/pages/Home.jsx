@@ -985,6 +985,7 @@ function CookIslandsForecast() {
         setRouteSpeedKt={setRouteSpeedKt}
         routeDepartureTime={routeDepartureTime}
         setRouteDepartureTime={setRouteDepartureTime}
+        routeForecastResult={routeForecastResult}
         routeForecastLoading={routeForecastLoading}
         routeForecastError={routeForecastError}
         forecastEndTime={forecastEndTime}

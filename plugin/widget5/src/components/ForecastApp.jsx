@@ -14,7 +14,7 @@ import {
   IslandZoomControl,
   DataInfo,
 } from './shared/UIComponents';
-import { Waves, Wind, Navigation, Activity, Info, Settings, Timer, Triangle, CloudRain, MapPin, SlidersHorizontal, BarChart2, FastForward, Route, DollarSign, AlertTriangle, RotateCcw, Save, ListChecks } from 'lucide-react';
+import { Waves, Wind, Navigation, Activity, Info, Settings, Timer, Triangle, CloudRain, MapPin, SlidersHorizontal, BarChart2, FastForward, Route, DollarSign, AlertTriangle, RotateCcw, Save, ListChecks, FileDown } from 'lucide-react';
 import { RISK_COLORS, RISK_LABELS } from '../services/riskDataService';
 import { useResponsiveUI } from '../hooks/useWindowSize';
 import ImpactTabPanel from './impact/ImpactTabPanel';
@@ -32,6 +32,7 @@ import EnvelopeRangeSlider from './suitability/EnvelopeRangeSlider';
 import { applyEnvelopeEdit, envelopeDiffersFromPreset, envelopeSliderMax } from '../domain/suitability/customEnvelopeProfiles';
 import CookIslandsRouteControls from './route/CookIslandsRouteControls';
 import CookIslandsScenarioComparisonPanel from './route/CookIslandsScenarioComparisonPanel';
+import CookIslandsAdvisoryPanel from './advisory/CookIslandsAdvisoryPanel';
 import CookIslandsSuitabilityReadinessCard from './suitability/CookIslandsSuitabilityReadinessCard';
 import { formatZoned } from '../utils/timeZoneFormat';
 
@@ -102,6 +103,11 @@ const ForecastApp = ({
   customEnvelopeIsDirty = false,
   customEnvelopeFromShare = false,
   onSaveCustomEnvelope,
+  // Differs from customEnvelope above: this is the classification-relevant
+  // "does the map's Custom mode actually diverge from the vessel's preset"
+  // value CookIslandsRouteAdvisoryPdf/CookIslandsAdvisoryPanel need to
+  // annotate a route PDF, not the raw editable envelope itself.
+  mapCustomEnvelope = null,
   routePoints = [],
   routePickMode = false,
   setRoutePickMode,
@@ -109,6 +115,7 @@ const ForecastApp = ({
   setRouteSpeedKt,
   routeDepartureTime = '',
   setRouteDepartureTime,
+  routeForecastResult = null,
   routeForecastLoading = false,
   routeForecastError = '',
   forecastEndTime = null,
@@ -1042,6 +1049,26 @@ const ForecastApp = ({
               onRunRouteForecast={onRunRouteForecast}
               onClearRoute={onClearRoute}
               onUndoRoutePoint={onUndoRoutePoint}
+            />
+          </ControlGroup>
+        )}
+
+        {isSuitabilityLayer && (
+          <ControlGroup
+            icon={<FancyIcon icon={FileDown} animationType="pulse" color="#38bdf8" />}
+            title="Advisory"
+            ariaLabel="Download PDF advisories: route, scenario comparison, or landing-area comparison"
+          >
+            <CookIslandsAdvisoryPanel
+              routeForecastResult={routeForecastResult}
+              vesselClass={vesselClass}
+              routeSpeedKt={routeSpeedKt}
+              timeDisplayZone={timeDisplayZone}
+              mapCustomEnvelope={mapCustomEnvelope}
+              currentModelRunStart={currentModelRunStart}
+              scenarios={scenarios}
+              onExportScenarioComparisonBrief={onExportScenarioComparisonBrief}
+              onShowLandingAreaComparison={onShowLandingAreaComparison}
             />
           </ControlGroup>
         )}

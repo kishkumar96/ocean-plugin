@@ -118,9 +118,10 @@
   pointer-events: auto;
 }
 
-.marine-legend--district {
+.marine-legend-group > .marine-legend--district {
   width: 190px;
   min-width: 190px;
+  max-width: 190px;
 }
 
 /* Map section container query support */
@@ -426,8 +427,10 @@
     max-width: calc((100vw - 38px) / 2);
   }
 
-  .marine-legend--district {
+  .marine-legend-group > .marine-legend--district {
     width: min(170px, calc((100vw - 38px) / 2));
+    min-width: min(170px, calc((100vw - 38px) / 2));
+    max-width: min(170px, calc((100vw - 38px) / 2));
   }
 
   .marine-legend {
@@ -480,8 +483,10 @@
     max-width: calc((100vw - 26px) / 2);
   }
 
-  .marine-legend--district {
+  .marine-legend-group > .marine-legend--district {
     width: min(160px, calc((100vw - 26px) / 2));
+    min-width: min(160px, calc((100vw - 26px) / 2));
+    max-width: min(160px, calc((100vw - 26px) / 2));
   }
 
   .marine-legend {
