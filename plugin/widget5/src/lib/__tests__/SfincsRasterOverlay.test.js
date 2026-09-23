@@ -60,3 +60,72 @@ describe('SfincsRasterOverlay blob URL revocation', () => {
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   });
 });
+
+// Regression test for "Cannot read properties of undefined (reading
+// 'bind')", thrown from maplibre-gl's drawRaster (webgl/draw/draw_raster.ts)
+// when a tile's texture was never created. Root cause traced into
+// maplibre-gl's own source/image_source.ts: ImageSource.onAdd() -> load()
+// for the placeholder image runs async, on MapLibre's own schedule --
+// separate from addSource() returning. If _loadFrame() (-> updateImage())
+// runs before that placeholder load ever starts, it overwrites
+// this.options.url first; if the blob URL involved then gets revoked
+// before MapLibre gets around to loading *anything* for this source,
+// ImageSource.image is never set, so prepare()'s `if (!this.image) return;`
+// guard is permanently true and tile.texture is never created -- every
+// future render crashes. _addToMap() must wait for the placeholder
+// source's own load to finish (its 'data' event) before calling
+// _loadFrame() for the first time.
+describe('SfincsRasterOverlay._addToMap() placeholder-load ordering', () => {
+  function fakeImageSource() {
+    let loaded = false;
+    let onData = null;
+    return {
+      loaded: () => loaded,
+      once: (event, cb) => { if (event === 'data') onData = cb; },
+      updateImage: jest.fn(),
+      resolvePlaceholderLoad() {
+        loaded = true;
+        onData?.();
+      },
+    };
+  }
+
+  function fakeMapWithSource(source) {
+    return {
+      getLayer: () => null,
+      getSource: () => source,
+      addSource: () => {},
+      addLayer: () => {},
+      removeLayer: () => {},
+      removeSource: () => {},
+    };
+  }
+
+  test('defers the first _loadFrame() call until the placeholder source reports loaded', () => {
+    const source = fakeImageSource();
+    const overlay = new SfincsRasterOverlay(fakeMapWithSource(source), {
+      apiBase: 'http://example.test',
+      bounds: { southWest: [-1, -1], northEast: [1, 1] },
+    });
+    const loadFrameSpy = jest.spyOn(overlay, '_loadFrame').mockImplementation(() => {});
+
+    overlay._addToMap();
+    expect(loadFrameSpy).not.toHaveBeenCalled();
+
+    source.resolvePlaceholderLoad();
+    expect(loadFrameSpy).toHaveBeenCalledWith(0);
+  });
+
+  test('calls _loadFrame() immediately if the source already reports loaded', () => {
+    const source = fakeImageSource();
+    source.resolvePlaceholderLoad(); // pre-loaded before _addToMap() runs
+    const overlay = new SfincsRasterOverlay(fakeMapWithSource(source), {
+      apiBase: 'http://example.test',
+      bounds: { southWest: [-1, -1], northEast: [1, 1] },
+    });
+    const loadFrameSpy = jest.spyOn(overlay, '_loadFrame').mockImplementation(() => {});
+
+    overlay._addToMap();
+    expect(loadFrameSpy).toHaveBeenCalledWith(0);
+  });
+});

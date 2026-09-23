@@ -235,7 +235,30 @@ export class SfincsRasterOverlay {
     }, beforeId);
     this._sourceReady = true;
 
-    if (coords) this._loadFrame(this._timeIndex);
+    if (coords) {
+      const source = this._map.getSource(SOURCE_ID);
+      // Wait for MapLibre's own placeholder load to finish before calling
+      // _loadFrame() (-> updateImage()). ImageSource.onAdd() -> load() runs
+      // async on MapLibre's own schedule, separate from addSource() above;
+      // if updateImage() overwrites this.options.url before that first
+      // load ever starts, and the blob URL involved gets revoked before
+      // MapLibre gets around to loading *anything* for this source,
+      // ImageSource.image is never set. That leaves prepare()'s `if
+      // (!this.image) return;` guard permanently true, so tile.texture is
+      // never created and every future render crashes in maplibre-gl's
+      // drawRaster on tile.texture.bind(...) ("Cannot read properties of
+      // undefined (reading 'bind')") -- confirmed against
+      // maplibre-gl's source/image_source.ts. Waiting for the placeholder's
+      // own 'data' event first guarantees `image` is set at least once
+      // before we ever call updateImage(), closing that race for good.
+      if (source && typeof source.once === 'function' && !source.loaded?.()) {
+        source.once('data', () => {
+          if (!this._destroyed) this._loadFrame(this._timeIndex);
+        });
+      } else {
+        this._loadFrame(this._timeIndex);
+      }
+    }
   }
 
   _removeFromMap() {
