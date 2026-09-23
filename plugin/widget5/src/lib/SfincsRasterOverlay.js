@@ -287,7 +287,17 @@ export class SfincsRasterOverlay {
 
   _revokeBlobUrl() {
     if (this._currentBlobUrl) {
-      URL.revokeObjectURL(this._currentBlobUrl);
+      const url = this._currentBlobUrl;
+      // Deferred, not immediate: MapLibre's ImageSource.updateImage()
+      // decodes the blob URL asynchronously. When frames come from
+      // _frameCache, _applyCanvasFrame() calls can land back-to-back
+      // (e.g. fast timeline scrubbing), and revoking a URL the instant
+      // the next one is set can race MapLibre's still-in-flight decode
+      // of it, throwing "InvalidStateError: The source image could not
+      // be decoded." in the console. blob: URLs are local/in-memory, so
+      // a short delay costs nothing and comfortably outlasts any pending
+      // decode.
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
       this._currentBlobUrl = null;
     }
   }
