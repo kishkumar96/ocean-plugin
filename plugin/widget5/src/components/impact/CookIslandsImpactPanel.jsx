@@ -46,11 +46,13 @@ function HeroCard({ icon: Icon, label, value, subtitle, accentColor }) {
 // Detailed full-width impact view: mobile's primary "View impact assessment"
 // surface, and desktop's "Expand" target from the compact ImpactTabPanel (see
 // ForecastApp.jsx's right-panel Impacts tab). Deliberately does NOT sum
-// Total_Loss across the four forecast blocks into one grand-total number:
-// each block is a separate 3-day hazard scenario (a different peak-inundation
-// raster), not an independent event, so a summed total would read as
-// "confirmed damage over the full 10-day outlook" when it actually means "if
-// the worst case hit in every window" -- misleadingly precise.
+// Total_Loss across the forecast blocks into one grand-total number: each
+// block is a separate hazard scenario (a different peak-inundation raster) --
+// block 1 is the first 3 days, block 2 is everything after that collapsed
+// into one max-inundation window for the rest of the outlook -- not
+// independent events, so a summed total would read as "confirmed damage over
+// the full outlook" when it actually means "if the worst case hit in every
+// window" -- misleadingly precise.
 //
 // All three hero metrics (damage, buildings, population) come from the SAME
 // selected block, defaulting to the highest-damage window -- previously damage

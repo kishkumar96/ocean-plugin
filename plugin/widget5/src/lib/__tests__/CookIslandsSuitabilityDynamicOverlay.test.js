@@ -72,3 +72,62 @@ describe('CookIslandsSuitabilityDynamicOverlay.getPointAt', () => {
     expect(noEnvelope.getPointAt(0.5, 0.5)).toBeNull();
   });
 });
+
+function fakeMap() {
+  return {
+    getLayer: jest.fn(() => false),
+    getSource: jest.fn(() => null),
+    addSource: jest.fn(),
+    addLayer: jest.fn(),
+    setLayoutProperty: jest.fn(),
+    setPaintProperty: jest.fn(),
+  };
+}
+
+describe('CookIslandsSuitabilityDynamicOverlay visibility race', () => {
+  // Regression coverage for the late-overlay race: the controller can call
+  // setVisible(false) (switching back to Preset mode) while this overlay's
+  // very first grid fetch is still in flight, i.e. before LAYER_ID has ever
+  // been created. setVisible() used to be a no-op in that case (nothing to
+  // set the layout property ON yet), so the desired "hidden" state was lost
+  // -- once the stale fetch finally resolved and _repaint() -> _ensureMapSource()
+  // created the layer for the first time, MapLibre's default layout.visibility
+  // ('visible') won, silently showing the custom overlay over a map the user
+  // had already switched away from.
+  test('a layer created after setVisible(false) comes up hidden, not MapLibre-default-visible', () => {
+    const map = fakeMap();
+    const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
+
+    overlay.setVisible(false); // simulates switching back to preset before the layer exists
+    expect(map.setLayoutProperty).not.toHaveBeenCalled(); // nothing to set it on yet
+
+    overlay._ensureMapSource({ lonMin: -160, lonMax: -159, latMin: -22, latMax: -21 });
+
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ layout: { visibility: 'none' } }),
+      undefined,
+    );
+  });
+
+  test('a layer created without any setVisible() call defaults to visible, matching prior behavior', () => {
+    const map = fakeMap();
+    const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
+
+    overlay._ensureMapSource({ lonMin: -160, lonMax: -159, latMin: -22, latMax: -21 });
+
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ layout: { visibility: 'visible' } }),
+      undefined,
+    );
+  });
+
+  test('setVisible still updates an already-created layer directly, as before', () => {
+    const map = fakeMap();
+    map.getLayer.mockReturnValue(true);
+    const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
+
+    overlay.setVisible(false);
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('cok-suitability-dynamic-layer', 'visibility', 'none');
+  });
+});

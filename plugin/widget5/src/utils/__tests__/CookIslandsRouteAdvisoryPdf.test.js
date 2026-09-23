@@ -14,6 +14,7 @@ import {
   routeOperationalRecommendation,
   routeThresholdText,
   customEnvelopeNoteText,
+  buildCookIslandsRouteAdvisoryPdfDoc,
 } from '../CookIslandsRouteAdvisoryPdf';
 
 describe('formatNumber', () => {
@@ -144,5 +145,155 @@ describe('customEnvelopeNoteText', () => {
     expect(text).toMatch(/custom thresholds/i);
     expect(text).toMatch(/8 kt/);
     expect(text).toMatch(/preset thresholds/i);
+  });
+});
+
+// Real jsPDF can't load here -- its Node build pulls in fast-png/iobuffer,
+// which need TextEncoder/TextDecoder that this project's jsdom test env
+// doesn't provide (confirmed directly: importing the real 'jspdf' package
+// in this suite throws "ReferenceError: TextEncoder is not defined" from
+// node_modules/iobuffer/src/text.ts). A minimal fake stands in instead,
+// recording each text() draw against whichever page is "current" when
+// addPage() was last called -- enough to prove drawSampleTablePages()'s
+// actual page-break control flow puts a footer on every page, not just
+// page 1 and the last one, without needing a browser to run the real
+// PDF renderer.
+jest.mock('jspdf', () => {
+  class FakePdfDoc {
+    constructor(opts = {}) {
+      this.pages = [[]];
+      this._pageIndex = 0;
+      // A4, mm -- landscape swaps the dimensions, matching real jsPDF, so a
+      // report built with orientation: 'landscape' sees the wider page its
+      // drawHeaderBand()/drawFooter() calls now ask doc.internal.pageSize
+      // for directly, rather than assuming the portrait PAGE_W constant.
+      const landscape = opts.orientation === 'landscape';
+      this.internal = {
+        pageSize: {
+          getWidth: () => (landscape ? 297 : 210),
+          getHeight: () => (landscape ? 210 : 297),
+        },
+        getNumberOfPages: () => this.pages.length,
+      };
+    }
+    setProperties() {}
+    setLanguage() {}
+    setFillColor() {}
+    setDrawColor() {}
+    setTextColor() {}
+    setFontSize() {}
+    setFont() {}
+    setLineWidth() {}
+    rect() {}
+    circle() {}
+    line() {}
+    splitTextToSize(text) { return [text]; }
+    text(value) {
+      this.pages[this._pageIndex].push(Array.isArray(value) ? value.join(' ') : value);
+    }
+    addPage() {
+      this.pages.push([]);
+      this._pageIndex += 1;
+    }
+  }
+  return { jsPDF: FakePdfDoc };
+});
+
+describe('buildCookIslandsRouteAdvisoryPdfDoc pagination', () => {
+  const DISCLAIMER_SNIPPET = 'not navigation advice';
+
+  function makeSamples(count) {
+    return Array.from({ length: count }, (_, i) => ({
+      sample_index: i,
+      eta: new Date(Date.UTC(2026, 7, 31, 6, 0, 0) + i * 15 * 60 * 1000).toISOString(),
+      distance_nm: i * 0.5,
+      hazard_class: i % 3,
+      hazard_label: ['Suitable', 'Caution', 'Warning'][i % 3],
+      wave_height_m: 1.2,
+      wind_speed_kt: 14,
+      lat: -21.2 + i * 0.001,
+      lon: -159.78 - i * 0.001,
+      available: true,
+    }));
+  }
+
+  // rowH=6mm, headerH=7mm, page height 297mm, bottomMargin=12mm -> roughly
+  // 43 rows fit per table page. 120 samples forces the table across at
+  // least 3 pages (page 2, 3, 4), so this actually exercises a page that's
+  // neither the first nor the last -- exactly the case the bug lost.
+  test('every page gets the model disclaimer footer, including pages in the middle of a multi-page table', async () => {
+    const result = {
+      departure_time: '2026-08-31T06:00:00Z',
+      samples: makeSamples(120),
+      summary: { distance_nm: 60, duration_hours: 8, worst_hazard_class: 2, recommendation: 'Warning' },
+    };
+
+    const { doc } = await buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel: 'small_craft', speedKt: 8 });
+
+    expect(doc.pages.length).toBeGreaterThanOrEqual(4); // page 1 + at least 3 table pages
+    doc.pages.forEach((pageTexts, pageIndex) => {
+      const hasDisclaimer = pageTexts.some((t) => t.includes(DISCLAIMER_SNIPPET));
+      expect(hasDisclaimer).toBe(true);
+      if (!hasDisclaimer) throw new Error(`Page ${pageIndex + 1} of ${doc.pages.length} is missing the footer disclaimer`);
+    });
+  });
+
+  test('a single-page table (no page breaks) still gets exactly one footer on page 1 and one on the table page', async () => {
+    const result = {
+      departure_time: '2026-08-31T06:00:00Z',
+      samples: makeSamples(5),
+      summary: { distance_nm: 2, duration_hours: 0.5, worst_hazard_class: 0, recommendation: 'Suitable' },
+    };
+
+    const { doc } = await buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel: 'small_craft', speedKt: 8 });
+
+    expect(doc.pages).toHaveLength(2);
+    const disclaimerCount = (pageTexts) => pageTexts.filter((t) => t.includes(DISCLAIMER_SNIPPET)).length;
+    expect(disclaimerCount(doc.pages[0])).toBe(1);
+    expect(disclaimerCount(doc.pages[1])).toBe(1);
+  });
+
+  test('the route sketch is captioned as schematic, not presented as a navigational map', async () => {
+    const result = {
+      departure_time: '2026-08-31T06:00:00Z',
+      samples: makeSamples(5),
+      summary: { distance_nm: 2, duration_hours: 0.5, worst_hazard_class: 0, recommendation: 'Suitable' },
+    };
+    const { doc } = await buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel: 'small_craft', speedKt: 8 });
+    const text = doc.pages[0].join(' | ');
+    expect(text).toMatch(/schematic/i);
+    expect(text).toMatch(/not for navigation/i);
+  });
+
+  describe('forecast provenance', () => {
+    const result = {
+      departure_time: '2026-08-31T06:00:00Z',
+      samples: makeSamples(5),
+      summary: { distance_nm: 2, duration_hours: 0.5, worst_hazard_class: 0, recommendation: 'Suitable' },
+    };
+
+    test('reports the authoritative model-run time and source endpoint when one is supplied', async () => {
+      const { doc } = await buildCookIslandsRouteAdvisoryPdfDoc({
+        result, vessel: 'small_craft', speedKt: 8, timeDisplayZone: 'UTC',
+        modelRunStart: new Date('2026-08-31T00:00:00Z'),
+      });
+      const text = doc.pages[0].join(' | ');
+      expect(text).toMatch(/Model run: 31 Aug/);
+      expect(text).toMatch(/00:00/);
+      expect(text).toMatch(/\/cok\/suitability\/route/);
+      expect(text).not.toMatch(/unavailable/i);
+    });
+
+    // No model-run time to give (e.g. the wave layer's own timestamps
+    // haven't loaded yet) must say so explicitly, not just omit the line --
+    // silently dropping it would look identical to "this forecast has no
+    // model run", which isn't true.
+    test('says explicitly when no model-run time is available, rather than omitting the line', async () => {
+      const { doc } = await buildCookIslandsRouteAdvisoryPdfDoc({
+        result, vessel: 'small_craft', speedKt: 8, timeDisplayZone: 'UTC', modelRunStart: null,
+      });
+      const text = doc.pages[0].join(' | ');
+      expect(text).toMatch(/Model run: unavailable/);
+    });
   });
 });

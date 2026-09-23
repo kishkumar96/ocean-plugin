@@ -14,7 +14,7 @@ import {
   IslandZoomControl,
   DataInfo,
 } from './shared/UIComponents';
-import { Waves, Wind, Navigation, Activity, Info, Settings, Timer, Triangle, CloudRain, MapPin, SlidersHorizontal, BarChart2, FastForward, Route, DollarSign, AlertTriangle, RotateCcw, Save } from 'lucide-react';
+import { Waves, Wind, Navigation, Activity, Info, Settings, Timer, Triangle, CloudRain, MapPin, SlidersHorizontal, BarChart2, FastForward, Route, DollarSign, AlertTriangle, RotateCcw, Save, ListChecks } from 'lucide-react';
 import { RISK_COLORS, RISK_LABELS } from '../services/riskDataService';
 import { useResponsiveUI } from '../hooks/useWindowSize';
 import ImpactTabPanel from './impact/ImpactTabPanel';
@@ -30,6 +30,9 @@ import { Anchor, Fish } from 'lucide-react';
 import EnvelopeRangeSlider from './suitability/EnvelopeRangeSlider';
 import { applyEnvelopeEdit, envelopeDiffersFromPreset, envelopeSliderMax } from '../domain/suitability/customEnvelopeProfiles';
 import CookIslandsRouteControls from './route/CookIslandsRouteControls';
+import CookIslandsScenarioComparisonPanel from './route/CookIslandsScenarioComparisonPanel';
+import CookIslandsSuitabilityReadinessCard from './suitability/CookIslandsSuitabilityReadinessCard';
+import { formatZoned } from '../utils/timeZoneFormat';
 
 
 const ForecastApp = ({
@@ -111,8 +114,19 @@ const ForecastApp = ({
   forecastStartTime = null,
   onRunRouteForecast,
   onShowImpact,
+  onShowLandingAreaComparison,
   onClearRoute,
   onUndoRoutePoint,
+  scenarios = [],
+  confirmedScenarioId = null,
+  runningScenarioIds = [],
+  currentModelRunStart = null,
+  onSaveCurrentAsScenario,
+  onDuplicateScenario,
+  onRemoveScenario,
+  onRunScenario,
+  onRunAllScenarios,
+  onExportScenarioComparisonBrief,
   impactData,
   impactAssets,
   onSelectImpactAsset,
@@ -967,6 +981,10 @@ const ForecastApp = ({
                 </button>
               ))}
             </div>
+            <CookIslandsSuitabilityReadinessCard
+              selectedVessel={vesselClass}
+              forecastTimeLabel={currentSliderDate ? formatZoned(currentSliderDate, timeDisplayZone) : null}
+            />
           </ControlGroup>
         )}
 
@@ -995,6 +1013,48 @@ const ForecastApp = ({
               onClearRoute={onClearRoute}
               onUndoRoutePoint={onUndoRoutePoint}
             />
+          </ControlGroup>
+        )}
+
+        {isSuitabilityLayer && (
+          <ControlGroup
+            icon={<FancyIcon icon={ListChecks} animationType="pulse" color="#2A9D8F" />}
+            title="Scenario Comparison"
+            ariaLabel="Compare vessel route scenarios"
+          >
+            <CookIslandsScenarioComparisonPanel
+              scenarios={scenarios}
+              currentInputs={{ routePoints, vessel: vesselClass, speedKt: routeSpeedKt, departureTime: routeDepartureTime }}
+              currentModelRunStart={currentModelRunStart}
+              runningScenarioIds={runningScenarioIds}
+              onSaveCurrent={onSaveCurrentAsScenario}
+              onDuplicate={onDuplicateScenario}
+              onRemove={onRemoveScenario}
+              onRun={onRunScenario}
+              onRunAll={onRunAllScenarios}
+              onExportBrief={onExportScenarioComparisonBrief}
+              highlightScenarioId={confirmedScenarioId}
+            />
+          </ControlGroup>
+        )}
+
+        {isSuitabilityLayer && (
+          <ControlGroup
+            icon={<FancyIcon icon={Anchor} animationType="pulse" color="#38bdf8" />}
+            title="Landing Areas"
+            ariaLabel="Compare vessel suitability across landing and fishing-ground sites"
+          >
+            <div style={{ fontSize: '0.7rem', color: 'rgba(203, 213, 225, 0.72)', marginBottom: '0.5rem' }}>
+              Compare the next 7 days of suitability at every named landing and fishing-ground site at once.
+            </div>
+            <button
+              type="button"
+              className="map-display-option__btn"
+              style={{ width: '100%' }}
+              onClick={onShowLandingAreaComparison}
+            >
+              Compare landing areas
+            </button>
           </ControlGroup>
         )}
 
