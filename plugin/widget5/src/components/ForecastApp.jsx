@@ -1069,6 +1069,9 @@ const ForecastApp = ({
               scenarios={scenarios}
               onExportScenarioComparisonBrief={onExportScenarioComparisonBrief}
               onShowLandingAreaComparison={onShowLandingAreaComparison}
+              mapInstance={mapInstance}
+              suitabilityTimeIndex={sliderIndex}
+              currentSliderDate={currentSliderDate}
             />
           </ControlGroup>
         )}

@@ -313,6 +313,13 @@ export function useZarrMap({
         : {}),
       maxPitch: 60,
       attributionControl: true,
+      // Without this, WebGL clears the drawing buffer after each paint, so
+      // map.getCanvas().toDataURL() (used by the PDF advisory exporters to
+      // capture a real map image) returns a blank/black frame instead of
+      // whatever was actually on screen -- a real cost (disables the
+      // browser's implicit-clear optimization) worth paying only because a
+      // PDF export happens rarely, not on every frame.
+      preserveDrawingBuffer: true,
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-left');
     mapInstance.current = map;

@@ -1,8 +1,9 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { FileDown, Route, ListChecks, Anchor, Loader2 } from 'lucide-react';
+import { FileDown, Route, ListChecks, Anchor, Loader2, FileText } from 'lucide-react';
 import { VESSEL_CLASS_OPTIONS } from '../../lib/CookIslandsSuitabilityOverlay';
 import { rankScenarios, buildScenarioComparisonBriefConfig } from '../../services/cookIslandsScenarioService';
 import { exportCookIslandsRouteAdvisoryPdf } from '../../utils/CookIslandsRouteAdvisoryPdf';
+import { exportCookIslandsDomainAdvisoryPdf } from '../../utils/CookIslandsDomainAdvisoryPdf';
 
 const TEXT_MUTED = 'rgba(203, 213, 225, 0.72)';
 
@@ -53,6 +54,9 @@ function CookIslandsAdvisoryPanel({
   scenarios = [],
   onExportScenarioComparisonBrief,
   onShowLandingAreaComparison,
+  mapInstance = null,
+  suitabilityTimeIndex = 0,
+  currentSliderDate = null,
 }) {
   const [exportingRoute, setExportingRoute] = useState(false);
   const [routeExportError, setRouteExportError] = useState('');
@@ -94,8 +98,47 @@ function CookIslandsAdvisoryPanel({
     }
   }, [exportingScenarios, onExportScenarioComparisonBrief, readyScenarioCount, scenarioEntries, recommendedId]);
 
+  const [exportingDomain, setExportingDomain] = useState(false);
+  const [domainExportError, setDomainExportError] = useState('');
+  const handleExportDomainPdf = useCallback(async () => {
+    if (exportingDomain) return;
+    setExportingDomain(true);
+    setDomainExportError('');
+    try {
+      // preserveDrawingBuffer must be set on the MapLibre instance (see
+      // useZarrMap.js) for this to return a real frame instead of a blank
+      // one -- WebGL clears its drawing buffer after each paint otherwise.
+      const map = mapInstance?.current;
+      const mapImageDataUrl = map ? map.getCanvas().toDataURL('image/png') : null;
+      await exportCookIslandsDomainAdvisoryPdf({
+        mapImageDataUrl, vesselClass, timeIndex: suitabilityTimeIndex,
+        validTime: currentSliderDate, timeDisplayZone,
+      });
+    } catch (err) {
+      console.error('[CookIslandsAdvisoryPanel] Domain advisory PDF export failed:', err);
+      setDomainExportError(err.message || 'PDF export failed.');
+    } finally {
+      setExportingDomain(false);
+    }
+  }, [exportingDomain, mapInstance, vesselClass, suitabilityTimeIndex, currentSliderDate, timeDisplayZone]);
+
   return (
     <div>
+      <AdvisoryRow
+        icon={FileText}
+        iconColor="#a78bfa"
+        title="Domain advisory"
+        description="A two-page executive advisory for the whole forecast domain right now: current map view, per-vessel conditions, and the classification methodology."
+        action={(
+          <>
+            <button type="button" className="map-display-option__btn" onClick={handleExportDomainPdf} disabled={exportingDomain}>
+              {exportingDomain ? <Loader2 size={13} className="update-spinner" style={{ marginRight: 5, verticalAlign: 'text-bottom' }} /> : <FileDown size={13} style={{ marginRight: 5, verticalAlign: 'text-bottom' }} />}
+              {exportingDomain ? 'Preparing…' : 'Download PDF'}
+            </button>
+            {domainExportError && <div style={{ color: '#f87171', fontSize: '0.68rem', marginTop: '0.3rem' }}>{domainExportError}</div>}
+          </>
+        )}
+      />
       <AdvisoryRow
         icon={Route}
         iconColor="#38bdf8"
