@@ -19,6 +19,7 @@ import { RISK_COLORS, RISK_LABELS } from '../services/riskDataService';
 import { useResponsiveUI } from '../hooks/useWindowSize';
 import ImpactTabPanel from './impact/ImpactTabPanel';
 import { computeModelStatus, MODEL_STATUS } from './impact/impactFormat';
+import { DISTRICT_LOSS_COLOR_STOPS } from '../services/cookIslandsImpactService';
 import FancyIcon from './FancyIcon';
 import '../styles/fancyIcons.css';
 import InundationThresholdEditor from './InundationThresholdEditor';
@@ -115,6 +116,7 @@ const ForecastApp = ({
   onUndoRoutePoint,
   impactData,
   impactAssets,
+  impactDistricts,
   onSelectImpactAsset,
   onImpactWindowSelect,
   onImpactScenarioChange,
@@ -664,6 +666,24 @@ const ForecastApp = ({
             );
           })()}
 
+          <div className="marine-legend-group">
+          {impactsVisible && activeLayers?.impactDistricts !== false && (
+            <div className="marine-legend marine-legend--district">
+              <div className="marine-legend-title">District Damage</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.5rem' }}>
+                {DISTRICT_LOSS_COLOR_STOPS.map(({ color, label }) => (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', color: '#e0f7ff' }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 3, background: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.3)' }} />
+                    {label}
+                  </div>
+                ))}
+                <div style={{ fontSize: '0.7rem', color: '#b8d2db', lineHeight: 1.35, marginTop: '0.15rem' }}>
+                  Estimated economic damage for the selected forecast window, modeled by RiskScape.
+                </div>
+              </div>
+            </div>
+          )}
+
           {isSuitabilityLayer && (
             <div className="marine-legend" style={{ minWidth: 140 }}>
               <div className="marine-legend-title">Vessel Suitability</div>
@@ -790,6 +810,7 @@ const ForecastApp = ({
             </div>
           )}
 
+          </div>
           {/* Bottom timeline overlay — hidden while pinned to the side panel */}
           {!showTimelineInPanel && (
             <ForecastTimeline
@@ -862,9 +883,18 @@ const ForecastApp = ({
                 title="Flood Impacts"
                 ariaLabel="RiskScape flood impact assessment for the inundation forecast"
               >
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem', cursor: 'pointer', marginBottom: '0.5rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={activeLayers?.impactDistricts !== false}
+                    onChange={(e) => setActiveLayers?.(prev => ({ ...prev, impactDistricts: e.target.checked }))}
+                  />
+                  Show district damage on map
+                </label>
                 <ImpactTabPanel
                   data={impactData}
                   assets={impactAssets}
+                  districts={impactDistricts}
                   onRetry={onRetryImpact}
                   onWindowSelect={onImpactWindowSelect}
                   onScenarioChange={onImpactScenarioChange}
@@ -1150,6 +1180,14 @@ const ForecastApp = ({
               <span style={{ fontSize: '0.68rem', color: '#8fa8c2' }}>
                 Estimated economic damage and exposed buildings from the latest forecast, modeled by RiskScape.
               </span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={activeLayers?.impactDistricts !== false}
+                  onChange={(e) => setActiveLayers?.(prev => ({ ...prev, impactDistricts: e.target.checked }))}
+                />
+                Show district damage on map
+              </label>
               <button type="button" className="map-display-option__btn" onClick={onShowImpact}>
                 View impact assessment
               </button>

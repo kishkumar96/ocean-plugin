@@ -119,6 +119,28 @@ function AssetTypeRow({ row, expanded, onToggle, onSelectAsset }) {
   );
 }
 
+function DistrictRow({ rank, district, maxLoss }) {
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', padding: '0.35rem 0.25rem' }}>
+      <span style={{ fontSize: '0.7rem', fontWeight: 700, color: TEXT_MUTED, width: '1.1rem', textAlign: 'right', paddingTop: 1 }}>{rank}</span>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.76rem', fontWeight: 600, flex: 1, minWidth: 0, textTransform: 'capitalize' }}>
+            {district.districtName}
+          </span>
+          <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>{fmtUsd(district.totalLoss)}</span>
+        </div>
+        <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)', margin: '0.25rem 0 0.2rem' }}>
+          <div style={{ height: '100%', width: `${maxLoss > 0 ? Math.max((district.totalLoss / maxLoss) * 100, 2) : 0}%`, borderRadius: 2, background: '#E63946' }} />
+        </div>
+        {district.totalExposedBuildings > 0 && (
+          <div style={{ fontSize: '0.64rem', color: TEXT_MUTED }}>{district.totalExposedBuildings.toLocaleString()} buildings exposed</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TopAssetRow({ rank, unit, maxLoss, onSelectAsset }) {
   const color = IMPACT_SECTOR_COLORS[unit.sector] ?? IMPACT_SECTOR_COLORS.unknown;
   const meta = [
@@ -164,7 +186,7 @@ function TopAssetRow({ rank, unit, maxLoss, onSelectAsset }) {
 // only 350-400px) -- the full per-window table lives one click away via
 // onExpand, which reuses CookIslandsImpactPanel (the same component mobile's
 // bottom sheet shows) rather than duplicating a second table implementation.
-function ImpactTabPanel({ data, assets, onRetry, onWindowSelect, onScenarioChange, onSelectAsset, onExpand, initialScenario = null, timeDisplayZone = 'Pacific/Rarotonga' }) {
+function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onScenarioChange, onSelectAsset, onExpand, initialScenario = null, timeDisplayZone = 'Pacific/Rarotonga' }) {
   const result = data?.result;
   const blocks = useMemo(() => (Array.isArray(result?.blocks) ? result.blocks : []), [result]);
 
@@ -210,6 +232,22 @@ function ImpactTabPanel({ data, assets, onRetry, onWindowSelect, onScenarioChang
   const damagedAssetCount = useMemo(() => assetUnits.filter((u) => u.totalLoss > 0).length, [assetUnits]);
   const assetsPending = Boolean(assets?.loading) && !assetsGeojson;
   const assetsFailed = Boolean(assets?.error) && !assetsGeojson;
+
+  // /cok/impact/latest/districts, same one-fetch-covers-every-window shape as
+  // assets above. 'unmatched' (an asset outside the backend's spatial-join
+  // buffer, e.g. a wharf) is a real bucket, not dropped from the total on
+  // /latest -- but has no meaningful district name to rank here, so it's
+  // excluded from this ranked list specifically.
+  const districtRows = districts?.districts?.districts;
+  const topDistricts = useMemo(() => {
+    if (!Array.isArray(districtRows) || !selected?.scenario) return [];
+    return districtRows
+      .filter((d) => d.scenario === selected.scenario && !d.unmatched && d.totalLoss > 0)
+      .sort((a, b) => b.totalLoss - a.totalLoss)
+      .slice(0, 5);
+  }, [districtRows, selected?.scenario]);
+  const districtsPending = Boolean(districts?.loading) && !districtRows;
+  const districtsFailed = Boolean(districts?.error) && !districtRows;
 
   // A finished run that floods nothing: every headline figure is zero and there
   // are no per-asset rows. Say so once, plainly, rather than leaving a page of
@@ -377,6 +415,16 @@ function ImpactTabPanel({ data, assets, onRetry, onWindowSelect, onScenarioChang
           : topAssets.length === 0 ? <AssetsNote>No assets with modelled damage in this window.</AssetsNote>
           : topAssets.map((unit, i) => (
             <TopAssetRow key={unit.key} rank={i + 1} unit={unit} maxLoss={topAssets[0].totalLoss} onSelectAsset={onSelectAsset} />
+          ))}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+        <SectionHeading>By district</SectionHeading>
+        {districtsPending ? <AssetsNote>Loading district breakdown…</AssetsNote>
+          : districtsFailed ? <AssetsNote isError>District breakdown unavailable: {districts.error}</AssetsNote>
+          : topDistricts.length === 0 ? <AssetsNote>No district-level damage modelled for this window.</AssetsNote>
+          : topDistricts.map((district, i) => (
+            <DistrictRow key={district.districtId} rank={i + 1} district={district} maxLoss={topDistricts[0].totalLoss} />
           ))}
       </div>
 

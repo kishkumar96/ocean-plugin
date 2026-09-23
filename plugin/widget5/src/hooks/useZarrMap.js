@@ -9,7 +9,7 @@ import { SfincsColumnOverlay } from '../lib/SfincsColumnOverlay';
 import { COK_SUITABILITY_CIRCLES_LAYER, COK_ADVISORY_LOCATIONS_LAYER, HAZARD_COLORS } from '../lib/CookIslandsSuitabilityOverlay';
 import { CookIslandsSuitabilityController } from '../lib/CookIslandsSuitabilityController';
 import { haversineNm } from '../services/cookIslandsRouteForecastService';
-import { IMPACT_SECTOR_COLORS, IMPACT_SECTOR_LABELS } from '../services/cookIslandsImpactService';
+import { IMPACT_SECTOR_COLORS, IMPACT_SECTOR_LABELS, DISTRICT_LOSS_COLOR_STOPS } from '../services/cookIslandsImpactService';
 import { fmtUsd } from '../components/impact/impactFormat';
 import { findLayerById } from '../lib/mapLayersConfig';
 import { BASEMAP_LAYER_ID, BASEMAP_OPTIONS } from '../config/basemapConfig';
@@ -70,6 +70,36 @@ const COK_IMPACT_ASSETS_LINE_HALO_LAYER = 'cok-impact-assets-line-halo';
 const COK_IMPACT_ASSETS_LINE_LAYER = 'cok-impact-assets-line';
 const COK_IMPACT_ASSETS_CIRCLE_LAYER = 'cok-impact-assets-circle';
 const COK_IMPACT_ASSETS_LAYERS = [COK_IMPACT_ASSETS_FILL_LAYER, COK_IMPACT_ASSETS_LINE_HALO_LAYER, COK_IMPACT_ASSETS_LINE_LAYER, COK_IMPACT_ASSETS_CIRCLE_LAYER];
+
+// RiskScape impact-by-district choropleth (/cok/impact/latest/districts/geojson)
+// -- one polygon per (district, scenario), added BEFORE the impact-assets
+// block below (same insertion point, impactAssetsBeforeId) so the district
+// shading sits underneath individual building/road features and the risk
+// markers, not on top of them.
+const COK_IMPACT_DISTRICTS_SOURCE = 'cok-impact-districts-src';
+const COK_IMPACT_DISTRICTS_FILL_LAYER = 'cok-impact-districts-fill';
+const COK_IMPACT_DISTRICTS_OUTLINE_LAYER = 'cok-impact-districts-outline';
+const COK_IMPACT_DISTRICTS_LAYERS = [COK_IMPACT_DISTRICTS_FILL_LAYER, COK_IMPACT_DISTRICTS_OUTLINE_LAYER];
+
+// MapLibre 'step' expression from DISTRICT_LOSS_COLOR_STOPS (the same
+// source of truth the "By district" table's inline color key uses) --
+// ['step', input, output0, boundary1, output1, boundary2, output2, ...]:
+// output_i applies for boundary_i <= input < boundary_(i+1). The first
+// boundary is a tiny epsilon above zero, not DISTRICT_LOSS_COLOR_STOPS[0]'s
+// own `max` of 0 -- a literal 0 boundary would mean "totalLoss < 0" for the
+// "No modelled damage" bucket, which is never true, so an exact-$0 district
+// would wrongly fall into the "Up to $50k" bucket instead of its own.
+// Every other stop's `max` already IS the correct boundary before the next
+// color, and the final stop (max: Infinity) has no boundary of its own --
+// 'step' has nothing above the last explicit one, so it's just the
+// trailing output.
+function buildDistrictLossColorExpression() {
+  const stops = DISTRICT_LOSS_COLOR_STOPS;
+  const boundaries = [0.005, ...stops.slice(1, -1).map((s) => s.max)];
+  const outputs = stops.slice(1).map((s) => s.color);
+  const steps = boundaries.flatMap((b, i) => [b, outputs[i]]);
+  return ['step', ['get', 'totalLoss'], stops[0].color, ...steps];
+}
 
 // Built once from the single IMPACT_SECTOR_COLORS source of truth (also used
 // by the Impacts tab's own sector donut chart/legend) rather than a second,
@@ -199,6 +229,9 @@ export function useZarrMap({
   impactAssetsGeojson = null,
   impactAssetsVisible = false,
   impactAssetsScenario = null,
+  impactDistrictsGeojson = null,
+  impactDistrictsVisible = false,
+  impactDistrictsScenario = null,
   initialMapView = null,
   initialBasemapId = 'satellite',
 }) {
@@ -224,6 +257,7 @@ export function useZarrMap({
   const riskHoverPopupRef = useRef(null);
   const advisoryHoverPopupRef = useRef(null);
   const impactAssetPopupRef = useRef(null);
+  const impactDistrictHoverPopupRef = useRef(null);
   const routeWaypointMarkersRef = useRef([]);
   const routeLegLabelMarkersRef = useRef([]);
 
@@ -405,6 +439,39 @@ export function useZarrMap({
       // coastal-risk markers stay on top and clickable rather than getting
       // buried under building fills.
       const impactAssetsBeforeId = map.getLayer(RISK_CIRCLES_LAYER) ? RISK_CIRCLES_LAYER : undefined;
+
+      // RiskScape impact by district (choropleth) -- added at the SAME
+      // beforeId as the impact-assets layers below, but before them in
+      // source order, so it ends up underneath: MapLibre inserts each new
+      // layer immediately below beforeId, so the assets layers added after
+      // this one land between this fill layer and beforeId, i.e. above it.
+      map.addSource(COK_IMPACT_DISTRICTS_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addLayer({
+        id: COK_IMPACT_DISTRICTS_FILL_LAYER,
+        type: 'fill',
+        source: COK_IMPACT_DISTRICTS_SOURCE,
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-color': buildDistrictLossColorExpression(),
+          // Flatter than the impact-assets fill above (0.45-0.85) -- a
+          // whole-district polygon covers far more screen area than a
+          // single building, so the same opacity used there would bury
+          // satellite imagery and every building/road/risk marker
+          // rendered on top of it.
+          'fill-opacity': 0.45,
+        },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_IMPACT_DISTRICTS_OUTLINE_LAYER,
+        type: 'line',
+        source: COK_IMPACT_DISTRICTS_SOURCE,
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': 'rgba(15, 23, 42, 0.55)',
+          'line-width': 0.6,
+        },
+      }, impactAssetsBeforeId);
+
       const impactSectorColorExpr = buildImpactSectorColorExpression();
       const IMPACT_ASSET_SELECTED = ['boolean', ['feature-state', 'selected'], false];
       // generateId: true so setFeatureState()-based selection (see
@@ -526,6 +593,15 @@ export function useZarrMap({
         map.on('mouseenter', layerId, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = ''; });
       }
+      // Hover only (no click-through) -- a district polygon covers a huge
+      // area, so a click handler here would fight with whatever's on top of
+      // it (buildings, risk markers) far more than the assets layers above
+      // ever do, for a feature (district totals) already fully visible in
+      // the Impacts tab's own table.
+      map.on('mousemove', COK_IMPACT_DISTRICTS_FILL_LAYER, onImpactDistrictHover);
+      map.on('mouseleave', COK_IMPACT_DISTRICTS_FILL_LAYER, () => {
+        impactDistrictHoverPopupRef.current?.remove();
+      });
       map.on('click', COK_SUITABILITY_CIRCLES_LAYER, onSuitabilityClick);
       map.on('mouseenter', COK_SUITABILITY_CIRCLES_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', COK_SUITABILITY_CIRCLES_LAYER, () => { map.getCanvas().style.cursor = ''; });
@@ -554,6 +630,7 @@ export function useZarrMap({
     return () => {
       map.off('click', onMapClick);
       advisoryHoverPopupRef.current?.remove();
+      impactDistrictHoverPopupRef.current?.remove();
       map.remove();
       mapInstance.current = null;
     };
@@ -853,6 +930,37 @@ export function useZarrMap({
       }
     }
   }, [impactAssetsScenario]);
+
+  // ── RiskScape impact by district (data / visibility / scenario filter) ───
+  // Same three-effects split and same scenario-filter fallback (show every
+  // window when no scenario is selected yet) as the impact-assets block
+  // above -- see its own comments for the reasoning, unchanged here.
+  useEffect(() => {
+    const map = mapInstance.current;
+    const src = map?.getSource(COK_IMPACT_DISTRICTS_SOURCE);
+    if (!src) return;
+    src.setData(impactDistrictsGeojson && Array.isArray(impactDistrictsGeojson.features)
+      ? impactDistrictsGeojson
+      : emptyFeatureCollection());
+  }, [impactDistrictsGeojson]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const visibility = impactDistrictsVisible ? 'visible' : 'none';
+    for (const layerId of COK_IMPACT_DISTRICTS_LAYERS) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+  }, [impactDistrictsVisible]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const scenarioFilter = impactDistrictsScenario ? ['==', ['get', 'scenario'], impactDistrictsScenario] : true;
+    for (const layerId of COK_IMPACT_DISTRICTS_LAYERS) {
+      if (map.getLayer(layerId)) map.setFilter(layerId, scenarioFilter);
+    }
+  }, [impactDistrictsScenario]);
 
   // ── sfincs config (rangeWindow / inundationCategories / minVisibleDepth) ──
   useEffect(() => {
@@ -1258,6 +1366,40 @@ export function useZarrMap({
     content.style.cssText = 'font:600 12px/1.4 system-ui, sans-serif; color:#0f172a;';
     content.textContent = `${name || 'Named location'} · ${kind}`;
     advisoryHoverPopupRef.current
+      .setLngLat(e.lngLat)
+      .setDOMContent(content)
+      .addTo(map);
+  }
+
+  // Same lazy-popup-ref pattern as onAdvisoryLocationHover above. Deliberately
+  // no click handler (see the mousemove registration's own comment) -- this
+  // is the map's only affordance for district totals, so it has to work on
+  // touch too, which is why mousemove (not mouseenter, which touch never
+  // fires) drives it, matching onAdvisoryLocationHover's own choice.
+  function onImpactDistrictHover(e) {
+    const map = mapInstance.current;
+    const feature = e.features?.[0];
+    if (!map || !feature) return;
+    const p = feature.properties ?? {};
+    const totalLoss = Number(p.totalLoss);
+    const totalExposedBuildings = Number(p.totalExposedBuildings);
+    if (!impactDistrictHoverPopupRef.current) {
+      impactDistrictHoverPopupRef.current = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 10,
+      });
+    }
+    const content = document.createElement('div');
+    content.style.cssText = 'font:600 12px/1.5 system-ui, sans-serif; color:#0f172a; min-width:150px;';
+    content.innerHTML = `
+      <div style="font-weight:700; margin-bottom:3px; text-transform:capitalize;">${p.districtName || 'District'}</div>
+      <div>Est. economic damage: <b>${fmtUsd(totalLoss)}</b></div>
+      ${Number.isFinite(totalExposedBuildings) && totalExposedBuildings > 0
+        ? `<div style="font-weight:400; opacity:0.75;">${totalExposedBuildings.toLocaleString()} buildings exposed</div>`
+        : ''}
+    `;
+    impactDistrictHoverPopupRef.current
       .setLngLat(e.lngLat)
       .setDOMContent(content)
       .addTo(map);

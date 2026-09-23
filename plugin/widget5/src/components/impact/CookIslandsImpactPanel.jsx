@@ -4,6 +4,7 @@ import ImpactSectorChart from './ImpactSectorChart';
 import ImpactCategoryAccordion from './ImpactCategoryAccordion';
 import { formatZoned } from '../../utils/timeZoneFormat';
 import { fmtUsd, fmtDateRange, parseCycleId, MODEL_STATUS, computeModelStatus, worstBlockIndex } from './impactFormat';
+import { DISTRICT_LOSS_COLOR_STOPS } from '../../services/cookIslandsImpactService';
 
 const TEXT_PRIMARY = '#f8fafc';
 const TEXT_MUTED = 'rgba(203, 213, 225, 0.72)';
@@ -103,6 +104,20 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
     return features.filter((f) => f.properties?.scenario === selected.scenario);
   }, [assetsGeojson, selected?.scenario]);
 
+  // /cok/impact/latest/districts, same one-fetch-covers-every-window shape as
+  // data.assets above -- filtered to the selected window here the same way.
+  // 'unmatched' (an asset outside the backend's spatial-join buffer, e.g. a
+  // wharf) has no meaningful district name, so it's excluded from this
+  // ranked table specifically -- it's still counted in every other total
+  // this panel shows, just not attributable to a named district.
+  const districtRows = data?.districts?.districts?.districts;
+  const selectedScenarioDistricts = useMemo(() => {
+    if (!Array.isArray(districtRows) || !selected?.scenario) return [];
+    return districtRows
+      .filter((d) => d.scenario === selected.scenario && !d.unmatched && d.totalLoss > 0)
+      .sort((a, b) => b.totalLoss - a.totalLoss);
+  }, [districtRows, selected?.scenario]);
+
   const cycleDate = useMemo(() => parseCycleId(result?.cycleId), [result?.cycleId]);
   const modelStatus = computeModelStatus({
     loading: Boolean(data?.loading), error: data?.error ?? null, result,
@@ -192,6 +207,51 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
         <div style={{ fontSize: '0.74rem', color: '#f87171', padding: '0.5rem 0.25rem' }}>{data.assets.error}</div>
       ) : (
         <ImpactCategoryAccordion features={selectedScenarioFeatures} onSelectAsset={onSelectAsset} />
+      )}
+
+      <div style={{ marginTop: '1.1rem', marginBottom: '0.4rem', fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <span>Affected districts — {fmtDateRange(selected?.dateStart, selected?.dateEnd)}</span>
+        {/* Shared color key for the map's district choropleth layer (see
+            useZarrMap's buildDistrictLossColorExpression) -- same
+            DISTRICT_LOSS_COLOR_STOPS source of truth, so a shade on the map
+            always matches the bucket a district's own row would fall into
+            here. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+          {DISTRICT_LOSS_COLOR_STOPS.map((stop) => (
+            <span key={stop.label} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.62rem', fontWeight: 400, color: TEXT_MUTED }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: stop.color, flexShrink: 0 }} />
+              {stop.label}
+            </span>
+          ))}
+        </div>
+      </div>
+      {data?.districts?.loading && !districtRows ? (
+        <div style={{ fontSize: '0.74rem', color: TEXT_MUTED, padding: '0.5rem 0.25rem' }}>Loading district breakdown…</div>
+      ) : data?.districts?.error && !districtRows ? (
+        <div style={{ fontSize: '0.74rem', color: '#f87171', padding: '0.5rem 0.25rem' }}>{data.districts.error}</div>
+      ) : selectedScenarioDistricts.length === 0 ? (
+        <div style={{ fontSize: '0.74rem', color: TEXT_MUTED, padding: '0.5rem 0.25rem' }}>No district-level damage modelled for this window.</div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table role="grid" aria-label="Impact by district" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+            <thead>
+              <tr role="row" style={{ color: TEXT_MUTED, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
+                <th role="columnheader" style={{ padding: '0.4rem 0.5rem' }} scope="col">District</th>
+                <th role="columnheader" style={{ padding: '0.4rem 0.5rem' }} scope="col">Est. economic damage</th>
+                <th role="columnheader" style={{ padding: '0.4rem 0.5rem' }} scope="col">Buildings</th>
+              </tr>
+            </thead>
+            <tbody>
+              {selectedScenarioDistricts.map((district) => (
+                <tr key={district.districtId} role="row" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <td role="gridcell" style={{ padding: '0.45rem 0.5rem', textTransform: 'capitalize' }}>{district.districtName}</td>
+                  <td role="gridcell" style={{ padding: '0.45rem 0.5rem', fontWeight: 600 }}>{fmtUsd(district.totalLoss)}</td>
+                  <td role="gridcell" style={{ padding: '0.45rem 0.5rem' }}>{district.totalExposedBuildings.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <div style={{ marginTop: '1.1rem', overflowX: 'auto' }}>

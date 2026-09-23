@@ -90,6 +90,34 @@
   max-height: 80vh;
 }
 
+
+/* Keep coexisting right-side legends in one responsive dock. The dock uses
+   each legend's actual width, avoiding fixed offsets and height guesses. */
+.marine-legend-group {
+  position: absolute;
+  right: 20px;
+  bottom: 152px;
+  z-index: 999;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 10px;
+  max-width: calc(100% - 40px);
+  pointer-events: none;
+}
+
+.marine-legend-group > .marine-legend {
+  position: relative;
+  inset: auto;
+  flex: 0 0 auto;
+  pointer-events: auto;
+}
+
+.marine-legend--district {
+  width: 190px;
+  min-width: 190px;
+}
+
 /* Map section container query support */
 .map-section {
   container-type: size;
@@ -381,6 +409,22 @@
 
 /* Mobile-First Responsive Design */
 @media (max-width: 768px) {
+  .marine-legend-group {
+    right: 15px;
+    bottom: 15px;
+    gap: 8px;
+    max-width: calc(100% - 30px);
+  }
+
+  .marine-legend-group > .marine-legend {
+    min-width: 0;
+    max-width: calc((100vw - 38px) / 2);
+  }
+
+  .marine-legend--district {
+    width: min(170px, calc((100vw - 38px) / 2));
+  }
+
   .marine-legend {
     bottom: 15px;
     right: 15px;
@@ -420,6 +464,21 @@
 }
 
 @media (max-width: 480px) {
+  .marine-legend-group {
+    right: 10px;
+    bottom: 10px;
+    gap: 6px;
+    max-width: calc(100% - 20px);
+  }
+
+  .marine-legend-group > .marine-legend {
+    max-width: calc((100vw - 26px) / 2);
+  }
+
+  .marine-legend--district {
+    width: min(160px, calc((100vw - 26px) / 2));
+  }
+
   .marine-legend {
     bottom: 10px;
     right: 10px;

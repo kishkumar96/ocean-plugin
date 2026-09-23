@@ -122,6 +122,28 @@ function normalizeRegion(raw) {
   };
 }
 
+// /cok/impact/latest/districts -- see main.py's cok_impact_latest_districts.
+// Unlike /latest/regions (a RiskScape-native CSV read), this is a spatial
+// join computed server-side against a census-district boundary layer, so a
+// district_id of 'unmatched' is a real, expected bucket (an asset outside
+// the join's buffer distance) rather than a data error -- kept as its own
+// row instead of dropped, so no loss silently disappears from the total.
+function normalizeDistrict(raw) {
+  return {
+    scenario: raw?.scenario ?? null,
+    dateStart: raw?.dates?.start ?? null,
+    dateEnd: raw?.dates?.end ?? null,
+    districtId: raw?.district_id ?? null,
+    districtName: raw?.district_name ?? 'Unknown',
+    islandGroup: raw?.island_group ?? null,
+    unmatched: raw?.district_id === 'unmatched',
+    totalLoss: toNumber(raw?.total_loss) ?? 0,
+    totalExposedValue: toNumber(raw?.total_exposed_value) ?? 0,
+    totalExposedBuildings: toNumber(raw?.total_exposed_buildings) ?? 0,
+    lossesBySector: normalizeSectorMap(raw?.losses_by_sector),
+  };
+}
+
 // Sums each block's per-sector economic damage and compares against that block's own
 // reported total -- same reconciliation check the Partner2 reference app
 // runs (validateDataQuality in its csvDataNormalizer.ts), flagging a >1%
@@ -156,6 +178,14 @@ export function normalizeImpactRegionsResponse(payload) {
   };
 }
 
+export function normalizeImpactDistrictsResponse(payload) {
+  const rawDistricts = Array.isArray(payload?.districts) ? payload.districts : [];
+  return {
+    cycleId: payload?.cycle_id ?? null,
+    districts: rawDistricts.map(normalizeDistrict),
+  };
+}
+
 function apiErrorMessage(status, payload) {
   if (status === 503) return payload?.detail || 'Impact data is not available yet -- no successful RiskScape cycle has been published.';
   if (status === 404) return 'Impact assessment is not available in this deployment yet.';
@@ -185,6 +215,149 @@ export async function fetchCookIslandsImpactRegions() {
   const body = await fetchJson('/cok/impact/latest/regions');
   return normalizeImpactRegionsResponse(body);
 }
+
+export async function fetchCookIslandsImpactDistricts() {
+  const body = await fetchJson('/cok/impact/latest/districts');
+  return normalizeImpactDistrictsResponse(body);
+}
+
+// ── district choropleth map layer ────────────────────────────────────────
+// /cok/impact/latest/districts/geojson carries the same rows as
+// /latest/districts above (computed by the same backend helper, so the two
+// always agree) but with each district's polygon geometry attached -- one
+// Feature per (district, scenario) pair, every window in one fetch, same
+// shape convention as /latest/assets. Fetched without ?scenario= here for
+// the same reason assets is: the map layer scenario-filters client-side
+// (see useZarrMap's impactDistrictsScenario effect) rather than re-fetching
+// on every window-chip click. The synthetic "unmatched" bucket has no
+// polygon and is never present in this endpoint's features.
+function normalizeDistrictFeature(raw) {
+  const props = raw?.properties ?? {};
+  return {
+    type: 'Feature',
+    geometry: raw?.geometry ?? null,
+    properties: {
+      districtId: props.district_id ?? null,
+      districtName: props.district_name ?? 'Unknown',
+      islandGroup: props.island_group ?? null,
+      scenario: props.scenario ?? null,
+      totalLoss: toNumber(props.total_loss) ?? 0,
+      totalExposedValue: toNumber(props.total_exposed_value) ?? 0,
+      totalExposedBuildings: toNumber(props.total_exposed_buildings) ?? 0,
+    },
+  };
+}
+
+export function normalizeImpactDistrictsGeojsonResponse(payload) {
+  const rawFeatures = Array.isArray(payload?.features) ? payload.features : [];
+  return {
+    type: 'FeatureCollection',
+    cycleId: payload?.cycle_id ?? null,
+    // A feature with no geometry would otherwise reach MapLibre's setData()
+    // and throw there instead of failing gracefully here -- same guard
+    // normalizeImpactAssetsResponse uses below.
+    features: rawFeatures.filter((f) => f?.geometry).map(normalizeDistrictFeature),
+  };
+}
+
+export async function fetchCookIslandsImpactDistrictsGeojson() {
+  const body = await fetchJson('/cok/impact/latest/districts/geojson');
+  return normalizeImpactDistrictsGeojsonResponse(body);
+}
+
+// ── full district-boundary coverage ──────────────────────────────────────
+// /cok/impact/latest/districts/geojson only emits a Feature for a
+// (district, scenario) pair that had at least one exposed asset spatially
+// join to it -- the backend groups over the joined assets, it doesn't left-
+// join against the full district layer. Confirmed directly: the boundary
+// file below has 44 districts, a real cycle's response has features for
+// only ~6 of them per scenario -- so most districts don't come back as
+// "zero loss", they don't come back at all, and the map only ever shows
+// whichever handful happened to flood. Bundled as a static asset (rather
+// than fetched from the backend, which has no endpoint for it) so the
+// choropleth can still draw every district's boundary regardless, via
+// buildFullDistrictChoropleth below synthesizing a zero-loss feature for
+// whatever the API's response left out.
+const DISTRICT_BOUNDARIES_URL = `${process.env.PUBLIC_URL || ''}/data/cok_districts_4326.geojson`;
+
+function normalizeDistrictBoundaryFeature(raw) {
+  const props = raw?.properties ?? {};
+  return {
+    districtId: props.cdid != null ? String(props.cdid) : null,
+    districtName: props.district_name ?? 'Unknown',
+    islandGroup: props.gid ?? null,
+    geometry: raw?.geometry ?? null,
+  };
+}
+
+export async function fetchCookIslandsDistrictBoundaries() {
+  const response = await fetch(DISTRICT_BOUNDARIES_URL);
+  if (!response.ok) throw new Error('District boundaries are not available in this deployment.');
+  const body = await response.json();
+  const rawFeatures = Array.isArray(body?.features) ? body.features : [];
+  return rawFeatures.filter((f) => f?.geometry).map(normalizeDistrictBoundaryFeature);
+}
+
+// Cross-joins the full 44-district boundary set against whichever
+// (district, scenario) rows the API actually returned (normalized
+// features, e.g. from normalizeImpactDistrictsGeojsonResponse), for every
+// scenario present in that response -- so a district the API left out
+// still gets a Feature, just a zero-loss one carrying its own real
+// geometry/name, colored as "No modelled damage" by
+// DISTRICT_LOSS_COLOR_STOPS same as any other $0 district.
+export function buildFullDistrictChoropleth(boundaries, impactFeatures) {
+  const scenarios = [...new Set(impactFeatures.map((f) => f.properties.scenario).filter(Boolean))];
+  const byKey = new Map(
+    impactFeatures.map((f) => [`${f.properties.districtId}|${f.properties.scenario}`, f])
+  );
+  const features = [];
+  for (const scenario of scenarios) {
+    for (const boundary of boundaries) {
+      const existing = byKey.get(`${boundary.districtId}|${scenario}`);
+      if (existing) {
+        features.push(existing);
+        continue;
+      }
+      features.push({
+        type: 'Feature',
+        geometry: boundary.geometry,
+        properties: {
+          districtId: boundary.districtId,
+          districtName: boundary.districtName,
+          islandGroup: boundary.islandGroup,
+          scenario,
+          totalLoss: 0,
+          totalExposedValue: 0,
+          totalExposedBuildings: 0,
+        },
+      });
+    }
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+// Sequential violet ramp keyed on total_loss (USD). Originally a red ramp,
+// changed after it was confirmed visually colliding with the SFINCS
+// inundation raster's own turbo-style depth colormap on the same map --
+// both used red for "bad", so a dark-red district polygon sitting near a
+// dark-red high-depth raster cell read as one continuous hazard instead of
+// two different measurements. Violet doesn't appear anywhere in that
+// raster's visible range (turbo's own violet end corresponds to near-zero
+// depth, which DRY_DEPTH_THRESHOLD masks out before it's ever drawn) or in
+// HAZARD_COLORS/COK_SUIT_COLORS' teal/amber/red vessel-suitability scale,
+// so this reads as its own, unambiguous measurement regardless of what
+// else is on screen. Breakpoints are a first-pass default, not derived
+// from real product guidance -- picked so a real cycle's data (worst
+// district ~$1.2M, several $0) spreads across more than the two extreme
+// bins; worth revisiting once more cycles' worth of real district totals
+// are in.
+export const DISTRICT_LOSS_COLOR_STOPS = [
+  { max: 0, color: '#e2e8f0', label: 'No modelled damage' },
+  { max: 50000, color: '#ddd6fe', label: 'Up to $50k' },
+  { max: 250000, color: '#a78bfa', label: '$50k–$250k' },
+  { max: 1000000, color: '#7c3aed', label: '$250k–$1M' },
+  { max: Infinity, color: '#4c1d95', label: 'Over $1M' },
+];
 
 // ── per-asset (building/road) map layer ─────────────────────────────────────
 // /cok/impact/latest/assets serves RiskScape's raw-results.gpkg reshaped to

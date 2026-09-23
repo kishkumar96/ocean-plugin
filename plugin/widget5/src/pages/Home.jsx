@@ -17,7 +17,7 @@ import {
   updateCustomEnvelopeForVessel,
 } from '../domain/suitability/customEnvelopeProfiles';
 import { fetchCookIslandsRouteForecast, parseAsUtcWallClock } from '../services/cookIslandsRouteForecastService';
-import { fetchCookIslandsImpactLatest, fetchCookIslandsImpactAssets } from '../services/cookIslandsImpactService';
+import { fetchCookIslandsImpactLatest, fetchCookIslandsImpactAssets, fetchCookIslandsImpactDistricts, fetchCookIslandsImpactDistrictsGeojson, fetchCookIslandsDistrictBoundaries, buildFullDistrictChoropleth } from '../services/cookIslandsImpactService';
 import { findNearestIndex } from '../components/InundationWindowControl';
 import { findIslandZoomTarget } from '../config/islandConfig';
 import { createAppShareUrl, readAppShareState } from '../domain/share/appStateSnapshot';
@@ -46,6 +46,7 @@ function CookIslandsForecast() {
   const [activeLayers, setActiveLayers] = useState({
     waveForecast: true,
     riskPoints: sharedState?.filters?.riskPoints !== false,
+    impactDistricts: sharedState?.filters?.impactDistricts !== false,
   });
   const [sliderIndex, setSliderIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -177,6 +178,17 @@ function CookIslandsForecast() {
     sharedState?.map?.basemap ?? DEFAULT_BASEMAP_ID
   );
   const [impactAssets, setImpactAssets] = useState({ loading: false, error: null, geojson: null });
+  // ── RiskScape impact by census district (table only, no map layer) ───────
+  // Same lazy-once-visible fetch pattern as impactAssets above -- see the
+  // fetch effect near loadImpact.
+  const [impactDistricts, setImpactDistricts] = useState({ loading: false, error: null, districts: null });
+  // The map-layer counterpart of impactDistricts above -- same underlying
+  // rows, but the /geojson endpoint (polygon geometry attached) instead of
+  // the numbers-only one the table uses. Kept as its own fetch/state rather
+  // than reusing impactDistricts: different endpoint, different shape, and
+  // a table-only view (e.g. a session that never opens the map's districts
+  // layer) shouldn't need to pull polygon geometry it'll never render.
+  const [impactDistrictsGeojson, setImpactDistrictsGeojson] = useState({ loading: false, error: null, geojson: null });
   const impactSurfaceVisible = impactsVisible || Boolean(showBottomCanvas && bottomCanvasData?.mode === 'impact');
 
   // Mutual exclusion: only one panel open at a time
@@ -240,6 +252,9 @@ function CookIslandsForecast() {
     impactAssetsGeojson: impactAssets.geojson,
     impactAssetsVisible: impactSurfaceVisible,
     impactAssetsScenario: impactSelectedScenario,
+    impactDistrictsGeojson: impactDistrictsGeojson.geojson,
+    impactDistrictsVisible: impactSurfaceVisible && activeLayers?.impactDistricts !== false,
+    impactDistrictsScenario: impactSelectedScenario,
     initialMapView: sharedState?.map ?? null,
     initialBasemapId: activeBasemapId,
   });
@@ -397,6 +412,52 @@ function CookIslandsForecast() {
       });
   }, [impactSurfaceVisible]);
 
+  // Same lazy-once-visible fetch as impactAssets above, kept as its own ref/
+  // request rather than piggybacking on that one -- /latest/districts is a
+  // separate, smaller (~40-row) endpoint, and either fetch failing shouldn't
+  // block the other from showing.
+  const impactDistrictsFetchedRef = useRef(false);
+  useEffect(() => {
+    if (!impactSurfaceVisible || impactDistrictsFetchedRef.current) return;
+    impactDistrictsFetchedRef.current = true;
+    setImpactDistricts((prev) => ({ ...prev, loading: true, error: null }));
+    fetchCookIslandsImpactDistricts()
+      .then((result) => setImpactDistricts({ loading: false, error: null, districts: result }))
+      .catch((err) => {
+        impactDistrictsFetchedRef.current = false; // allow a retry on next tab visit
+        setImpactDistricts({ loading: false, error: err.message, districts: null });
+      });
+  }, [impactSurfaceVisible]);
+
+  // Same lazy-once-visible fetch again for the geojson (map-layer) variant --
+  // plus the full 44-district boundary set, merged in via
+  // buildFullDistrictChoropleth so districts the API's inner join left out
+  // (most of them -- see that function's own comment) still draw as
+  // zero-loss polygons instead of just not existing on the map. The
+  // boundary fetch failing (static asset missing/misconfigured) degrades to
+  // showing only whatever districts the API itself returned, rather than
+  // failing the whole layer.
+  const impactDistrictsGeojsonFetchedRef = useRef(false);
+  useEffect(() => {
+    if (!impactSurfaceVisible || impactDistrictsGeojsonFetchedRef.current) return;
+    impactDistrictsGeojsonFetchedRef.current = true;
+    setImpactDistrictsGeojson((prev) => ({ ...prev, loading: true, error: null }));
+    Promise.all([
+      fetchCookIslandsImpactDistrictsGeojson(),
+      fetchCookIslandsDistrictBoundaries().catch(() => null),
+    ])
+      .then(([impact, boundaries]) => {
+        const geojson = boundaries
+          ? { ...impact, features: buildFullDistrictChoropleth(boundaries, impact.features).features }
+          : impact;
+        setImpactDistrictsGeojson({ loading: false, error: null, geojson });
+      })
+      .catch((err) => {
+        impactDistrictsGeojsonFetchedRef.current = false; // allow a retry on next tab visit
+        setImpactDistrictsGeojson({ loading: false, error: err.message, geojson: null });
+      });
+  }, [impactSurfaceVisible]);
+
   // "View impact assessment" (mobile) / "Expand"→"View detailed table"
   // (desktop Impacts tab) — opens the full per-window table in the bottom
   // sheet using whatever impactData already has (no extra fetch; loadImpact
@@ -407,9 +468,9 @@ function CookIslandsForecast() {
     // becoming visible, above) has resolved -- CookIslandsImpactPanel's own
     // category accordion handles that loading/empty state rather than this
     // callback waiting on it.
-    setBottomCanvasData({ mode: 'impact', ...impactData, assets: impactAssets, onRetry: loadImpact });
+    setBottomCanvasData({ mode: 'impact', ...impactData, assets: impactAssets, districts: impactDistricts, onRetry: loadImpact });
     setShowBottomCanvas(true);
-  }, [impactData, impactAssets, loadImpact]);
+  }, [impactData, impactAssets, impactDistricts, loadImpact]);
 
   // Layer errors are dev/ops signal, not something to alarm the end user with —
   // log to console instead of the "Layer error" banner this used to render.
@@ -730,6 +791,7 @@ function CookIslandsForecast() {
         onUndoRoutePoint={handleUndoRoutePoint}
         impactData={impactData}
         impactAssets={impactAssets}
+        impactDistricts={impactDistricts}
         onSelectImpactAsset={flyToImpactAsset}
         onImpactWindowSelect={handleImpactWindowSelect}
         onImpactScenarioChange={setImpactSelectedScenario}
