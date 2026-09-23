@@ -235,7 +235,30 @@ export class SfincsRasterOverlay {
     }, beforeId);
     this._sourceReady = true;
 
-    if (coords) this._loadFrame(this._timeIndex);
+    if (coords) {
+      const source = this._map.getSource(SOURCE_ID);
+      // Wait for MapLibre's own placeholder load to finish before calling
+      // _loadFrame() (-> updateImage()). ImageSource.onAdd() -> load() runs
+      // async on MapLibre's own schedule, separate from addSource() above;
+      // if updateImage() overwrites this.options.url before that first
+      // load ever starts, and the blob URL involved gets revoked before
+      // MapLibre gets around to loading *anything* for this source,
+      // ImageSource.image is never set. That leaves prepare()'s `if
+      // (!this.image) return;` guard permanently true, so tile.texture is
+      // never created and every future render crashes in maplibre-gl's
+      // drawRaster on tile.texture.bind(...) ("Cannot read properties of
+      // undefined (reading 'bind')") -- confirmed against
+      // maplibre-gl's source/image_source.ts. Waiting for the placeholder's
+      // own 'data' event first guarantees `image` is set at least once
+      // before we ever call updateImage(), closing that race for good.
+      if (source && typeof source.once === 'function' && !source.loaded?.()) {
+        source.once('data', () => {
+          if (!this._destroyed) this._loadFrame(this._timeIndex);
+        });
+      } else {
+        this._loadFrame(this._timeIndex);
+      }
+    }
   }
 
   _removeFromMap() {
@@ -287,7 +310,17 @@ export class SfincsRasterOverlay {
 
   _revokeBlobUrl() {
     if (this._currentBlobUrl) {
-      URL.revokeObjectURL(this._currentBlobUrl);
+      const url = this._currentBlobUrl;
+      // Deferred, not immediate: MapLibre's ImageSource.updateImage()
+      // decodes the blob URL asynchronously. When frames come from
+      // _frameCache, _applyCanvasFrame() calls can land back-to-back
+      // (e.g. fast timeline scrubbing), and revoking a URL the instant
+      // the next one is set can race MapLibre's still-in-flight decode
+      // of it, throwing "InvalidStateError: The source image could not
+      // be decoded." in the console. blob: URLs are local/in-memory, so
+      // a short delay costs nothing and comfortably outlasts any pending
+      // decode.
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
       this._currentBlobUrl = null;
     }
   }
