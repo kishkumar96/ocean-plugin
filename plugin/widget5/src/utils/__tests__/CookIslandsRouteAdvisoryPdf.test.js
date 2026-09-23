@@ -11,6 +11,8 @@ import {
   routeAvailableSamples,
   getWorstRouteSample,
   findWorstRun,
+  computeExceedance,
+  selectRouteTableRows,
   routeOperationalRecommendation,
   routeThresholdText,
   customEnvelopeNoteText,
@@ -166,6 +168,70 @@ describe('routeOperationalRecommendation', () => {
   });
 });
 
+// small_craft's real thresholds (src/lib/vesselThresholds.generated.json):
+// cautionWindKt 15, maxWindKt 20, cautionWaveHeightM 1.5, maxWaveHeightM 2.0.
+describe('computeExceedance', () => {
+  test('wind-driven caution: reports the wind exceedance above the caution threshold', () => {
+    const result = computeExceedance('small_craft', { wind_speed_kt: 17, wave_height_m: 0.5, hazard_class: 1 });
+    expect(result.driver).toBe('wind');
+    expect(result.unit).toBe('kt');
+    expect(result.amount).toBeCloseTo(2, 5); // 17 - 15 (caution, since hazard_class is 1 not 2)
+  });
+
+  test('wave-driven warning: reports the wave exceedance above the warning (not caution) threshold', () => {
+    const result = computeExceedance('small_craft', { wind_speed_kt: 5, wave_height_m: 2.5, hazard_class: 2 });
+    expect(result.driver).toBe('waves');
+    expect(result.unit).toBe('m');
+    expect(result.amount).toBeCloseTo(0.5, 5); // 2.5 - 2.0 (warning, since hazard_class is 2)
+  });
+
+  test('returns null when neither parameter crosses a threshold', () => {
+    expect(computeExceedance('small_craft', { wind_speed_kt: 5, wave_height_m: 0.5, hazard_class: 0 })).toBeNull();
+  });
+
+  test('returns null for an unknown vessel', () => {
+    expect(computeExceedance('bogus_vessel', { wind_speed_kt: 30, wave_height_m: 3, hazard_class: 2 })).toBeNull();
+  });
+
+  test('returns null for a sample with non-finite readings', () => {
+    expect(computeExceedance('small_craft', { wind_speed_kt: null, wave_height_m: 2.5, hazard_class: 2 })).toBeNull();
+  });
+});
+
+describe('selectRouteTableRows', () => {
+  function makeIndexedSamples(count) {
+    return Array.from({ length: count }, (_, i) => ({
+      sample_index: i,
+      eta: new Date(Date.UTC(2026, 7, 31, 6, 0, 0) + i * 15 * 60 * 1000).toISOString(),
+      hazard_class: 0,
+      wind_speed_kt: 5,
+      wave_height_m: 0.5,
+      available: true,
+    }));
+  }
+
+  test('returns every sample unchanged when already at or under the row budget', () => {
+    const samples = makeIndexedSamples(10);
+    expect(selectRouteTableRows(samples, 14)).toEqual(samples);
+  });
+
+  test('curates down to at most maxRows, always keeping the first, last, and worst-hazard sample', () => {
+    const samples = makeIndexedSamples(50);
+    samples[27].hazard_class = 2; // the one sample that should always survive curation
+    const rows = selectRouteTableRows(samples, 14);
+
+    expect(rows.length).toBeLessThanOrEqual(14);
+    expect(rows[0].sample_index).toBe(0);
+    expect(rows[rows.length - 1].sample_index).toBe(49);
+    expect(rows.some((r) => r.sample_index === 27)).toBe(true);
+    // Rows stay in original route order (not e.g. worst-first) -- a table
+    // is read top-to-bottom as "along the route", not "by severity".
+    for (let i = 1; i < rows.length; i++) {
+      expect(rows[i].sample_index).toBeGreaterThan(rows[i - 1].sample_index);
+    }
+  });
+});
+
 describe('routeThresholdText', () => {
   test('describes a known vessel class\'s thresholds', () => {
     const text = routeThresholdText('small_craft');
@@ -235,7 +301,9 @@ jest.mock('jspdf', () => {
     setLineWidth() {}
     rect() {}
     circle() {}
+    triangle() {}
     line() {}
+    setLineDashPattern() {}
     splitTextToSize(text) { return [text]; }
     text(value) {
       this.pages[this._pageIndex].push(Array.isArray(value) ? value.join(' ') : value);
@@ -266,11 +334,12 @@ describe('buildCookIslandsRouteAdvisoryPdfDoc pagination', () => {
     }));
   }
 
-  // rowH=6mm, headerH=7mm, page height 297mm, bottomMargin=12mm -> roughly
-  // 43 rows fit per table page. 120 samples forces the table across at
-  // least 3 pages (page 2, 3, 4), so this actually exercises a page that's
-  // neither the first nor the last -- exactly the case the bug lost.
-  test('every page gets the model disclaimer footer, including pages in the middle of a multi-page table', async () => {
+  // The route sample table is curated (selectRouteTableRows), not dumped --
+  // unlike the old design, a large sample count no longer forces the report
+  // past 2 pages at all. This replaces the old "many pages, footer on every
+  // one" pagination test, whose premise (an unbounded multi-page table) no
+  // longer exists in the new fixed page-1/page-2 layout.
+  test('a large sample count still produces exactly 2 pages, both with the footer, and the table shows it curated the rows', async () => {
     const result = {
       departure_time: '2026-08-31T06:00:00Z',
       samples: makeSamples(120),
@@ -279,12 +348,14 @@ describe('buildCookIslandsRouteAdvisoryPdfDoc pagination', () => {
 
     const { doc } = await buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel: 'small_craft', speedKt: 8 });
 
-    expect(doc.pages.length).toBeGreaterThanOrEqual(4); // page 1 + at least 3 table pages
+    expect(doc.pages).toHaveLength(2);
     doc.pages.forEach((pageTexts, pageIndex) => {
       const hasDisclaimer = pageTexts.some((t) => t.includes(DISCLAIMER_SNIPPET));
       expect(hasDisclaimer).toBe(true);
       if (!hasDisclaimer) throw new Error(`Page ${pageIndex + 1} of ${doc.pages.length} is missing the footer disclaimer`);
     });
+    const page2Text = doc.pages[1].join(' | ');
+    expect(page2Text).toMatch(/Showing \d+ of 120 samples/);
   });
 
   test('a single-page table (no page breaks) still gets exactly one footer on page 1 and one on the table page', async () => {
@@ -326,7 +397,9 @@ describe('buildCookIslandsRouteAdvisoryPdfDoc pagination', () => {
         result, vessel: 'small_craft', speedKt: 8, timeDisplayZone: 'UTC',
         modelRunStart: new Date('2026-08-31T00:00:00Z'),
       });
-      const text = doc.pages[0].join(' | ');
+      // Provenance moved to page 2 (supporting evidence) in the landscape
+      // rebuild -- page 1 is now the decision brief only.
+      const text = doc.pages[1].join(' | ');
       expect(text).toMatch(/Model run: 31 Aug/);
       expect(text).toMatch(/00:00/);
       expect(text).toMatch(/\/cok\/suitability\/route/);
@@ -341,7 +414,7 @@ describe('buildCookIslandsRouteAdvisoryPdfDoc pagination', () => {
       const { doc } = await buildCookIslandsRouteAdvisoryPdfDoc({
         result, vessel: 'small_craft', speedKt: 8, timeDisplayZone: 'UTC', modelRunStart: null,
       });
-      const text = doc.pages[0].join(' | ');
+      const text = doc.pages[1].join(' | ');
       expect(text).toMatch(/Model run: unavailable/);
     });
   });
