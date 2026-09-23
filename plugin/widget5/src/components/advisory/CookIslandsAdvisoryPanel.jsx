@@ -47,6 +47,8 @@ function AdvisoryRow({ icon: Icon, title, description, action, iconColor }) {
 
 function CookIslandsAdvisoryPanel({
   routeForecastResult,
+  routeResultStale = false,
+  routeResultSuperseded = false,
   vesselClass,
   routeSpeedKt,
   timeDisplayZone = 'Pacific/Rarotonga',
@@ -62,7 +64,7 @@ function CookIslandsAdvisoryPanel({
   const [exportingRoute, setExportingRoute] = useState(false);
   const [routeExportError, setRouteExportError] = useState('');
   const handleExportRoutePdf = useCallback(async () => {
-    if (exportingRoute || !routeForecastResult) return;
+    if (exportingRoute || !routeForecastResult || routeResultStale) return;
     setExportingRoute(true);
     setRouteExportError('');
     try {
@@ -76,7 +78,7 @@ function CookIslandsAdvisoryPanel({
     } finally {
       setExportingRoute(false);
     }
-  }, [exportingRoute, routeForecastResult, vesselClass, routeSpeedKt, timeDisplayZone, mapCustomEnvelope, currentModelRunStart]);
+  }, [exportingRoute, routeForecastResult, routeResultStale, vesselClass, routeSpeedKt, timeDisplayZone, mapCustomEnvelope, currentModelRunStart]);
 
   const { entries: scenarioEntries, recommendedId } = useMemo(() => rankScenarios(scenarios), [scenarios]);
   const readyScenarioCount = scenarioEntries.filter((e) => e.scenario.status === 'ready').length;
@@ -163,16 +165,27 @@ function CookIslandsAdvisoryPanel({
         iconColor="#38bdf8"
         title="Route advisory"
         description={
-          routeForecastResult
-            ? 'A go/no-go advisory for the route you last ran, with its full hazard table.'
-            : 'Draw a route and run a forecast (below) to generate this advisory.'
+          !routeForecastResult
+            ? 'Draw a route and run a forecast (below) to generate this advisory.'
+            : routeResultStale
+              ? 'Route, vessel, speed, or departure changed since this result — re-run before exporting.'
+              : 'A go/no-go advisory for the route you last ran, with its full hazard table.'
         }
         action={routeForecastResult ? (
           <>
-            <button type="button" className="map-display-option__btn" onClick={handleExportRoutePdf} disabled={exportingRoute}>
+            <button
+              type="button"
+              className="map-display-option__btn"
+              onClick={handleExportRoutePdf}
+              disabled={exportingRoute || routeResultStale}
+              title={routeResultStale ? 'Re-run the route before exporting -- inputs have changed since this result' : undefined}
+            >
               {exportingRoute ? <Loader2 size={13} className="update-spinner" style={{ marginRight: 5, verticalAlign: 'text-bottom' }} /> : <FileDown size={13} style={{ marginRight: 5, verticalAlign: 'text-bottom' }} />}
               {exportingRoute ? 'Preparing…' : 'Download PDF'}
             </button>
+            {!routeResultStale && routeResultSuperseded && (
+              <div style={{ color: '#fcd34d', fontSize: '0.68rem', marginTop: '0.3rem' }}>A newer forecast run is available.</div>
+            )}
             {routeExportError && <div style={{ color: '#f87171', fontSize: '0.68rem', marginTop: '0.3rem' }}>{routeExportError}</div>}
           </>
         ) : null}

@@ -20,6 +20,7 @@ function fmtNumber(value, digits = 1, suffix = '') {
 // widget1's do.
 function CookIslandsRouteForecastPanel({
   data, onRetry, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null, modelRunStart = null,
+  stale = false, superseded = false,
   scenarioCount = 0, onConfirmVesselSuggestion,
   departureSuggestionLoading, departureSuggestionProgress, departureSuggestionResult, departureSuggestionError,
   onSuggestBetterDeparture, onApplyDepartureSuggestion, onSaveDepartureSuggestionAsScenario,
@@ -115,7 +116,7 @@ function CookIslandsRouteForecastPanel({
     : 'Route hazard progression: no samples available.';
 
   const handleExportPdf = async () => {
-    if (exporting) return;
+    if (exporting || stale) return;
     setExporting(true);
     setExportError('');
     try {
@@ -132,6 +133,26 @@ function CookIslandsRouteForecastPanel({
 
   return (
     <div style={wrapperStyle}>
+      {stale && (
+        <div role="alert" style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 12.5, fontWeight: 700,
+          color: '#fca5a5', background: 'rgba(239, 68, 68, 0.14)', border: '1px solid rgba(239, 68, 68, 0.45)',
+          borderRadius: 8, padding: '0.55rem 0.75rem', marginBottom: '0.7rem',
+        }}>
+          <TriangleAlert size={15} style={{ flexShrink: 0 }} />
+          Route, vessel, speed, or departure changed since this result — re-run before exporting.
+        </div>
+      )}
+      {!stale && superseded && (
+        <div role="status" style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 12.5, fontWeight: 600,
+          color: '#fcd34d', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.4)',
+          borderRadius: 8, padding: '0.55rem 0.75rem', marginBottom: '0.7rem',
+        }}>
+          <TriangleAlert size={15} style={{ flexShrink: 0 }} />
+          A newer forecast run is available — this result is still for the plan shown, but from an earlier model run.
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.6rem', marginBottom: '0.8rem' }}>
         <div style={{
           border: `1px solid ${hazardColor}66`,
@@ -279,8 +300,8 @@ function CookIslandsRouteForecastPanel({
           type="button"
           className="map-display-option__btn"
           onClick={handleExportPdf}
-          disabled={exporting}
-          title="Download route advisory PDF"
+          disabled={exporting || stale}
+          title={stale ? 'Re-run the route before exporting -- inputs have changed since this result' : 'Download route advisory PDF'}
         >
           {exporting ? <Loader2 size={13} className="update-spinner" /> : <Download size={13} style={{ marginRight: 5, verticalAlign: 'text-bottom' }} />}
           {exporting ? 'Preparing…' : 'Download PDF'}

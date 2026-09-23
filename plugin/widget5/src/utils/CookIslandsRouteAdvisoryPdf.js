@@ -196,35 +196,71 @@ export function getWorstRouteSample(samples = []) {
 // Start/end of the single worst contiguous hazard run along the route (by
 // eta), not just the single worst sample -- powers "between HH:MM-HH:MM"
 // phrasing in the recommendation sentence below.
+//
+// Walks the FULL sample array (not routeAvailableSamples()'s filtered one)
+// so a gap of unavailable samples can end a run in progress -- filtering
+// unavailable samples out first, as this used to do, silently deletes the
+// gap: two real hazard periods either side of missing model coverage then
+// read as one uninterrupted run spanning the whole gap between them
+// (confirmed live: a route with hazard=2 samples at the start and end of
+// an out-of-domain gap in the middle reported one continuous "worst run"
+// covering the entire span, implying continuous danger through a stretch
+// the model actually said nothing about). A gap must end whatever run was
+// open, not be silently bridged.
 export function findWorstRun(samples = []) {
-  const avail = routeAvailableSamples(samples);
-  if (!avail.length) return null;
   let worstHazard = -1, worstLen = 0, worstStart = null, worstEnd = null;
-  let runStart = 0, runHazard = Number(avail[0].hazard_class);
-  for (let i = 0; i <= avail.length; i++) {
-    const haz = i < avail.length ? Number(avail[i].hazard_class) : null;
-    if (i === avail.length || haz !== runHazard) {
-      const len = i - runStart;
-      if (runHazard > worstHazard || (runHazard === worstHazard && len > worstLen)) {
-        worstHazard = runHazard;
-        worstLen = len;
-        worstStart = avail[runStart];
-        worstEnd = avail[i - 1];
-      }
-      runStart = i;
-      runHazard = haz;
+  let runHazard = null, runStart = null, runEnd = null, runLen = 0;
+
+  const closeRun = () => {
+    if (runStart === null) return;
+    if (runHazard > worstHazard || (runHazard === worstHazard && runLen > worstLen)) {
+      worstHazard = runHazard;
+      worstLen = runLen;
+      worstStart = runStart;
+      worstEnd = runEnd;
     }
+    runHazard = null;
+    runStart = null;
+    runEnd = null;
+    runLen = 0;
+  };
+
+  for (const sample of samples) {
+    const available = sample?.available !== false && Number.isFinite(sample?.hazard_class);
+    if (!available) {
+      closeRun(); // gap in coverage -- end any run in progress, start fresh after it
+      continue;
+    }
+    const haz = Number(sample.hazard_class);
+    if (runStart === null || haz !== runHazard) {
+      closeRun();
+      runHazard = haz;
+      runStart = sample;
+      runLen = 0;
+    }
+    runEnd = sample;
+    runLen += 1;
   }
+  closeRun();
+
   if (!worstStart) return null;
   return { hazard: worstHazard, startTime: worstStart.eta, endTime: worstEnd.eta };
 }
 
+// Advisory language, not operational commands: this is a modelled rating
+// against a configured threshold, not clearance to sail or an order to
+// stand down -- "Proceed"/"Delay departure" read as instructions this
+// model has no authority to give. "Modelled route rating" frames every
+// sentence as what it actually is, and the hazard>=1 cases describe the
+// condition ("conditions approach/exceed the configured envelope") before
+// suggesting a response ("consider delaying"), rather than leading with
+// the command.
 export function routeOperationalRecommendation({ hazardAvailable, hazard, worstRun, timeDisplayZone }) {
   if (!hazardAvailable) {
     return 'Assessment unavailable — insufficient model coverage along this route.';
   }
   if (hazard === 0) {
-    return 'Proceed within the assessed departure window.';
+    return 'Modelled route rating: Suitable within the assessed departure window.';
   }
   const startTime = worstRun?.startTime ? formatEta(worstRun.startTime, timeDisplayZone) : null;
   const endTime = worstRun?.endTime ? formatEta(worstRun.endTime, timeDisplayZone) : null;
@@ -232,9 +268,9 @@ export function routeOperationalRecommendation({ hazardAvailable, hazard, worstR
     ? ` between ${startTime}-${endTime}`
     : (startTime ? ` near ${startTime}` : '');
   if (hazard === 1) {
-    return `Proceed with caution — conditions approach the operating threshold${windowText}.`;
+    return `Modelled route rating: Caution — conditions approach the configured envelope${windowText}.`;
   }
-  return `Delay departure — operating envelope exceeded${windowText}.`;
+  return `Modelled route rating: Conditions exceed the configured envelope${windowText} — consider delaying departure.`;
 }
 
 // Route hazard classes come from the server, which always scores against the

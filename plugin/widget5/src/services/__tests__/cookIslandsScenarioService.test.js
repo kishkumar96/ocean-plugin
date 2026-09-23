@@ -77,20 +77,20 @@ describe('deriveRouteDecision', () => {
     expect(deriveRouteDecision(null, 'small_craft')).toBeNull();
   });
 
-  test('picks the worst-hazard sample and reports confidence', () => {
+  test('picks the worst-hazard sample and reports data completeness', () => {
     const result = routeResponseBody(2);
     const decision = deriveRouteDecision(result, 'traditional_craft');
     expect(decision.worstHazardClass).toBe(2);
-    expect(decision.confidenceLabel).toBe('high');
+    expect(decision.dataCompletenessLabel).toBe('high');
     expect(decision.unavailableSamples).toBe(0);
   });
 
-  test('flags reduced confidence when some samples are unavailable', () => {
+  test('flags reduced data completeness when some samples are unavailable', () => {
     const result = routeResponseBody(1);
     result.samples.push({ sample_index: 1, hazard_class: null, eta: '2026-09-20T07:00:00.000Z' });
     const decision = deriveRouteDecision(result, 'traditional_craft');
     expect(decision.unavailableSamples).toBe(1);
-    expect(decision.confidenceLabel).toBe('reduced');
+    expect(decision.dataCompletenessLabel).toBe('reduced');
   });
 });
 

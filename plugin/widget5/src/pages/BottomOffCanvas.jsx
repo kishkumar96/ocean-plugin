@@ -181,6 +181,7 @@ function PanelSpinner({ isDarkMode, message, slowMessage }) {
 
 function BottomOffCanvas({
   show, onHide, data, currentSliderDate, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null, modelRunStart = null,
+  routeResultStale = false, routeResultSuperseded = false,
   onTimeSelect, onRiskThresholdsSaved, onImpactWindowSelect, onImpactScenarioChange, onSelectImpactAsset,
   scenarioCount = 0, onConfirmVesselSuggestion,
   departureSuggestionLoading, departureSuggestionProgress, departureSuggestionResult, departureSuggestionError,
@@ -688,6 +689,8 @@ function BottomOffCanvas({
             timeDisplayZone={timeDisplayZone}
             mapCustomEnvelope={mapCustomEnvelope}
             modelRunStart={modelRunStart}
+            stale={routeResultStale}
+            superseded={routeResultSuperseded}
             scenarioCount={scenarioCount}
             onConfirmVesselSuggestion={onConfirmVesselSuggestion}
             departureSuggestionLoading={departureSuggestionLoading}

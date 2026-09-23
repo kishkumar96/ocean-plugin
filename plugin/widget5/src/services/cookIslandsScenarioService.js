@@ -162,7 +162,13 @@ export function deriveRouteDecision(routeForecastResult, vesselCode) {
       ))
     : null;
 
-  const confidenceLabel = totalSamples === 0
+  // Named for what this actually measures -- the share of samples the
+  // model returned a value for, not forecast skill or any validated
+  // uncertainty estimate. "Confidence" (this field's old name) implies the
+  // latter and isn't backed by one; every sample here could be 100%
+  // present and still wrong. See the widget1/widget5 PDF assessment this
+  // was flagged in for the full reasoning.
+  const dataCompletenessLabel = totalSamples === 0
     ? 'unknown'
     : unavailableSamples === 0
       ? 'high'
@@ -177,7 +183,7 @@ export function deriveRouteDecision(routeForecastResult, vesselCode) {
     recommendation: summary.recommendation ?? null,
     primaryDriver,
     worstTime: worstSample?.eta ?? null,
-    confidenceLabel,
+    dataCompletenessLabel,
     unavailableSamples,
     totalSamples,
     suitablePercent: Number.isFinite(summary.suitable_percent) ? summary.suitable_percent : null,
@@ -325,6 +331,29 @@ export function isScenarioStale(scenario, currentInputs) {
 export function isScenarioRouteStale(scenario, currentRoutePoints) {
   if (!scenario || scenario.status !== 'ready') return false;
   return JSON.stringify(scenario.routePoints ?? []) !== JSON.stringify(currentRoutePoints ?? []);
+}
+
+// True when a plain (non-scenario) route forecast result's saved inputs no
+// longer match what's currently drawn/configured -- i.e. the PDF export
+// button would generate a report describing a route/vessel/speed/departure
+// the user has since changed. Unlike isScenarioRouteStale above, this DOES
+// compare vessel/speedKt/departureTime as well as routePoints: a saved
+// comparison Scenario is deliberately allowed to differ along those (that's
+// the point of comparing alternatives), but there is only ever one "current
+// route result", so any change to any input means the result on screen no
+// longer describes the current plan. Ported from widget1's isScenarioStale,
+// which makes exactly this distinction between the two cases.
+export function isRouteResultStale(resultInputs, currentInputs) {
+  if (!resultInputs || !currentInputs) return false;
+  if (resultInputs.vessel !== currentInputs.vessel) return true;
+  if (Number(resultInputs.speedKt) !== Number(currentInputs.speedKt)) return true;
+  if (resultInputs.departureTime !== currentInputs.departureTime) {
+    const resultMs = new Date(resultInputs.departureTime).getTime();
+    const currentMs = new Date(currentInputs.departureTime).getTime();
+    if (!Number.isFinite(resultMs) || !Number.isFinite(currentMs) || resultMs !== currentMs) return true;
+  }
+  if (JSON.stringify(resultInputs.routePoints ?? []) !== JSON.stringify(currentInputs.routePoints ?? [])) return true;
+  return false;
 }
 
 // True when a newer forecast model run has become available since this

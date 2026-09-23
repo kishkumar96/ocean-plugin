@@ -90,6 +90,46 @@ describe('findWorstRun', () => {
   test('returns null when there are no available samples', () => {
     expect(findWorstRun([{ hazard_class: null, available: false }])).toBeNull();
   });
+
+  // Regression: filtering unavailable samples out before scanning for runs
+  // silently deleted the gap, so two separate hazard=2 periods either side
+  // of an out-of-domain stretch reported as one continuous run spanning
+  // the whole thing -- implying danger through a period the model said
+  // nothing about.
+  test('a gap of unavailable samples ends the run instead of bridging it', () => {
+    const samples = [
+      { hazard_class: 2, eta: '2026-08-31T06:00:00Z', available: true },
+      { hazard_class: 2, eta: '2026-08-31T06:15:00Z', available: true },
+      { hazard_class: null, eta: '2026-08-31T06:30:00Z', available: false },
+      { hazard_class: null, eta: '2026-08-31T06:45:00Z', available: false },
+      { hazard_class: 2, eta: '2026-08-31T07:00:00Z', available: true },
+      { hazard_class: 2, eta: '2026-08-31T07:15:00Z', available: true },
+      { hazard_class: 2, eta: '2026-08-31T07:30:00Z', available: true },
+    ];
+    const run = findWorstRun(samples);
+    // The second run (3 samples) is longer than the first (2 samples) --
+    // if the gap were silently bridged, this would instead report one
+    // 5-sample run from 06:00 to 07:30.
+    expect(run.hazard).toBe(2);
+    expect(run.startTime).toBe('2026-08-31T07:00:00Z');
+    expect(run.endTime).toBe('2026-08-31T07:30:00Z');
+  });
+
+  test('a lower-hazard sample and a gap both end a run the same way', () => {
+    const samples = [
+      { hazard_class: 1, eta: '2026-08-31T06:00:00Z', available: true },
+      { hazard_class: 1, eta: '2026-08-31T06:15:00Z', available: true },
+      { hazard_class: 1, eta: '2026-08-31T06:30:00Z', available: true },
+      { hazard_class: null, eta: '2026-08-31T06:45:00Z', available: false },
+      { hazard_class: 1, eta: '2026-08-31T07:00:00Z', available: true },
+    ];
+    const run = findWorstRun(samples);
+    // Worst hazard is 1 either way; the first (3-long) run must win on
+    // length over the isolated single sample after the gap.
+    expect(run.hazard).toBe(1);
+    expect(run.startTime).toBe('2026-08-31T06:00:00Z');
+    expect(run.endTime).toBe('2026-08-31T06:30:00Z');
+  });
 });
 
 describe('routeOperationalRecommendation', () => {
@@ -97,8 +137,13 @@ describe('routeOperationalRecommendation', () => {
     expect(routeOperationalRecommendation({ hazardAvailable: false })).toMatch(/unavailable/i);
   });
 
-  test('recommends proceeding for an all-clear route', () => {
-    expect(routeOperationalRecommendation({ hazardAvailable: true, hazard: 0 })).toMatch(/proceed/i);
+  test('rates an all-clear route as suitable, not a command to proceed', () => {
+    const text = routeOperationalRecommendation({ hazardAvailable: true, hazard: 0 });
+    expect(text).toMatch(/suitable/i);
+    // Regression: this used to read "Proceed within the assessed departure
+    // window" -- an operational command this model has no authority to
+    // give. Every branch is now framed as a rating, not an instruction.
+    expect(text).not.toMatch(/^proceed/i);
   });
 
   test('recommends caution with a time window for hazard 1', () => {
@@ -111,9 +156,13 @@ describe('routeOperationalRecommendation', () => {
     expect(text).toMatch(/between/i);
   });
 
-  test('recommends delaying departure for hazard 2', () => {
+  test('describes the exceeded envelope and suggests, rather than orders, delaying departure', () => {
     const text = routeOperationalRecommendation({ hazardAvailable: true, hazard: 2 });
-    expect(text).toMatch(/delay departure/i);
+    expect(text).toMatch(/exceed/i);
+    expect(text).toMatch(/consider delaying/i);
+    // Regression: this used to open with the bare command "Delay
+    // departure" -- same reasoning as the hazard-0 case above.
+    expect(text).not.toMatch(/^delay departure/i);
   });
 });
 

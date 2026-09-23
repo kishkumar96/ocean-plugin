@@ -24,6 +24,8 @@ import {
   findBetterDeparture,
   runAllScenarios,
   runScenario,
+  isRouteResultStale,
+  isScenarioSuperseded,
 } from '../services/cookIslandsScenarioService';
 import { fetchCookIslandsImpactLatest, fetchCookIslandsImpactAssets, fetchCookIslandsImpactDistricts, fetchCookIslandsImpactDistrictsGeojson, fetchCookIslandsDistrictBoundaries, buildFullDistrictChoropleth } from '../services/cookIslandsImpactService';
 import { exportCookIslandsScenarioComparisonPdf } from '../utils/CookIslandsScenarioComparisonPdf';
@@ -150,6 +152,16 @@ function CookIslandsForecast() {
   // CookIslandsRouteControls.jsx's own header comment for why.
   const [routeDepartureTime, setRouteDepartureTime] = useState(sharedState?.route?.departureTime ?? '');
   const [routeForecastResult, setRouteForecastResult] = useState(null);
+  // Snapshot of exactly what routeForecastResult was actually run against
+  // (routePoints/vessel/speedKt/departureTime/modelRunStartAtRun) -- kept
+  // separate from routeForecastResult itself (the raw backend response
+  // shape other code already depends on) rather than folded into it.
+  // Compared against the live route/vessel/speed/departure below so the
+  // route PDF/panel can warn when the result on screen no longer describes
+  // the current plan, the same protection isScenarioRouteStale/
+  // isScenarioSuperseded already give saved comparison Scenarios but this
+  // single plain result previously had none of.
+  const [routeForecastResultInputs, setRouteForecastResultInputs] = useState(null);
   const [routeForecastLoading, setRouteForecastLoading] = useState(false);
   const [routeForecastError, setRouteForecastError] = useState('');
 
@@ -303,6 +315,18 @@ function CookIslandsForecast() {
     initialBasemapId: activeBasemapId,
   });
 
+  // Whether the currently-shown route result/PDF still describes the live
+  // plan -- see routeForecastResultInputs' own comment. Recomputed on every
+  // render (cheap: a handful of field comparisons), not memoized, since
+  // memoizing correctly would need the exact same dependency list anyway.
+  const routeResultStale = isRouteResultStale(routeForecastResultInputs, {
+    routePoints, vessel: vesselClass, speedKt: routeSpeedKt, departureTime: routeDepartureTime,
+  });
+  const routeResultSuperseded = isScenarioSuperseded(
+    routeForecastResultInputs ? { status: 'ready', modelRunStartAtRun: routeForecastResultInputs.modelRunStartAtRun } : null,
+    capTime.modelRunStart,
+  );
+
   const totalSteps = Math.max(1, timeCount) - 1;
 
   const handleBasemapChange = useCallback((basemapId) => {
@@ -391,6 +415,10 @@ function CookIslandsForecast() {
         speedKt: routeSpeedKt,
       });
       setRouteForecastResult(result);
+      setRouteForecastResultInputs({
+        routePoints, vessel: vesselClass, speedKt: routeSpeedKt, departureTime,
+        modelRunStartAtRun: capTime.modelRunStart,
+      });
       setBottomCanvasData({ mode: 'route-forecast', result, vessel: vesselClass, speedKt: routeSpeedKt });
     } catch (err) {
       setRouteForecastError(err.message);
@@ -399,7 +427,7 @@ function CookIslandsForecast() {
       setRouteForecastLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routePoints, vesselClass, routeSpeedKt, routeDepartureTime, currentSliderDate, forecastEndTime, forecastStartTime]);
+  }, [routePoints, vesselClass, routeSpeedKt, routeDepartureTime, currentSliderDate, forecastEndTime, forecastStartTime, capTime.modelRunStart]);
 
   // ── Scenario comparison ──────────────────────────────────────────────────
   const handleSaveCurrentAsScenario = useCallback(() => {
@@ -529,9 +557,13 @@ function CookIslandsForecast() {
     const { departureTime, result } = departureSuggestionResult;
     setRouteDepartureTime(departureTime.slice(0, 16));
     setRouteForecastResult(result);
+    setRouteForecastResultInputs({
+      routePoints, vessel: vesselClass, speedKt: routeSpeedKt, departureTime,
+      modelRunStartAtRun: capTime.modelRunStart,
+    });
     setBottomCanvasData({ mode: 'route-forecast', result, vessel: vesselClass, speedKt: routeSpeedKt });
     setShowBottomCanvas(true);
-  }, [departureSuggestionResult, vesselClass, routeSpeedKt]);
+  }, [departureSuggestionResult, vesselClass, routeSpeedKt, routePoints, capTime.modelRunStart]);
 
   // Also skips a redundant re-fetch -- builds a ready scenario directly from
   // the result findBetterDeparture already confirmed.
@@ -986,6 +1018,8 @@ function CookIslandsForecast() {
         routeDepartureTime={routeDepartureTime}
         setRouteDepartureTime={setRouteDepartureTime}
         routeForecastResult={routeForecastResult}
+        routeResultStale={routeResultStale}
+        routeResultSuperseded={routeResultSuperseded}
         routeForecastLoading={routeForecastLoading}
         routeForecastError={routeForecastError}
         forecastEndTime={forecastEndTime}
@@ -1024,6 +1058,8 @@ function CookIslandsForecast() {
         timeDisplayZone={timeDisplayZone}
         mapCustomEnvelope={mapCustomEnvelope}
         modelRunStart={capTime.modelRunStart}
+        routeResultStale={routeResultStale}
+        routeResultSuperseded={routeResultSuperseded}
         onRiskThresholdsSaved={refreshRiskMarkerColors}
         onImpactWindowSelect={handleImpactWindowSelect}
         onImpactScenarioChange={setImpactSelectedScenario}

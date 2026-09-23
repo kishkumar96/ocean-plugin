@@ -116,6 +116,8 @@ const ForecastApp = ({
   routeDepartureTime = '',
   setRouteDepartureTime,
   routeForecastResult = null,
+  routeResultStale = false,
+  routeResultSuperseded = false,
   routeForecastLoading = false,
   routeForecastError = '',
   forecastEndTime = null,
@@ -1061,6 +1063,8 @@ const ForecastApp = ({
           >
             <CookIslandsAdvisoryPanel
               routeForecastResult={routeForecastResult}
+              routeResultStale={routeResultStale}
+              routeResultSuperseded={routeResultSuperseded}
               vesselClass={vesselClass}
               routeSpeedKt={routeSpeedKt}
               timeDisplayZone={timeDisplayZone}
