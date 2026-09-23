@@ -283,7 +283,7 @@ function drawPage2(doc, { validTime, generatedAt, timeDisplayZone }) {
 // on the MapLibre instance -- see useZarrMap.js) -- passed in rather than
 // captured here so this file stays free of any direct map/DOM dependency.
 export async function buildCookIslandsDomainAdvisoryPdfDoc({
-  mapImageDataUrl = null, vesselClass, timeIndex = 0, validTime = null, timeDisplayZone = 'Pacific/Rarotonga',
+  mapImageDataUrl = null, vesselClass, timeIndex = 0, validTime = null, timeDisplayZone = 'Pacific/Rarotonga', bounds = null,
 }) {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -296,7 +296,12 @@ export async function buildCookIslandsDomainAdvisoryPdfDoc({
   doc.setLanguage('en');
 
   const generatedAt = new Date();
-  const { vessels } = await fetchCookIslandsSuitabilitySummary(timeIndex);
+  // bounds (the current map view) scopes the backend-summary attempt to
+  // match what mapImageDataUrl actually shows -- see
+  // fetchCookIslandsSuitabilitySummary's own comment for why the
+  // points-based fallback can't honour this and always summarizes the
+  // whole domain instead.
+  const { vessels } = await fetchCookIslandsSuitabilitySummary(timeIndex, bounds);
 
   await drawPage1(doc, { mapImageDataUrl, vessels, selectedVessel: vesselClass, validTime: validTime ?? generatedAt, generatedAt, timeDisplayZone });
   drawPage2(doc, { validTime: validTime ?? generatedAt, generatedAt, timeDisplayZone });

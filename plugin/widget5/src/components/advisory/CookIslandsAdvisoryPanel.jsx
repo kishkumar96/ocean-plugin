@@ -4,6 +4,7 @@ import { VESSEL_CLASS_OPTIONS } from '../../lib/CookIslandsSuitabilityOverlay';
 import { rankScenarios, buildScenarioComparisonBriefConfig } from '../../services/cookIslandsScenarioService';
 import { exportCookIslandsRouteAdvisoryPdf } from '../../utils/CookIslandsRouteAdvisoryPdf';
 import { exportCookIslandsDomainAdvisoryPdf } from '../../utils/CookIslandsDomainAdvisoryPdf';
+import { fetchCookIslandsSuitabilityMapImage } from '../../services/cookIslandsSuitabilitySummaryService';
 
 const TEXT_MUTED = 'rgba(203, 213, 225, 0.72)';
 
@@ -105,14 +106,32 @@ function CookIslandsAdvisoryPanel({
     setExportingDomain(true);
     setDomainExportError('');
     try {
-      // preserveDrawingBuffer must be set on the MapLibre instance (see
-      // useZarrMap.js) for this to return a real frame instead of a blank
-      // one -- WebGL clears its drawing buffer after each paint otherwise.
       const map = mapInstance?.current;
-      const mapImageDataUrl = map ? map.getCanvas().toDataURL('image/png') : null;
+      const bounds = map ? (() => {
+        const b = map.getBounds();
+        return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
+      })() : null;
+
+      // Prefer the backend-rendered map image (/cok/suitability/map-image --
+      // the Phase 2 patch, may or may not be deployed yet) over a live
+      // canvas capture: a real cartographic render beats a plain screenshot,
+      // and it's the same view either way since both are scoped to `bounds`.
+      // Falls back to canvas capture (needs preserveDrawingBuffer on the
+      // MapLibre instance, see useZarrMap.js) on any failure -- not
+      // deployed yet, network error, whatever -- so this keeps working
+      // regardless of that patch's deploy status.
+      let mapImageDataUrl = null;
+      if (bounds) {
+        try {
+          mapImageDataUrl = await fetchCookIslandsSuitabilityMapImage(vesselClass, suitabilityTimeIndex, bounds);
+        } catch {
+          mapImageDataUrl = map.getCanvas().toDataURL('image/png');
+        }
+      }
+
       await exportCookIslandsDomainAdvisoryPdf({
         mapImageDataUrl, vesselClass, timeIndex: suitabilityTimeIndex,
-        validTime: currentSliderDate, timeDisplayZone,
+        validTime: currentSliderDate, timeDisplayZone, bounds,
       });
     } catch (err) {
       console.error('[CookIslandsAdvisoryPanel] Domain advisory PDF export failed:', err);
