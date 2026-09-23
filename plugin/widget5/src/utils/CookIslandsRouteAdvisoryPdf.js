@@ -27,15 +27,19 @@
 import { HAZARD_COLORS, VESSEL_OPERATING_ENVELOPE, VESSEL_CLASS_OPTIONS } from '../lib/CookIslandsSuitabilityOverlay';
 import { tzLabel } from '../utils/timeZoneFormat';
 
-const PAGE_W = 210; // A4 portrait, mm
-const HDR_H = 22;
-const HEADER_BG = [15, 42, 66];      // dark navy, matches the app's header band
+// Exported (not just module-local) so CookIslandsScenarioComparisonPdf.js can
+// reuse these same low-level drawing primitives and the app's own visual
+// language (header band, footer disclaimer, hazard palette) instead of a
+// second copy of them -- see that file's header comment.
+export const PAGE_W = 210; // A4 portrait, mm
+export const HDR_H = 22;
+export const HEADER_BG = [15, 42, 66]; // dark navy, matches the app's header band
 const ACCENT = [0, 212, 255];        // #00d4ff, the app's own accent cyan
-const TEXT_LT = [255, 255, 255];
-const TEXT_MD = [90, 100, 110];
-const TEXT_DK = [30, 35, 40];
-const GRID_CLR = [220, 224, 228];
-const NO_DATA_GREY = [150, 150, 150];
+export const TEXT_LT = [255, 255, 255];
+export const TEXT_MD = [90, 100, 110];
+export const TEXT_DK = [30, 35, 40];
+export const GRID_CLR = [220, 224, 228];
+export const NO_DATA_GREY = [150, 150, 150];
 
 const HAZARD_LIGHT = {
   0: [220, 243, 240],
@@ -48,22 +52,22 @@ const HAZARD_TEXT = {
   2: [166, 34, 43],
 };
 
-function setFill(doc, rgb) { doc.setFillColor(...rgb); }
-function setDraw(doc, rgb) { doc.setDrawColor(...rgb); }
-function setFont(doc, rgb, size, style = 'normal') {
+export function setFill(doc, rgb) { doc.setFillColor(...rgb); }
+export function setDraw(doc, rgb) { doc.setDrawColor(...rgb); }
+export function setFont(doc, rgb, size, style = 'normal') {
   doc.setTextColor(...rgb);
   doc.setFontSize(size);
   doc.setFont('helvetica', style);
 }
-function rect(doc, x, y, w, h, fill, draw, lw = 0.1) {
+export function rect(doc, x, y, w, h, fill, draw, lw = 0.1) {
   setFill(doc, fill);
   if (draw) { setDraw(doc, draw); doc.setLineWidth(lw); }
   doc.rect(x, y, w, h, draw ? 'FD' : 'F');
 }
 
-function hazardColor(h) { return HAZARD_COLORS[h] ? hexToRgb(HAZARD_COLORS[h]) : NO_DATA_GREY; }
-function hazardLight(h) { return HAZARD_LIGHT[h] ?? [235, 236, 238]; }
-function hazardText(h) { return HAZARD_TEXT[h] ?? TEXT_MD; }
+export function hazardColor(h) { return HAZARD_COLORS[h] ? hexToRgb(HAZARD_COLORS[h]) : NO_DATA_GREY; }
+export function hazardLight(h) { return HAZARD_LIGHT[h] ?? [235, 236, 238]; }
+export function hazardText(h) { return HAZARD_TEXT[h] ?? TEXT_MD; }
 function hexToRgb(hex) {
   const raw = hex.replace('#', '');
   return [0, 2, 4].map((i) => parseInt(raw.slice(i, i + 2), 16));
@@ -90,8 +94,17 @@ export function formatEta(dateLike, timeDisplayZone) {
   }
 }
 
-function drawHeaderBand(doc, { title, subtitle, rightLine1, rightLine2 }) {
-  rect(doc, 0, 0, PAGE_W, HDR_H, HEADER_BG);
+// Reads the page's own actual width off the doc (doc.internal.pageSize.
+// getWidth()) rather than assuming the portrait PAGE_W constant -- both
+// existing reports (route advisory, scenario comparison) are portrait, so
+// getWidth() returns exactly PAGE_W (210) for them and this is a no-op
+// behavior change, but it lets a landscape report (the landing-area
+// comparison heatmap needs the extra width for many site rows x many date
+// columns) reuse this same header/footer drawing instead of a second copy
+// hardcoded to a different width.
+export function drawHeaderBand(doc, { title, subtitle, rightLine1, rightLine2 }) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  rect(doc, 0, 0, pageWidth, HDR_H, HEADER_BG);
   setFont(doc, TEXT_LT, 15, 'bold');
   doc.text(title, 8, HDR_H * 0.45);
   if (subtitle) {
@@ -100,20 +113,21 @@ function drawHeaderBand(doc, { title, subtitle, rightLine1, rightLine2 }) {
   }
   if (rightLine1) {
     setFont(doc, TEXT_LT, 8.5);
-    doc.text(rightLine1, PAGE_W - 8, HDR_H * 0.45, { align: 'right' });
+    doc.text(rightLine1, pageWidth - 8, HDR_H * 0.45, { align: 'right' });
   }
   if (rightLine2) {
     setFont(doc, [200, 210, 220], 7.5);
-    doc.text(rightLine2, PAGE_W - 8, HDR_H * 0.8, { align: 'right' });
+    doc.text(rightLine2, pageWidth - 8, HDR_H * 0.8, { align: 'right' });
   }
 }
 
-const MODEL_DISCLAIMER = 'SWAN wave model guidance. Vessel operating envelope thresholds are advisory defaults, not navigation advice — use alongside official warnings and local seamanship.';
-function drawFooter(doc) {
-  const H = doc.internal.pageSize.getHeight();
+export const MODEL_DISCLAIMER = 'SWAN wave model guidance. Vessel operating envelope thresholds are advisory defaults, not navigation advice — use alongside official warnings and local seamanship.';
+export function drawFooter(doc) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   setFont(doc, TEXT_MD, 6.2, 'italic');
-  const lines = doc.splitTextToSize(MODEL_DISCLAIMER, PAGE_W - 16);
-  doc.text(lines, PAGE_W / 2, H - 4 - (lines.length - 1) * 3, { align: 'center' });
+  const lines = doc.splitTextToSize(MODEL_DISCLAIMER, pageWidth - 16);
+  doc.text(lines, pageWidth / 2, pageHeight - 4 - (lines.length - 1) * 3, { align: 'center' });
 }
 
 function projectLonLatToRect(lon, lat, bbox, rectX, rectY, rectW, rectH) {
@@ -242,7 +256,7 @@ export function routeThresholdText(vesselCode) {
     + `Warning from ${formatNumber(rule.maxWindKt, 0)} kt or ${formatNumber(rule.maxWaveHeightM, 1)} m.`;
 }
 
-function StatCard(doc, x, y, w, h, label, value, valueColor = TEXT_DK) {
+export function StatCard(doc, x, y, w, h, label, value, valueColor = TEXT_DK) {
   rect(doc, x, y, w, h, [255, 255, 255], GRID_CLR, 0.25);
   setFont(doc, TEXT_MD, 6.2, 'bold');
   doc.text(label.toUpperCase(), x + 3, y + 5.5);
@@ -260,7 +274,7 @@ function StatCard(doc, x, y, w, h, label, value, valueColor = TEXT_DK) {
 // the built jsPDF document (page count, output bytes) without needing a
 // browser's download machinery -- doc.save() below is a thin, untestable
 // side effect on top of this.
-export async function buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel, speedKt, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null }) {
+export async function buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel, speedKt, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null, modelRunStart = null }) {
   if (!result) throw new Error('No route forecast result to export.');
 
   const { jsPDF } = await import('jspdf');
@@ -315,8 +329,14 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel, spee
 
   y += recH + 6;
   setFont(doc, TEXT_DK, 8.5, 'bold');
-  doc.text('Route sketch', 8, y);
-  y += 3;
+  doc.text('Route sketch (schematic — not for navigation)', 8, y);
+  y += 4;
+  // Not a map: no coastline, scale, or north arrow -- just a coordinate-
+  // normalized projection of the route's own points, colored by hazard.
+  // Labelled and captioned as schematic so it can't be mistaken for one.
+  setFont(doc, TEXT_MD, 6.5, 'italic');
+  doc.text('Not to scale. No coastline, bathymetry, or navigational detail — plan and route in a proper charting tool.', 8, y);
+  y += 4;
   drawRouteSketch(doc, 8, y, PAGE_W - 16, 55, samples);
   y += 55 + 6;
 
@@ -333,6 +353,33 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel, spee
     doc.text(noteLines, 8, y);
     y += noteLines.length * 3.6 + 3;
   }
+
+  // Authoritative forecast provenance -- the header's own "Generated" line
+  // (above) is just this browser's clock at export time, not when the
+  // underlying forecast was actually produced; conflating the two was the
+  // gap here (unlike widget1's exporter, which already pulls its valid time
+  // from backend metadata rather than the UI clock). modelRunStart is the
+  // same forecast-cycle timestamp already trusted elsewhere in this app to
+  // detect a stale/superseded scenario (see cookIslandsScenarioService.js's
+  // isScenarioSuperseded) -- not fabricated, just not previously surfaced
+  // here. Left as "unavailable" rather than silently omitted when the
+  // caller has no model-run time to give (e.g. the wave layer hasn't
+  // finished loading its own timestamps yet), matching this codebase's
+  // usual explicit-over-hidden handling of missing provenance (compare
+  // cookIslandsImpactService.js's population validity flag). Grid
+  // resolution, dataset version, and coverage extent are NOT included here:
+  // /cok/suitability/route's response carries none of them today, and
+  // stating a number this app doesn't actually have would be exactly the
+  // fabricated precision this report is warning against.
+  setFont(doc, TEXT_DK, 8.5, 'bold');
+  doc.text('Forecast provenance', 8, y);
+  y += 5;
+  setFont(doc, TEXT_MD, 7.5);
+  const modelRunText = modelRunStart
+    ? `Model run: ${formatEta(modelRunStart, timeDisplayZone)} ${tzLabel(timeDisplayZone)}`
+    : 'Model run: unavailable';
+  doc.text(`${modelRunText} · Source: SWAN wave model forecast (Cook Islands) via /cok/suitability/route`, 8, y);
+  y += 7;
 
   if (worstSample) {
     setFont(doc, TEXT_DK, 8.5, 'bold');
@@ -384,6 +431,15 @@ function drawSampleTablePages(doc, samples, timeDisplayZone) {
   let y = 0;
 
   function newTablePage() {
+    // Finalize the page being left behind before moving on -- without this,
+    // only page 1 (footer drawn explicitly before the table starts, below)
+    // and the very last table page (footer drawn once after the forEach
+    // loop finishes) ever got a footer; every page in between a multi-page
+    // table was missing the model disclaimer entirely. Guarded on page > 0
+    // so the *first* newTablePage() call (page still 0, about to become
+    // document page 2) doesn't redraw page 1's footer a second time on top
+    // of the one already drawn before drawSampleTablePages() was called.
+    if (page > 0) drawFooter(doc);
     doc.addPage();
     page += 1;
     drawHeaderBand(doc, { title: 'Cook Islands Route Advisory', subtitle: `Full sample table (page ${page + 1})` });

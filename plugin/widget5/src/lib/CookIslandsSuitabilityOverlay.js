@@ -94,6 +94,40 @@ export function classifyAgainstOperatingEnvelope(envelope, windKt, waveM) {
   return Math.max(windHazard, waveHazard);
 }
 
+// Convenience wrapper for the two functions above, against a vessel's own
+// preset envelope (no custom overrides) -- the single source of truth
+// deriveSuitabilityDriver and cookIslandsScenarioService.js's
+// suggestBetterVessel both build on, so a threshold change can't drift
+// between "why did this hazard happen" and "which vessel would clear it."
+// Mirrors widget1's NiueSuitabilityOverlay.js:169. A client-side estimate
+// against VESSEL_OPERATING_ENVELOPE, never an authoritative
+// reclassification -- the backend's own hazard_class always wins wherever
+// both are available. Returns null for an unknown vessel code (unlike
+// resolveOperatingEnvelope, which throws) since callers here scan across
+// vessel codes rather than acting on one already known to be valid.
+export function classifySuitability(vesselCode, windKt, waveM) {
+  if (!VESSEL_OPERATING_ENVELOPE[vesselCode]) return null;
+  return classifyAgainstOperatingEnvelope(resolveOperatingEnvelope(vesselCode), windKt, waveM);
+}
+
+// Explains which parameter(s) drove a hazard reading from wind/wave values
+// against a vessel's preset envelope -- used for explainability text when
+// the backend doesn't return a driver field itself. Prefer a
+// backend-provided driver over this wherever the API supplies one; this is
+// a client-side estimate, not an authoritative reclassification. Ported
+// verbatim from widget1's NiueSuitabilityOverlay.js:186 -- every vessel's
+// caution thresholds are > 0, so classifying with the other axis zeroed out
+// reproduces the original per-axis wind/wave hazard exactly.
+export function deriveSuitabilityDriver(vesselCode, maxWindKt, maxWaveM) {
+  const windHazard = classifySuitability(vesselCode, maxWindKt, 0);
+  if (windHazard === null) return null;
+  const waveHazard = classifySuitability(vesselCode, 0, maxWaveM);
+  if (windHazard === 0 && waveHazard === 0) return 'none';
+  if (windHazard > waveHazard) return 'wind';
+  if (waveHazard > windHazard) return 'waves';
+  return 'wind_and_waves';
+}
+
 export class CookIslandsSuitabilityOverlay {
   constructor(map, opts = {}) {
     this._map         = map;
@@ -507,4 +541,87 @@ export class CookIslandsSuitabilityOverlay {
       if (map.getSource(RASTER_SOURCE_ID)) map.removeSource(RASTER_SOURCE_ID);
     } catch (_) {}
   }
+}
+
+// ── Landing-area timeseries fetch helpers ──────────────────────────────────
+// Ported from widget1's NiueSuitabilityOverlay.js (fetchSuitabilityTimeseries,
+// fetchSuitabilityAreaTimeseries, isSuitabilityAreaTimeseriesUnavailable) for
+// CookIslandsLandingAreaComparisonHeatmap.jsx / useCookIslandsLandingAreaComparison.
+// Same-origin relative fetches throughout (no apiBase -- see the readiness
+// card's header comment for why), and field names match this app's own
+// /cok/suitability/*/timeseries response shape (point_count/
+// used_nearest_point_fallback), not Niue's face_count/used_nearest_face_fallback.
+
+// Sticky for the life of the page: once /cok/suitability/area/timeseries has
+// 404'd once, every further landing-area lookup skips straight to the
+// point/timeseries fallback instead of re-probing an endpoint already known
+// to be absent from this deployment.
+let areaTimeseriesUnavailable = false;
+
+export function isCookIslandsAreaTimeseriesUnavailable() {
+  return areaTimeseriesUnavailable;
+}
+
+// Test-only: this module holds page-lifetime state on purpose (see above),
+// which would otherwise leak between unrelated test cases sharing the same
+// module instance. Not meant to be called from application code.
+export function __resetCookIslandsAreaTimeseriesAvailabilityForTests() {
+  areaTimeseriesUnavailable = false;
+}
+
+export async function fetchCookIslandsSuitabilityPointTimeseries(lng, lat, vessel) {
+  const params = new URLSearchParams({ lon: String(lng), lat: String(lat), vessel });
+  const resp = await fetch(`/cok/suitability/point/timeseries?${params}`);
+  if (!resp.ok) {
+    if (resp.status === 404) {
+      throw new Error('Landing-area suitability is not available on this deployment yet.');
+    }
+    throw new Error(`/cok/suitability/point/timeseries ${resp.status}`);
+  }
+  return resp.json();
+}
+
+function radiusKmToMeters(radiusKm) {
+  const km = Number(radiusKm);
+  return Number.isFinite(km) && km > 0 ? Math.round(km * 1000) : 500;
+}
+
+export function normalizeCookIslandsSuitabilityAreaTimeseries(payload, radiusKm = 0.5) {
+  const radiusM = Number(payload?.radius_m);
+  const pointCount = Number(payload?.point_count);
+  const hasPointCount = Number.isFinite(pointCount);
+  const usedNearestPointFallback = Boolean(payload?.used_nearest_point_fallback);
+  const statisticsBasis = usedNearestPointFallback ? 'nearest_point_area_fallback' : 'area_500m';
+
+  const steps = Array.isArray(payload?.steps) ? payload.steps.map((step) => ({
+    ...step,
+    sample_count: hasPointCount ? pointCount : undefined,
+    point_count: hasPointCount ? pointCount : undefined,
+    used_nearest_point_fallback: usedNearestPointFallback,
+  })) : [];
+
+  return {
+    ...payload,
+    radius_km: Number.isFinite(radiusM) ? radiusM / 1000 : radiusKm,
+    point_count: hasPointCount ? pointCount : payload?.point_count,
+    used_nearest_point_fallback: usedNearestPointFallback,
+    statistics_basis: statisticsBasis,
+    steps,
+  };
+}
+
+export async function fetchCookIslandsSuitabilityAreaTimeseries(lng, lat, vessel, radiusKm = 0.5) {
+  const params = new URLSearchParams({
+    lon: String(lng), lat: String(lat), vessel,
+    radius_m: String(radiusKmToMeters(radiusKm)),
+  });
+  const resp = await fetch(`/cok/suitability/area/timeseries?${params}`);
+  if (!resp.ok) {
+    if (resp.status === 404) areaTimeseriesUnavailable = true;
+    const err = new Error(`/cok/suitability/area/timeseries ${resp.status}`);
+    err.status = resp.status;
+    throw err;
+  }
+  const payload = await resp.json();
+  return normalizeCookIslandsSuitabilityAreaTimeseries(payload, radiusKm);
 }

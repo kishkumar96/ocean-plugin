@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from 'react';
-import { TriangleAlert, RotateCcw, Download, Loader2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { TriangleAlert, RotateCcw, Download, Loader2, Compass, Clock3, CheckCircle2, Loader } from 'lucide-react';
 import { HAZARD_COLORS, VESSEL_CLASS_OPTIONS } from '../../lib/CookIslandsSuitabilityOverlay';
+import { ROUTE_HAZARD_LABELS } from '../../services/cookIslandsRouteForecastService';
+import { MAX_SCENARIOS, suggestBetterVessel } from '../../services/cookIslandsScenarioService';
 import { formatZoned, tzLabel } from '../../utils/timeZoneFormat';
 import { exportCookIslandsRouteAdvisoryPdf } from '../../utils/CookIslandsRouteAdvisoryPdf';
 
@@ -11,12 +13,22 @@ function fmtNumber(value, digits = 1, suffix = '') {
 }
 
 // Results view for one Cook Islands route forecast (/cok/suitability/route).
-// Trimmed relative to widget1's RouteForecastPanel.jsx: no scenario
-// comparison, no "suggest a better vessel/departure" -- this app only draws
-// a route, runs it, shows what came back, and (below) can save it as a PDF.
-function CookIslandsRouteForecastPanel({ data, onRetry, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null }) {
+// Trimmed relative to widget1's RouteForecastPanel.jsx in one remaining way:
+// no sea-level context (this app has no sea-level dataset). "Suggest a
+// better vessel/departure" are ported below, feeding into
+// CookIslandsScenarioComparisonPanel (in ForecastApp.jsx) the same way
+// widget1's do.
+function CookIslandsRouteForecastPanel({
+  data, onRetry, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null, modelRunStart = null,
+  scenarioCount = 0, onConfirmVesselSuggestion,
+  departureSuggestionLoading, departureSuggestionProgress, departureSuggestionResult, departureSuggestionError,
+  onSuggestBetterDeparture, onApplyDepartureSuggestion, onSaveDepartureSuggestionAsScenario,
+}) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
+  const [confirmingVessel, setConfirmingVessel] = useState(false);
+  const [confirmedScenarioName, setConfirmedScenarioName] = useState('');
+  const confirmedClearTimerRef = useRef(null);
   const result = data?.result;
   const summary = result?.summary;
   const samples = useMemo(() => (Array.isArray(result?.samples) ? result.samples : []), [result]);
@@ -26,6 +38,30 @@ function CookIslandsRouteForecastPanel({ data, onRetry, timeDisplayZone = 'Pacif
   // the same green "Suitable" badge as a real all-clear route.
   const hazard = summary?.worst_hazard_class;
   const hazardColor = Number.isFinite(hazard) ? (HAZARD_COLORS[hazard] ?? '#94a3b8') : '#94a3b8';
+
+  // Free, client-side estimate -- no network call. See suggestBetterVessel's
+  // own header comment for why this must never be presented as
+  // route-checked; "Confirm & compare" below is what actually verifies it.
+  const vesselSuggestion = useMemo(() => (
+    result ? suggestBetterVessel(result, data?.vessel) : null
+  ), [result, data?.vessel]);
+
+  const handleConfirmVesselSuggestion = useCallback(async () => {
+    if (!vesselSuggestion || confirmingVessel) return;
+    setConfirmingVessel(true);
+    try {
+      const created = await onConfirmVesselSuggestion?.(vesselSuggestion.vessel);
+      if (created?.name) {
+        setConfirmedScenarioName(created.name);
+        clearTimeout(confirmedClearTimerRef.current);
+        confirmedClearTimerRef.current = setTimeout(() => setConfirmedScenarioName(''), 5000);
+      }
+    } finally {
+      setConfirmingVessel(false);
+    }
+  }, [vesselSuggestion, confirmingVessel, onConfirmVesselSuggestion]);
+
+  useEffect(() => () => clearTimeout(confirmedClearTimerRef.current), []);
 
   function fmtTime(value) {
     if (!value) return '—';
@@ -84,7 +120,7 @@ function CookIslandsRouteForecastPanel({ data, onRetry, timeDisplayZone = 'Pacif
     setExportError('');
     try {
       await exportCookIslandsRouteAdvisoryPdf({
-        result, vessel: data?.vessel, speedKt: data?.speedKt, timeDisplayZone, mapCustomEnvelope,
+        result, vessel: data?.vessel, speedKt: data?.speedKt, timeDisplayZone, mapCustomEnvelope, modelRunStart,
       });
     } catch (err) {
       console.error('[CookIslandsRouteForecastPanel] PDF export failed:', err);
@@ -112,6 +148,90 @@ function CookIslandsRouteForecastPanel({ data, onRetry, timeDisplayZone = 'Pacif
         <Stat label="Duration" value={fmtNumber(summary?.duration_hours, 1, ' h')} />
         <Stat label="Speed" value={fmtNumber(Number(data?.speedKt), 1, ' kt')} />
       </div>
+
+      {vesselSuggestion && (
+        <div style={{
+          border: '1px dashed rgba(255,255,255,0.18)', borderRadius: 8,
+          padding: '0.6rem 0.75rem', marginBottom: '0.6rem', fontSize: 12,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, marginBottom: 4 }}>
+            <Compass size={13} />
+            Suggestion
+          </div>
+          <div style={{ color: TEXT_MUTED, fontStyle: 'italic' }}>
+            <strong style={{ color: '#f8fafc', fontStyle: 'normal' }}>{vesselSuggestion.vesselLabel}</strong> would reduce worst conditions from{' '}
+            <strong style={{ color: '#f8fafc', fontStyle: 'normal' }}>{ROUTE_HAZARD_LABELS[vesselSuggestion.currentWorstHazardClass]}</strong> to{' '}
+            <strong style={{ color: '#f8fafc', fontStyle: 'normal' }}>{ROUTE_HAZARD_LABELS[vesselSuggestion.estimatedWorstHazardClass]}</strong> for this same route and time
+            {' '}(threshold estimate — confirm before changing vessel class).
+          </div>
+          <button
+            type="button"
+            className="map-display-option__btn"
+            style={{ marginTop: 6 }}
+            onClick={handleConfirmVesselSuggestion}
+            disabled={confirmingVessel || scenarioCount >= MAX_SCENARIOS}
+            title={scenarioCount >= MAX_SCENARIOS ? `Remove a scenario first — up to ${MAX_SCENARIOS} at a time` : 'Confirm & compare'}
+          >
+            {confirmingVessel ? <Loader size={13} /> : <Compass size={13} />}
+            {confirmingVessel ? 'Confirming…' : 'Confirm & compare'}
+          </button>
+          {confirmedScenarioName && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#4ade80', fontSize: 12, marginTop: 6 }}>
+              <CheckCircle2 size={13} />
+              Added as {confirmedScenarioName} — see Scenario Comparison above.
+            </div>
+          )}
+        </div>
+      )}
+
+      {onSuggestBetterDeparture && (
+        <div style={{
+          border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8,
+          padding: '0.6rem 0.75rem', marginBottom: '0.6rem', fontSize: 12,
+          display: 'flex', flexDirection: 'column', gap: 6,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+              <Clock3 size={13} />
+              Better departure?
+            </div>
+            <button
+              type="button"
+              className="map-display-option__btn"
+              onClick={onSuggestBetterDeparture}
+              disabled={departureSuggestionLoading}
+            >
+              {departureSuggestionLoading ? <Loader size={12} /> : <Clock3 size={12} />}
+              {departureSuggestionLoading
+                ? `Checking +${departureSuggestionProgress?.offsetHours}h… (${(departureSuggestionProgress?.index ?? 0) + 1}/${departureSuggestionProgress?.total ?? '?'})`
+                : 'Suggest better departure'}
+            </button>
+          </div>
+          {departureSuggestionError && <div style={{ color: '#f87171' }}>{departureSuggestionError}</div>}
+          {departureSuggestionResult && (
+            <div style={{ color: TEXT_MUTED }}>
+              Leaving <strong style={{ color: '#f8fafc' }}>+{departureSuggestionResult.offsetHours}h</strong> later
+              ({fmtTime(departureSuggestionResult.departureTime)}) would be{' '}
+              <strong style={{ color: '#f8fafc' }}>{ROUTE_HAZARD_LABELS[departureSuggestionResult.worstHazardClass]}</strong>
+              {departureSuggestionResult.allClear ? '' : ' (best of the offsets checked)'} — checked against the route forecast.
+              {departureSuggestionResult.failedOffsets?.length > 0 && (
+                <> {departureSuggestionResult.failedOffsets.length === 1 ? 'One offset' : `${departureSuggestionResult.failedOffsets.length} offsets`} (+{departureSuggestionResult.failedOffsets.join('h, +')}h) could not be checked.</>
+              )}
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <button type="button" className="map-display-option__btn" onClick={onApplyDepartureSuggestion}>Apply</button>
+                <button
+                  type="button"
+                  className="map-display-option__btn"
+                  onClick={onSaveDepartureSuggestionAsScenario}
+                  disabled={scenarioCount >= MAX_SCENARIOS}
+                >
+                  Save as scenario
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {mapCustomEnvelope && (
         <div
