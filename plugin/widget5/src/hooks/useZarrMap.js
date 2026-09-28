@@ -625,6 +625,14 @@ export function useZarrMap({
       // polygons) never rendered anywhere, not hidden by opacity/color like
       // the line/circle contrast issue above, just never selected at all.
       const IMPACT_POLYGON_FILTER = ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'MultiPolygon']];
+      // Same Multi*-inclusive reasoning as the polygon filter above, applied to lines and
+      // points too -- the line/circle layers below (and the scenario-filter effect's own
+      // geomFilters map) previously checked only the singular type, which would silently
+      // drop every MultiLineString (disconnected road segments -- common in real road-network
+      // data) or MultiPoint feature RiskScape ever returns, exactly the way the polygon case
+      // already documented was happening for buildings.
+      const IMPACT_LINE_FILTER = ['any', ['==', ['geometry-type'], 'LineString'], ['==', ['geometry-type'], 'MultiLineString']];
+      const IMPACT_POINT_FILTER = ['any', ['==', ['geometry-type'], 'Point'], ['==', ['geometry-type'], 'MultiPoint']];
       map.addLayer({
         id: COK_IMPACT_ASSETS_FILL_LAYER,
         type: 'fill',
@@ -652,7 +660,7 @@ export function useZarrMap({
         id: COK_IMPACT_ASSETS_LINE_HALO_LAYER,
         type: 'line',
         source: COK_IMPACT_ASSETS_SOURCE,
-        filter: ['==', ['geometry-type'], 'LineString'],
+        filter: IMPACT_LINE_FILTER,
         layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': '#0f172a',
@@ -664,7 +672,7 @@ export function useZarrMap({
         id: COK_IMPACT_ASSETS_LINE_LAYER,
         type: 'line',
         source: COK_IMPACT_ASSETS_SOURCE,
-        filter: ['==', ['geometry-type'], 'LineString'],
+        filter: IMPACT_LINE_FILTER,
         layout: { visibility: 'none' },
         paint: {
           // Roads colored by flood severity (lossRatio), not sector, unlike
@@ -699,7 +707,7 @@ export function useZarrMap({
         id: COK_IMPACT_ASSETS_CIRCLE_LAYER,
         type: 'circle',
         source: COK_IMPACT_ASSETS_SOURCE,
-        filter: ['==', ['geometry-type'], 'Point'],
+        filter: IMPACT_POINT_FILTER,
         layout: { visibility: 'none' },
         paint: {
           'circle-radius': [
@@ -1049,16 +1057,17 @@ export function useZarrMap({
     // flash-to-empty between "assets fetched" and "which window is selected"
     // landing on the same render.
     const scenarioFilter = impactAssetsScenario ? ['==', ['get', 'scenario'], impactAssetsScenario] : true;
-    // Values are arrays, not single strings -- ['geometry-type'] returns the
-    // literal GeoJSON type, never folding e.g. MultiPolygon into 'Polygon',
-    // so the fill layer needs both listed or every multi-part building
-    // footprint gets excluded here on every window change even after the
-    // initial addLayer filter above was fixed to include it.
+    // Values are arrays, not single strings -- ['geometry-type'] returns the literal GeoJSON
+    // type, never folding e.g. MultiPolygon into 'Polygon' or MultiLineString into
+    // 'LineString', so every layer needs both its singular and Multi* form listed or the
+    // matching features get excluded here on every window change even after the initial
+    // addLayer filters above were fixed to include them (IMPACT_POLYGON_FILTER /
+    // IMPACT_LINE_FILTER / IMPACT_POINT_FILTER).
     const geomFilters = {
       [COK_IMPACT_ASSETS_FILL_LAYER]: ['Polygon', 'MultiPolygon'],
-      [COK_IMPACT_ASSETS_LINE_HALO_LAYER]: ['LineString'],
-      [COK_IMPACT_ASSETS_LINE_LAYER]: ['LineString'],
-      [COK_IMPACT_ASSETS_CIRCLE_LAYER]: ['Point'],
+      [COK_IMPACT_ASSETS_LINE_HALO_LAYER]: ['LineString', 'MultiLineString'],
+      [COK_IMPACT_ASSETS_LINE_LAYER]: ['LineString', 'MultiLineString'],
+      [COK_IMPACT_ASSETS_CIRCLE_LAYER]: ['Point', 'MultiPoint'],
     };
     for (const [layerId, geomTypes] of Object.entries(geomFilters)) {
       if (map.getLayer(layerId)) {
