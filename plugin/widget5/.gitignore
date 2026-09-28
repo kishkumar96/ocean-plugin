@@ -32,3 +32,4 @@ yarn-error.log*
 # Glob (not just the literal "localhost.har") since captures get renamed per
 # session, e.g. CookIslandslocalhost.har, Niue.har.
 *.har
+pdf-samples/

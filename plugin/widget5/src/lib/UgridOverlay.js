@@ -1,6 +1,6 @@
 // UgridOverlay.js — renders an unstructured UGRID mesh Zarr dataset via deck.gl + MapLibre.
 // Ported from zarr_web/src/lib/UgridOverlay.ts (TypeScript stripped, zarrita → zarr v0.6.3).
-import { MapboxOverlay } from '@deck.gl/mapbox';
+import { MapLibreOverlay } from '@deck.gl/maplibre';
 import { PolygonLayer, IconLayer, PathLayer, TextLayer } from '@deck.gl/layers';
 import { openArray, HTTPStore } from 'zarr';
 import { getColormap } from './colormaps';
@@ -278,7 +278,7 @@ export class UgridOverlay {
     this.map = map;
     this.config = config;
     this._contoursEnabled = config.contours?.visibleByDefault ?? config.contours?.enabled ?? true;
-    this.overlay = new MapboxOverlay({ interleaved: true, layers: [] });
+    this.overlay = new MapLibreOverlay({ interleaved: true, layers: [] });
     // addControl() is deferred to _initialize() (after a settle-frame buffer),
     // not called here — see the comment there for why.
 
@@ -330,7 +330,7 @@ export class UgridOverlay {
 
       // One rAF buffer so a prior raster overlay's GL-context teardown (its
       // destroy() runs synchronously, in the same tick useZarrMap constructs
-      // this overlay) settles before this deck.gl MapboxOverlay is wired into
+      // this overlay) settles before this deck.gl MapLibreOverlay is wired into
       // MapLibre's render loop. Same rAF buffer as SfincsRasterOverlay uses
       // before its addLayer — that guards entering a raster overlay right
       // after this one; this guards the reverse direction.
@@ -481,7 +481,7 @@ export class UgridOverlay {
       // overlay's own async metadata fetch (see _initialize), not on that
       // handler having already run -- if this overlay's very first _render()
       // ever wins that race, a beforeId pointing at a still-nonexistent layer
-      // makes deck.gl's MapboxOverlay permanently wedge: the failed addLayer
+      // makes deck.gl's MapLibreOverlay permanently wedge: the failed addLayer
       // is never recognized as failed, so every later render frame re-attempts
       // and re-fails the same add/move forever (the "Cannot add layer 'ugrid'
       // before non-existing layer 'risk-circles'" console spam). Recomputed

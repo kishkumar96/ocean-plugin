@@ -1,10 +1,13 @@
+import { openArray, HTTPStore } from 'zarr';
+import ZarrInundationProvider from '../ZarrInundationProvider';
+
+// jest.mock calls are hoisted above imports by babel-plugin-jest-hoist regardless of
+// source position, so declaring it after the imports is both eslint-clean (import/first)
+// and behaves identically to the hoisted-above-imports form.
 jest.mock('zarr', () => ({
   openArray: jest.fn(),
   HTTPStore: jest.fn().mockImplementation((url) => ({ url })),
 }));
-
-import { openArray, HTTPStore } from 'zarr';
-import ZarrInundationProvider from '../ZarrInundationProvider';
 
 describe('ZarrInundationProvider', () => {
   beforeEach(() => {

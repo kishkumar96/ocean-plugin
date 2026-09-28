@@ -1,13 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { RotateCcw, TriangleAlert, DollarSign, Building2, CalendarClock } from 'lucide-react';
+import { RotateCcw, TriangleAlert, DollarSign, Building2, Users } from 'lucide-react';
 import ImpactSectorChart from './ImpactSectorChart';
 import ImpactCategoryAccordion from './ImpactCategoryAccordion';
 import { formatZoned } from '../../utils/timeZoneFormat';
-import { fmtUsd, fmtDateRange, parseCycleId, MODEL_STATUS, computeModelStatus, worstBlockIndex } from './impactFormat';
-import { DISTRICT_LOSS_COLOR_STOPS } from '../../services/cookIslandsImpactService';
+import { fmtUsd, fmtDateRange, parseCycleId, MODEL_STATUS, computeModelStatus, worstBlockIndex, fmtHectares, portLossByScenario, blockWithoutPort } from './impactFormat';
+import {
+  DISTRICT_LOSS_COLOR_STOPS,
+  MHWS_LINES,
+  MHWS_DEPTH_OPTIONS_M,
+  MHWS_DEFAULT_MIN_DEPTH_M,
+  mhwsBlockIndexFromScenario,
+  fetchCookIslandsMhwsInundation,
+} from '../../services/cookIslandsImpactService';
+import useMhwsSummaries from './useMhwsSummaries';
 
 const TEXT_PRIMARY = '#f8fafc';
-const TEXT_MUTED = 'rgba(203, 213, 225, 0.72)';
+const TEXT_MUTED = 'rgba(226, 232, 240, 0.82)';
 
 function StatusBadge({ status }) {
   if (!status) return null;
@@ -16,7 +24,7 @@ function StatusBadge({ status }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-      padding: '0.15rem 0.55rem', borderRadius: 999, fontSize: '0.66rem', fontWeight: 700,
+      padding: '0.15rem 0.55rem', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
       textTransform: 'uppercase', letterSpacing: '0.03em',
       color: meta.color, border: `1px solid ${meta.color}66`, background: `${meta.color}1a`,
     }}>
@@ -24,6 +32,51 @@ function StatusBadge({ status }) {
       {meta.label}
     </span>
   );
+}
+
+// Area columns for the water-mark comparison: one per MHWS line, the working
+// mark (+17.5 cm) emphasised. Shared by the district and window tables so both
+// use identical headers and formatting. `areaFor(marginCm)` returns hectares or
+// null (still loading / unavailable -> "—").
+const WORKING_LINE_COLOR = '#2dd4bf';
+function MhwsAreaHeaders({ rowSpan }) {
+  return MHWS_LINES.map((line) => (
+    <th
+      key={line.marginCm}
+      role="columnheader"
+      scope="col"
+      rowSpan={rowSpan}
+      title={`Land flooded above ${line.label}`}
+      style={{
+        padding: '0.4rem 0.5rem', textAlign: 'right', whiteSpace: 'nowrap',
+        color: line.kind === 'working' ? WORKING_LINE_COLOR : TEXT_MUTED,
+        fontWeight: line.kind === 'working' ? 700 : 500,
+      }}
+    >
+      {line.short}
+      <div style={{ fontSize: '0.72rem', fontWeight: 400, opacity: 0.8 }}>{line.kind === 'working' ? 'ha · working mark' : 'ha'}</div>
+    </th>
+  ));
+}
+
+function MhwsAreaCells({ areaFor }) {
+  return MHWS_LINES.map((line) => {
+    const working = line.kind === 'working';
+    return (
+      <td
+        key={line.marginCm}
+        role="gridcell"
+        style={{
+          padding: '0.45rem 0.5rem', textAlign: 'right', whiteSpace: 'nowrap',
+          fontWeight: working ? 700 : 400,
+          color: working ? WORKING_LINE_COLOR : TEXT_PRIMARY,
+          background: working ? 'rgba(45, 212, 191, 0.07)' : 'transparent',
+        }}
+      >
+        {fmtHectares(areaFor(line.marginCm))}
+      </td>
+    );
+  });
 }
 
 function HeroCard({ icon: Icon, label, value, subtitle, accentColor }) {
@@ -34,12 +87,12 @@ function HeroCard({ icon: Icon, label, value, subtitle, accentColor }) {
       background: `linear-gradient(135deg, ${accentColor}26, ${accentColor}0d)`,
       border: `1px solid ${accentColor}55`,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: TEXT_MUTED, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: TEXT_MUTED, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
         <Icon size={13} color={accentColor} />
         {label}
       </div>
       <div style={{ fontWeight: 700, fontSize: '1.15rem', color: TEXT_PRIMARY }}>{value}</div>
-      {subtitle && <div style={{ fontSize: '0.68rem', color: TEXT_MUTED }}>{subtitle}</div>}
+      {subtitle && <div style={{ fontSize: '0.72rem', color: TEXT_MUTED }}>{subtitle}</div>}
     </div>
   );
 }
@@ -60,7 +113,7 @@ function HeroCard({ icon: Icon, label, value, subtitle, accentColor }) {
 // came from the worst-damage block while buildings was the max across ALL
 // blocks (possibly a different window entirely), which silently mixed two
 // unrelated scenarios into one "summary".
-function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChange, onSelectAsset, timeDisplayZone = 'Pacific/Rarotonga' }) {
+function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChange, onMhwsResult, onSelectAsset, timeDisplayZone = 'Pacific/Rarotonga' }) {
   const result = data?.result;
   const blocks = useMemo(() => (Array.isArray(result?.blocks) ? result.blocks : []), [result]);
 
@@ -78,14 +131,30 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
   const activeIndex = selectedIndex >= 0 && selectedIndex < blocks.length ? selectedIndex : worstIndex;
   const selected = blocks[activeIndex] ?? null;
 
+  // Optional view without Port assets (see impactFormat.portLossByScenario). Only
+  // available once the per-asset feed is loaded; selection and the map keep using
+  // the reported blocks, only the displayed damage figures change.
+  const [excludePort, setExcludePort] = useState(false);
+  const allAssetFeatures = data?.assets?.geojson?.features;
+  const portLoss = useMemo(() => portLossByScenario(allAssetFeatures), [allAssetFeatures]);
+  const portAvailable = Array.isArray(allAssetFeatures);
+  const portOff = excludePort && portAvailable;
+  const viewBlocks = useMemo(
+    () => (portOff ? blocks.map((b) => blockWithoutPort(b, portLoss.get(b.scenario) ?? 0)) : blocks),
+    [portOff, blocks, portLoss],
+  );
+  const viewSelected = viewBlocks[activeIndex] ?? null;
+  const viewWorstIndex = useMemo(() => worstBlockIndex(viewBlocks), [viewBlocks]);
+  const selectedPortLoss = portLoss.get(selected?.scenario) ?? 0;
+
   // Use the same selection path as the compact Impacts tab. Every selected
   // row updates both the RiskScape asset filter and the SFINCS inundation
   // range, including the initial highest-impact selection.
   useEffect(() => {
     onScenarioChange?.(selected?.scenario ?? null);
-    if (selected) onWindowSelect?.(selected);
+    if (selected) onWindowSelect?.({ ...selected, cycleId: result?.cycleId ?? null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.scenario, selected?.dateStart, selected?.dateEnd, selected?.windowStart, selected?.windowEnd]);
+  }, [result?.cycleId, selected?.scenario, selected?.dateStart, selected?.dateEnd, selected?.windowStart, selected?.windowEnd]);
 
   const selectRow = (i) => {
     userSelectedRef.current = true;
@@ -119,6 +188,57 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
       .filter((d) => d.scenario === selected.scenario && !d.unmatched && d.totalLoss > 0)
       .sort((a, b) => b.totalLoss - a.totalLoss);
   }, [districtRows, selected?.scenario]);
+
+  // Area of land flooded above each MHWS water mark, per window and per district,
+  // so the marks can be compared next to the RiskScape figures.
+  const [mhwsDepthM, setMhwsDepthM] = useState(MHWS_DEFAULT_MIN_DEPTH_M);
+  const mhws = useMhwsSummaries(blocks, mhwsDepthM);
+  // The hazard endpoints only serve the latest published cycle. If it is not the
+  // cycle these RiskScape figures belong to (e.g. mid-publication), don't set the
+  // two side by side: show dashes and say why.
+  const summaryFor = (scenario) => {
+    const summary = mhws.byBlock[mhwsBlockIndexFromScenario(scenario)] ?? null;
+    if (summary && result?.cycleId && summary.cycleId && summary.cycleId !== String(result.cycleId)) return null;
+    return summary;
+  };
+  const mhwsCycleMismatch = Object.values(mhws.byBlock).find(
+    (sm) => sm.cycleId && result?.cycleId && sm.cycleId !== String(result.cycleId),
+  )?.cycleId ?? null;
+
+  // Area columns appear only when there is something honest to show: not when the hazard run and the
+  // impact run differ, and not when the area service failed. Otherwise they would be columns of dashes.
+  const showAreaColumns = !mhwsCycleMismatch && !mhws.error;
+
+  // Only when a parent asks for it (the mobile sheet, which has no Impacts-tab
+  // section): report the working-mark flood geometry for the selected window so
+  // the map's "flooded above MHWS" layer is not left empty.
+  const selectedBlockIndex = mhwsBlockIndexFromScenario(selected?.scenario);
+  const onMhwsResultRef = useRef(onMhwsResult);
+  onMhwsResultRef.current = onMhwsResult;
+  const reportsGeometry = Boolean(onMhwsResult);
+  useEffect(() => {
+    if (!reportsGeometry || !selectedBlockIndex) return undefined;
+    let cancelled = false;
+    onMhwsResultRef.current?.(null);
+    fetchCookIslandsMhwsInundation({ block: selectedBlockIndex, minDepthM: mhwsDepthM })
+      .then((r) => {
+        if (cancelled) return;
+        const mismatch = r.cycleId && result?.cycleId && r.cycleId !== String(result.cycleId);
+        onMhwsResultRef.current?.(mismatch ? null : r);
+      })
+      .catch(() => { if (!cancelled) onMhwsResultRef.current?.(null); });
+    return () => { cancelled = true; };
+  }, [reportsGeometry, selectedBlockIndex, mhwsDepthM, result?.cycleId]);
+  useEffect(() => () => onMhwsResultRef.current?.(null), []);
+  const levelFor = (summary, marginCm) => summary?.levels?.find((lv) => lv.marginCm === marginCm) ?? null;
+  const windowAreaHa = (scenario) => (marginCm) => levelFor(summaryFor(scenario), marginCm)?.areaHa ?? null;
+  const districtAreaHa = (districtId) => (marginCm) => {
+    const level = levelFor(summaryFor(selected?.scenario), marginCm);
+    if (!level) return null;
+    // The backend lists every district (0 ha when dry), so a missing one means
+    // the id did not match -> "—", not a false 0.
+    return level.districts.find((d) => d.districtId === String(districtId))?.areaHa ?? null;
+  };
 
   const cycleDate = useMemo(() => parseCycleId(result?.cycleId), [result?.cycleId]);
   const modelStatus = computeModelStatus({
@@ -164,45 +284,88 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
           row's selected state to be exposed correctly to assistive tech. */}
       <style>{'.impact-window-row:focus-visible { outline: 2px solid #38bdf8; outline-offset: -2px; }'}</style>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-        <div style={{ fontSize: '0.68rem', color: TEXT_MUTED, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+        <div style={{ fontSize: '0.72rem', color: TEXT_MUTED, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
           {result.label}
           {cycleDate && ` — forecast issued ${formatZoned(cycleDate, timeDisplayZone)}`}
         </div>
         <StatusBadge status={modelStatus} />
       </div>
+      {mhwsCycleMismatch && (
+        <div role="status" style={{ marginBottom: '0.5rem', fontSize: '0.78rem', color: '#fde68a' }}>
+          Available, but based on the previous hazard run: the newest hazard run ({mhwsCycleMismatch}) is not yet in this impact estimate ({String(result.cycleId)}).
+        </div>
+      )}
+
+      <div role="group" aria-label="Forecast window" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+        <span style={{ fontSize: '0.78rem', color: TEXT_MUTED }}>Selected window</span>
+        {blocks.map((block, i) => {
+          const isSelected = i === activeIndex;
+          return (
+            <button
+              key={block.scenario ?? i}
+              type="button"
+              aria-pressed={isSelected}
+              onClick={() => selectRow(i)}
+              title={onWindowSelect ? 'Show this window’s flood extent and impacts on the map' : undefined}
+              style={{
+                padding: '0.35rem 0.75rem', borderRadius: 999, fontSize: '0.82rem', fontWeight: isSelected ? 700 : 500, cursor: 'pointer',
+                border: isSelected ? '1.5px solid rgba(56, 189, 248, 0.8)' : '1px solid rgba(255,255,255,0.18)',
+                background: isSelected ? 'rgba(56, 189, 248, 0.16)' : 'rgba(255,255,255,0.04)',
+                color: isSelected ? '#7dd3fc' : 'rgba(255,255,255,0.75)',
+              }}
+            >
+              {fmtDateRange(block.dateStart, block.dateEnd)}
+              {i === viewWorstIndex && block.totalLoss > 0 && <span style={{ marginLeft: 6, fontSize: '0.72rem', color: '#E63946', fontWeight: 700 }}>HIGHEST</span>}
+            </button>
+          );
+        })}
+      </div>
 
       <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <HeroCard
           icon={DollarSign}
-          label="Estimated economic damage"
-          value={fmtUsd(selected?.totalLoss)}
-          subtitle={fmtDateRange(selected?.dateStart, selected?.dateEnd)}
+          label={portOff ? 'Estimated damage (excl. Port)' : 'Estimated economic damage'}
+          value={fmtUsd(viewSelected?.totalLoss)}
           accentColor="#E63946"
         />
         <HeroCard
           icon={Building2}
           label="Buildings exposed"
           value={selected?.totalExposedBuildings?.toLocaleString() ?? '—'}
-          subtitle={fmtDateRange(selected?.dateStart, selected?.dateEnd)}
           accentColor="#F4A261"
         />
         <HeroCard
-          icon={CalendarClock}
-          label="Forecast windows"
-          value={String(blocks.length)}
-          subtitle="consecutive forecast windows"
-          accentColor="#38bdf8"
+          icon={Users}
+          label="Population affected"
+          value={selected?.population?.value === null || selected?.population?.value === undefined ? '—' : `${selected.population.value.toLocaleString()}${selected.population.validated ? '' : '*'}`}
+          subtitle={selected?.population?.validated === false ? '*unconfirmed' : undefined}
+          accentColor="#a78bfa"
         />
       </div>
 
-      <div style={{ marginBottom: '0.4rem', fontSize: '0.78rem', fontWeight: 600 }}>
-        Economic damage by sector — {fmtDateRange(selected?.dateStart, selected?.dateEnd)}
-      </div>
-      <ImpactSectorChart sectorValues={selected?.lossesBySector} isDarkMode />
+      {portAvailable && selectedPortLoss > 0 && (
+        <div style={{ marginBottom: '0.9rem', padding: '0.55rem 0.7rem', borderRadius: 10, border: '1px solid rgba(251, 191, 36, 0.35)', background: 'rgba(251, 191, 36, 0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem', flexWrap: 'wrap' }}>
+          <div style={{ fontSize: '0.76rem', color: TEXT_MUTED, maxWidth: '36rem' }}>
+            <strong style={{ color: TEXT_PRIMARY }}>Port assets (wharf, marina, jetty) are {fmtUsd(selectedPortLoss)}</strong>
+            {selected?.totalLoss > 0 && ` — ${Math.round((100 * selectedPortLoss) / selected.totalLoss)}% — of this window’s estimate.`}
+            {' '}Their modelled depth is often the harbour water beside the structure rather than flooding on it, so this part
+            of the estimate is likely overstated. The land-area columns further down are not affected by this.
+          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <input type="checkbox" checked={excludePort} onChange={(e) => setExcludePort(e.target.checked)} />
+            Exclude Port assets
+          </label>
+        </div>
+      )}
 
-      <div style={{ marginTop: '1.1rem', marginBottom: '0.4rem', fontSize: '0.78rem', fontWeight: 600 }}>
-        Affected assets by category — {fmtDateRange(selected?.dateStart, selected?.dateEnd)}
-      </div>
+      <h3 style={{ margin: '0 0 0.4rem', fontSize: '0.9rem', fontWeight: 600 }}>
+        Economic damage by sector
+      </h3>
+      <ImpactSectorChart sectorValues={viewSelected?.lossesBySector} isDarkMode />
+
+      <h3 style={{ margin: '1.1rem 0 0.4rem', fontSize: '0.9rem', fontWeight: 600 }}>
+        Affected assets by category
+      </h3>
       {data?.assets?.loading && !assetsGeojson ? (
         <div style={{ fontSize: '0.74rem', color: TEXT_MUTED, padding: '0.5rem 0.25rem' }}>Loading per-asset detail…</div>
       ) : data?.assets?.error ? (
@@ -211,8 +374,48 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
         <ImpactCategoryAccordion features={selectedScenarioFeatures} onSelectAsset={onSelectAsset} />
       )}
 
+      {showAreaColumns ? (
+        <div style={{ marginTop: '1.1rem', padding: '0.5rem 0.7rem', borderRadius: 10, border: '1px solid rgba(45, 212, 191, 0.3)', background: 'rgba(45, 212, 191, 0.06)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div style={{ fontSize: '0.76rem', color: TEXT_MUTED, maxWidth: '38rem' }}>
+            <strong style={{ color: TEXT_PRIMARY }}>Land flooded above each water mark</strong> (last four columns, hectares of dry land with forecast depth of at least {Math.round(mhwsDepthM * 100)} cm).
+            {' '}Working mark: <strong style={{ color: TEXT_PRIMARY }}>MHWS + 17.5 cm (0.503 m)</strong>.
+            <details style={{ marginTop: '0.2rem' }}>
+              <summary style={{ cursor: 'pointer', color: '#7dd3fc' }}>About this figure</summary>
+              <div style={{ marginTop: '0.25rem', lineHeight: 1.4 }}>
+                MHWS (Mean High Water Springs) is 0.328 m above mean sea level, so land below it is normally wetted at spring tides and is not
+                counted as flooding. The scientists advised adding 15–20 cm, so MHWS + 17.5 cm is the working mark. This is land area, not RiskScape
+                damage: the two measure different things and can disagree.
+              </div>
+            </details>
+          </div>
+          <div role="group" aria-label="Minimum flood depth" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', color: TEXT_MUTED }}>
+            Minimum counted flood depth ≥
+            {MHWS_DEPTH_OPTIONS_M.map((d) => (
+              <button
+                key={d}
+                type="button"
+                aria-pressed={mhwsDepthM === d}
+                onClick={() => setMhwsDepthM(d)}
+                className="map-display-option__btn"
+                style={{ padding: '0.15rem 0.5rem', fontSize: '0.72rem', opacity: mhwsDepthM === d ? 1 : 0.6, fontWeight: mhwsDepthM === d ? 700 : 500 }}
+              >
+                {Math.round(d * 100)} cm
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div role="status" style={{ marginTop: '1.1rem', padding: '0.4rem 0.7rem', borderRadius: 10, border: '1px solid rgba(251, 191, 36, 0.4)', background: 'rgba(251, 191, 36, 0.07)', fontSize: '0.76rem', color: '#fde68a' }}>
+          {mhwsCycleMismatch
+            ? <>Land-area columns are hidden: the hazard run ({mhwsCycleMismatch}) is newer than this impact estimate ({String(result.cycleId)}). They return when the impact run catches up.</>
+            : <>Land-area columns are unavailable: {mhws.error}</>}
+        </div>
+      )}
+
+      <details style={{ marginTop: '1.1rem' }}>
+        <summary style={{ cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: '#7dd3fc' }}>Detailed analysis: districts</summary>
       <div style={{ marginTop: '1.1rem', marginBottom: '0.4rem', fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <span>Affected districts — {fmtDateRange(selected?.dateStart, selected?.dateEnd)}</span>
+        <span>Affected districts</span>
         {/* Shared color key for the map's district choropleth layer (see
             useZarrMap's buildDistrictLossColorExpression) -- same
             DISTRICT_LOSS_COLOR_STOPS source of truth, so a shade on the map
@@ -220,7 +423,7 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
             here. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
           {DISTRICT_LOSS_COLOR_STOPS.map((stop) => (
-            <span key={stop.label} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.62rem', fontWeight: 400, color: TEXT_MUTED }}>
+            <span key={stop.label} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.72rem', fontWeight: 400, color: TEXT_MUTED }}>
               <span style={{ width: 9, height: 9, borderRadius: 2, background: stop.color, flexShrink: 0 }} />
               {stop.label}
             </span>
@@ -241,6 +444,7 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
                 <th role="columnheader" style={{ padding: '0.4rem 0.5rem' }} scope="col">District</th>
                 <th role="columnheader" style={{ padding: '0.4rem 0.5rem' }} scope="col">Est. economic damage</th>
                 <th role="columnheader" style={{ padding: '0.4rem 0.5rem' }} scope="col">Buildings</th>
+                {showAreaColumns && <MhwsAreaHeaders />}
               </tr>
             </thead>
             <tbody>
@@ -249,6 +453,7 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
                   <td role="gridcell" style={{ padding: '0.45rem 0.5rem', textTransform: 'capitalize' }}>{district.districtName}</td>
                   <td role="gridcell" style={{ padding: '0.45rem 0.5rem', fontWeight: 600 }}>{fmtUsd(district.totalLoss)}</td>
                   <td role="gridcell" style={{ padding: '0.45rem 0.5rem' }}>{district.totalExposedBuildings.toLocaleString()}</td>
+                  {showAreaColumns && <MhwsAreaCells areaFor={districtAreaHa(district.districtId)} />}
                 </tr>
               ))}
             </tbody>
@@ -256,18 +461,37 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
         </div>
       )}
 
+      {showAreaColumns && (() => {
+        const level = levelFor(summaryFor(selected?.scenario), 17.5);
+        if (!level || selectedScenarioDistricts.length === 0) return null;
+        const listed = selectedScenarioDistricts.reduce((sum, d) => sum + (level.districts.find((x) => x.districtId === String(d.districtId))?.areaHa ?? 0), 0);
+        const elsewhere = Math.max(level.areaHa - listed, 0);
+        return (
+          <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: TEXT_MUTED, fontStyle: 'italic' }}>
+            District rows list only districts with modelled damage. Of {fmtHectares(level.areaHa)} flooded above MHWS + 17.5 cm in this window,
+            {' '}{fmtHectares(listed)} is in the districts above and {fmtHectares(elsewhere)} is elsewhere (other districts, coast and harbours outside any census district).
+          </div>
+        );
+      })()}
+
+      </details>
+
+      <details style={{ marginTop: '0.8rem' }}>
+        <summary style={{ cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: '#7dd3fc' }}>Compare all forecast windows</summary>
       <div style={{ marginTop: '1.1rem', overflowX: 'auto' }}>
         <table role="grid" aria-label="Impact by forecast window" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
           <thead>
             <tr role="row" style={{ color: TEXT_MUTED, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
               <th role="columnheader" style={{ padding: '0.4rem 0.5rem' }} scope="col">Window</th>
-              <th role="columnheader" style={{ padding: '0.4rem 0.5rem' }} scope="col">Est. economic damage</th>
+              <th role="columnheader" style={{ padding: '0.4rem 0.5rem' }} scope="col">Est. economic damage{portOff ? ' (excl. Port)' : ''}</th>
               <th role="columnheader" style={{ padding: '0.4rem 0.5rem' }} scope="col">Buildings</th>
               <th role="columnheader" style={{ padding: '0.4rem 0.5rem' }} scope="col">Population</th>
+              {showAreaColumns && <MhwsAreaHeaders />}
             </tr>
           </thead>
           <tbody>
-            {blocks.map((block, i) => {
+            {blocks.map((reported, i) => {
+              const block = viewBlocks[i] ?? reported;
               const isSelected = i === activeIndex;
               return (
                 <tr
@@ -288,8 +512,8 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
                 >
                   <td role="gridcell" style={{ padding: '0.45rem 0.5rem' }}>
                     {fmtDateRange(block.dateStart, block.dateEnd)}
-                    {i === worstIndex && block.totalLoss > 0 && (
-                      <span style={{ marginLeft: 6, fontSize: '0.62rem', color: '#E63946', fontWeight: 700 }}>HIGHEST</span>
+                    {i === viewWorstIndex && block.totalLoss > 0 && (
+                      <span style={{ marginLeft: 6, fontSize: '0.72rem', color: '#E63946', fontWeight: 700 }}>HIGHEST</span>
                     )}
                     {!block.sectorReconciles && (
                       <span title="Sector totals don't reconcile with the reported total economic damage for this window">
@@ -306,6 +530,7 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
                         ? block.population.value.toLocaleString()
                         : `${block.population.value.toLocaleString()} (unconfirmed)`}
                   </td>
+                  {showAreaColumns && <MhwsAreaCells areaFor={windowAreaHa(block.scenario)} />}
                 </tr>
               );
             })}
@@ -313,7 +538,17 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
         </table>
       </div>
 
-      <div style={{ marginTop: '0.7rem', fontSize: '0.66rem', color: TEXT_MUTED, fontStyle: 'italic' }}>
+      </details>
+
+      <details style={{ marginTop: '0.8rem' }}>
+        <summary style={{ cursor: 'pointer', fontSize: '0.76rem', color: '#7dd3fc' }}>Why don’t these numbers match?</summary>
+        <div style={{ fontSize: '0.76rem', color: TEXT_MUTED, lineHeight: 1.45, marginTop: '0.3rem' }}>
+          They count different things. “Buildings” counts buildings only; the asset lists count every asset type (wharves, roads, pipes, bridges), so an
+          asset type can show many affected items while buildings show few. A district can show damage with no buildings when the loss is to roads, wharves or pipes.
+          Population is a separate estimate and is 0 when no homes are flooded.
+        </div>
+      </details>
+      <div style={{ marginTop: '0.7rem', fontSize: '0.72rem', color: TEXT_MUTED, fontStyle: 'italic' }}>
         Estimated forecast economic damage, not observed/confirmed economic damage. Generated by RiskScape from the live SFINCS forecast.
       </div>
     </div>

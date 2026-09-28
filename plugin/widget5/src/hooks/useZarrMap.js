@@ -1,7 +1,8 @@
 // useZarrMap.js — MapLibre GL map + ZarrOverlay/UgridOverlay management.
 // Replaces: useMapRendering, useWMSCapabilities, useTimeAnimation, useMapInteraction.
 import { useEffect, useRef, useState, useCallback } from 'react';
-import maplibregl from 'maplibre-gl';
+// maplibre-gl v6 ships ESM-only -- a default import no longer resolves.
+import * as maplibregl from 'maplibre-gl';
 import { ZarrOverlay } from '../lib/ZarrOverlay';
 import { UgridOverlay } from '../lib/UgridOverlay';
 import { SfincsRasterOverlay } from '../lib/SfincsRasterOverlay';
@@ -23,6 +24,26 @@ import {
   RISK_LABELS,
 } from '../services/riskDataService';
 import { disableTerrain, enableTerrain, hasTerrainDem } from '../lib/terrainMapLibre';
+
+// maplibre-gl v6's own worker loader does `new Worker(new URL(`./${t}`, e))` with a runtime-
+// built template string -- webpack can't statically resolve that (the "Critical dependency"
+// build warning we silence in craco.config.js), and at runtime the URL it constructs from
+// inside the bundled vendor chunk doesn't resolve to a real script, so the worker never loads
+// ("Worker failed to load. Check that the worker URL is correct.", seen live -- GeoJSON
+// sources, used throughout this file for risk points/advisory locations/impact districts,
+// are what actually dispatch to it, which a plain page-load check never exercises).
+//
+// Pointing webpack's own `new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url)`
+// asset pipeline at the worker file almost works -- webpack does correctly emit and serve it
+// -- but the worker file itself has an unmodified `import ... from "./maplibre-gl-shared.mjs"`
+// (a real relative import, followed only once the *worker* starts executing, not by webpack's
+// own bundler). Emitted alone to a hashed static/media/ path, that sibling never exists next
+// to it, so the worker's own module graph fails to resolve and it never loads. Fix: vendor
+// both files as plain static assets in public/maplibre-gl/ (same convention as the vessel
+// icons and Lato font files elsewhere in this app), where they sit side by side and that
+// relative import resolves exactly as maplibre-gl wrote it. Re-copy both files from
+// node_modules/maplibre-gl/dist/ whenever maplibre-gl itself is upgraded.
+maplibregl.setWorkerUrl(`${process.env.PUBLIC_URL || ''}/maplibre-gl/maplibre-gl-worker.mjs`);
 
 // Satellite/hybrid tiles from ESRI — no key needed
 const ESRI_SAT_STYLE = {
@@ -80,6 +101,25 @@ const COK_IMPACT_DISTRICTS_SOURCE = 'cok-impact-districts-src';
 const COK_IMPACT_DISTRICTS_FILL_LAYER = 'cok-impact-districts-fill';
 const COK_IMPACT_DISTRICTS_OUTLINE_LAYER = 'cok-impact-districts-outline';
 const COK_IMPACT_DISTRICTS_LAYERS = [COK_IMPACT_DISTRICTS_FILL_LAYER, COK_IMPACT_DISTRICTS_OUTLINE_LAYER];
+// Mean High Water Springs reference: the +0.328 m contour line (static) and,
+// under it, the land the forecast floods above that line.
+const COK_MHWS_CONTOUR_SOURCE = 'cok-mhws-contour-src';
+const COK_MHWS_CONTOUR_CASING_LAYER = 'cok-mhws-contour-casing';
+const COK_MHWS_CONTOUR_LINE_LAYER = 'cok-mhws-contour-line';
+const COK_MHWS_CONTOUR_LAYERS = [COK_MHWS_CONTOUR_CASING_LAYER, COK_MHWS_CONTOUR_LINE_LAYER];
+// The other water marks (plain MHWS, +15 and +20 cm), drawn thinner and dashed
+// beneath the working mark so the choice between them can be judged on the map.
+const COK_MHWS_ALT_CASING_LAYER = 'cok-mhws-alt-contour-casing';
+const COK_MHWS_ALT_LINE_LAYER = 'cok-mhws-alt-contour-line';
+const COK_MHWS_ALT_LAYERS = [COK_MHWS_ALT_CASING_LAYER, COK_MHWS_ALT_LINE_LAYER];
+const MHWS_WORKING_FILTER = ['==', ['get', 'kind'], 'working'];
+const MHWS_ALT_FILTER = ['!=', ['get', 'kind'], 'working'];
+// margin_cm -> colour; also used by the legend in ForecastApp.
+export const MHWS_LINE_COLORS = { 0: '#fbbf24', 15: '#86efac', 17.5: '#2dd4bf', 20: '#c4b5fd' };
+const COK_MHWS_FLOOD_SOURCE = 'cok-mhws-flood-src';
+const COK_MHWS_FLOOD_FILL_LAYER = 'cok-mhws-flood-fill';
+const COK_MHWS_FLOOD_OUTLINE_LAYER = 'cok-mhws-flood-outline';
+const COK_MHWS_FLOOD_LAYERS = [COK_MHWS_FLOOD_FILL_LAYER, COK_MHWS_FLOOD_OUTLINE_LAYER];
 
 // MapLibre 'step' expression from DISTRICT_LOSS_COLOR_STOPS (the same
 // source of truth the "By district" table's inline color key uses) --
@@ -213,6 +253,8 @@ export function useZarrMap({
   minVisibleDepth = null,
   inundationRenderMode = 'continuous',
   rangeWindow = null,
+  hazardBlock = null,
+  onHazardBlockStatus = null,
   playSpeedMs = 700,
   terrainEnabled = false,
   terrainConfig = null,
@@ -232,6 +274,11 @@ export function useZarrMap({
   impactDistrictsGeojson = null,
   impactDistrictsVisible = false,
   impactDistrictsScenario = null,
+  mhwsContourGeojson = null,
+  mhwsContourVisible = false,
+  mhwsAltContourVisible = false,
+  mhwsFloodGeojson = null,
+  mhwsFloodVisible = false,
   initialMapView = null,
   initialBasemapId = 'satellite',
 }) {
@@ -252,6 +299,8 @@ export function useZarrMap({
   const riskLatestReqRef = useRef(0);
   const riskDetailsReqRef = useRef(0);
   const riskPointsRef = useRef([]);
+  const riskEnabledRef = useRef(riskEnabled);
+  riskEnabledRef.current = riskEnabled;
   const selectedRiskIdRef = useRef(null);
   const selectedImpactAssetIdRef = useRef(null);
   const riskHoverPopupRef = useRef(null);
@@ -279,7 +328,7 @@ export function useZarrMap({
 
   // Keep latest callback params in refs to avoid stale closures in map event listeners
   const cbRef = useRef({});
-  cbRef.current = { setBottomCanvasData, setShowBottomCanvas, inundationCategories, minVisibleDepth, inundationRenderMode, rangeWindow, selectedLayerId, opacity, flood3dElevScale, sliderIndex, vesselClass, suitabilityMode, customEnvelope, loading, routePickMode, onRoutePointPick };
+  cbRef.current = { setBottomCanvasData, setShowBottomCanvas, inundationCategories, minVisibleDepth, inundationRenderMode, rangeWindow, hazardBlock, onHazardBlockStatus, selectedLayerId, opacity, flood3dElevScale, sliderIndex, vesselClass, suitabilityMode, customEnvelope, loading, routePickMode, onRoutePointPick };
 
   const overlayRefR = useRef(overlayRef);
   overlayRefR.current = overlayRef;
@@ -465,7 +514,7 @@ export function useZarrMap({
           // single building, so the same opacity used there would bury
           // satellite imagery and every building/road/risk marker
           // rendered on top of it.
-          'fill-opacity': 0.45,
+          'fill-opacity': 0.28, // lighter so district shading does not bury roofs and roads
         },
       }, impactAssetsBeforeId);
       map.addLayer({
@@ -478,6 +527,86 @@ export function useZarrMap({
           'line-width': 0.6,
         },
       }, impactAssetsBeforeId);
+
+      // MHWS reference layers -- added straight after the district layers and
+      // before the assets (same beforeId), so they read as a tide-reference
+      // ground under the RiskScape assets and coastal-risk markers. Sky blue =
+      // land flooded above MHWS (drawn first, underneath); the MHWS contour
+      // line goes on top of it. The depth raster is inserted below all of these
+      // (see SfincsRasterOverlay), so the reference stays visible over it.
+      map.addSource(COK_MHWS_FLOOD_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addLayer({
+        id: COK_MHWS_FLOOD_FILL_LAYER,
+        type: 'fill',
+        source: COK_MHWS_FLOOD_SOURCE,
+        layout: { visibility: 'none' },
+        // Blue, and translucent enough that buildings/wharves stay visible through it: the
+        // polygon is traced from a coarse model grid, so it is an approximate extent.
+        paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.38 },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_MHWS_FLOOD_OUTLINE_LAYER,
+        type: 'line',
+        source: COK_MHWS_FLOOD_SOURCE,
+        layout: { visibility: 'none', 'line-join': 'round' },
+        paint: {
+          'line-color': '#bfdbfe',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 13, 1.0, 17, 1.6],
+          'line-opacity': 0.9,
+        },
+      }, impactAssetsBeforeId);
+      // The contour: a dark casing under a bright line so it holds against
+      // both satellite imagery and the depth raster, thickening with zoom.
+      map.addSource(COK_MHWS_CONTOUR_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addLayer({
+        id: COK_MHWS_CONTOUR_CASING_LAYER,
+        type: 'line',
+        source: COK_MHWS_CONTOUR_SOURCE,
+        filter: MHWS_WORKING_FILTER,
+        layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#042f2e',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 2.2, 13, 3.6, 17, 5.6],
+          'line-opacity': 0.7,
+        },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_MHWS_CONTOUR_LINE_LAYER,
+        type: 'line',
+        source: COK_MHWS_CONTOUR_SOURCE,
+        filter: MHWS_WORKING_FILTER,
+        layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#2dd4bf',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1, 13, 1.8, 17, 3],
+          'line-opacity': 1,
+        },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_MHWS_ALT_CASING_LAYER,
+        type: 'line',
+        source: COK_MHWS_CONTOUR_SOURCE,
+        filter: MHWS_ALT_FILTER,
+        layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#0b1220',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.6, 13, 2.6, 17, 4],
+          'line-opacity': 0.55,
+        },
+      }, COK_MHWS_CONTOUR_CASING_LAYER);
+      map.addLayer({
+        id: COK_MHWS_ALT_LINE_LAYER,
+        type: 'line',
+        source: COK_MHWS_CONTOUR_SOURCE,
+        filter: MHWS_ALT_FILTER,
+        layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'butt' },
+        paint: {
+          'line-color': ['match', ['get', 'margin_cm'], 0, MHWS_LINE_COLORS[0], 15, MHWS_LINE_COLORS[15], 20, MHWS_LINE_COLORS[20], '#e2e8f0'],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.8, 13, 1.3, 17, 2],
+          'line-dasharray': [3, 2],
+          'line-opacity': 0.95,
+        },
+      }, COK_MHWS_CONTOUR_CASING_LAYER);
 
       const impactSectorColorExpr = buildImpactSectorColorExpression();
       const IMPACT_ASSET_SELECTED = ['boolean', ['feature-state', 'selected'], false];
@@ -629,7 +758,7 @@ export function useZarrMap({
     // adding a layer only needs the style itself to be parsed, which is ready
     // much earlier. Waiting on 'load' let UgridOverlay's first render (which
     // targets beforeId: 'risk-circles') fire before this layer existed, sending
-    // deck.gl's MapboxOverlay into a permanently-stuck add/move failure loop.
+    // deck.gl's MapLibreOverlay into a permanently-stuck add/move failure loop.
     if (map.isStyleLoaded()) onLoad(); else map.once('style.load', onLoad);
 
     map.on('click', onMapClick);
@@ -683,11 +812,12 @@ export function useZarrMap({
 
     // Construction is deferred one frame past prev.destroy(). UgridOverlay (and
     // SfincsColumnOverlay, constructed by a sibling effect below) both use deck.gl's
-    // *interleaved* MapboxOverlay, which shares ONE Deck instance per map, cached on
-    // map.__deck (see @deck.gl/mapbox/deck-utils.js getDeckInstance/removeDeckInstance).
+    // *interleaved* MapLibreOverlay, which shares ONE Deck instance per map, cached in a
+    // module-scoped WeakMap keyed on the map (see @deck.gl/maplibre/deck-utils.js
+    // getMapLibreDeckInstance/removeMapLibreDeckInstance).
     // Removing an interleaved overlay unconditionally finalizes and nulls that shared
     // instance, even if a sibling interleaved overlay is still relying on it — and
-    // MapboxOverlay's own layer sync (resolveLayers) runs synchronously off whatever
+    // MapLibreOverlay's own layer sync (resolveLayerGroups) runs synchronously off whatever
     // that reference currently is. Giving the previous overlay's teardown a full
     // render frame before the next one starts inserting layers (with beforeId:
     // 'risk-circles') avoids that hazard; this is the source of the intermittent
@@ -705,6 +835,7 @@ export function useZarrMap({
             inundationCategories: cbRef.current.inundationCategories,
             minVisibleDepth: cbRef.current.minVisibleDepth,
             inundationRenderMode: cbRef.current.inundationRenderMode,
+            hazardBlock: cbRef.current.hazardBlock,
           })
         : layerCfg.sourceType === 'cok-suitability'
         ? new CookIslandsSuitabilityController(map, {
@@ -724,6 +855,7 @@ export function useZarrMap({
       ov.onTimeChange = (_label, _idx, maxIdx) => setTimeCount(maxIdx + 1);
       ov.onLoadingChange = setLoading;
       ov.onErrorChange = setError;
+      ov.onHazardBlockStatus = (status) => cbRef.current.onHazardBlockStatus?.(status);
       ov.onStatsChange = (min, max, units, extra = {}) => {
         setOverlayStats({
           min,
@@ -969,13 +1101,53 @@ export function useZarrMap({
     }
   }, [impactDistrictsScenario]);
 
+  // ── MHWS reference layers (data / visibility) ─────────────────────────────
+  useEffect(() => {
+    const src = mapInstance.current?.getSource(COK_MHWS_CONTOUR_SOURCE);
+    if (!src) return;
+    src.setData(mhwsContourGeojson && Array.isArray(mhwsContourGeojson.features) ? mhwsContourGeojson : emptyFeatureCollection());
+  }, [mhwsContourGeojson]);
+
+  useEffect(() => {
+    const src = mapInstance.current?.getSource(COK_MHWS_FLOOD_SOURCE);
+    if (!src) return;
+    src.setData(mhwsFloodGeojson && Array.isArray(mhwsFloodGeojson.features) ? mhwsFloodGeojson : emptyFeatureCollection());
+  }, [mhwsFloodGeojson]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const visibility = mhwsContourVisible ? 'visible' : 'none';
+    for (const layerId of COK_MHWS_CONTOUR_LAYERS) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+  }, [mhwsContourVisible]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const visibility = mhwsAltContourVisible ? 'visible' : 'none';
+    for (const layerId of COK_MHWS_ALT_LAYERS) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+  }, [mhwsAltContourVisible]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const visibility = mhwsFloodVisible ? 'visible' : 'none';
+    for (const layerId of COK_MHWS_FLOOD_LAYERS) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+  }, [mhwsFloodVisible]);
+
   // ── sfincs config (rangeWindow / inundationCategories / minVisibleDepth) ──
   useEffect(() => {
     const ov = overlayRef.current;
     if (ov instanceof SfincsRasterOverlay) {
-      ov.updateConfig({ rangeWindow, inundationCategories, minVisibleDepth, inundationRenderMode });
+      ov.updateConfig({ rangeWindow, hazardBlock, inundationCategories, minVisibleDepth, inundationRenderMode });
     }
-  }, [rangeWindow, inundationCategories, minVisibleDepth, inundationRenderMode]);
+  }, [rangeWindow, hazardBlock, inundationCategories, minVisibleDepth, inundationRenderMode]);
 
   // ── optional MapLibre terrain ────────────────────────────────────────────
   useEffect(() => {
@@ -1034,8 +1206,8 @@ export function useZarrMap({
     if (!flood3dEnabled || !isSfincs || !map) return;
 
     // Deferred one frame past the destroy above for the same reason as the main
-    // overlay-lifecycle effect: this is also an interleaved deck.gl MapboxOverlay
-    // sharing the map's single cached Deck instance (map.__deck) with UgridOverlay.
+    // overlay-lifecycle effect: this is also an interleaved deck.gl MapLibreOverlay
+    // sharing the map's single cached Deck instance with UgridOverlay.
     let cancelled = false;
     const rafId = requestAnimationFrame(() => {
       if (cancelled) return;
@@ -1213,13 +1385,16 @@ export function useZarrMap({
   function doRefreshRisk() {
     const map = mapInstance.current;
     if (!map) return;
+    // A refresh that started while risk points were on can finish after they were switched off (e.g.
+    // on entering the Impacts tab); it must not draw them again.
+    if (!riskEnabledRef.current) return;
     const reqId = ++riskLatestReqRef.current;
     const bnds = map.getBounds();
     const bbox = [bnds.getWest(), bnds.getSouth(), bnds.getEast(), bnds.getNorth()].join(',');
     const zoom = map.getZoom();
     fetchRiskPointsData({ zoom, bbox })
       .then((payload) => {
-        if (riskLatestReqRef.current !== reqId) return;
+        if (riskLatestReqRef.current !== reqId || !riskEnabledRef.current) return;
         const pts = Array.isArray(payload?.points) ? payload.points : [];
         riskPointsRef.current = pts;
         const src = map.getSource?.(RISK_SOURCE);

@@ -627,3 +627,148 @@ export async function fetchCookIslandsImpactAssets(scenario) {
   const body = await fetchJson(url);
   return normalizeImpactAssetsResponse(body);
 }
+
+// Names the water mark the backend actually applied (MHWS plus its margin), so a
+// raised mark is never labelled as plain MHWS.
+export function mhwsMarginLabel(marginM) {
+  if (!Number.isFinite(marginM) || marginM <= 0) return 'MHWS';
+  return `MHWS + ${Number((marginM * 100).toFixed(1))} cm`;
+}
+
+// ── area inundated above MHWS ────────────────────────────────────────────
+// /cok/inundation/latest/mhws-adjusted: the forecast event footprint (SFINCS
+// hmax depth >= min_depth_m) restricted to LiDAR-derived land above Mean High
+// Water Springs plus a small margin the scientists advised (sea, lagoon and the
+// intertidal beach are excluded). The margin is reported by the backend so the
+// UI always labels the line it is really using. Unlike RiskScape's
+// Total_Exposed_Area_Or_Length this measures land actually inundated, not
+// the extent of whatever exposure layer was sampled. It serves only the
+// single latest published cycle, so the response's own cycleId is compared
+// against the impact result's before the two are shown side by side.
+
+// 10 cm: thin sheet flow at the wet/dry edge is where model noise concentrates (5 cm inflated the
+// area by about 30% on the live cycle); 5 cm stays available as the other option.
+export const MHWS_DEFAULT_MIN_DEPTH_M = 0.1;
+export const MHWS_DEPTH_OPTIONS_M = [0.05, 0.1];
+
+// The impact windows are named "block01_<start>_to_<end>" (see
+// _cok_impact_block_dates in the backend) and the hazard blocks share that
+// 1-based numbering, so the window prefix is the block index.
+export function mhwsBlockIndexFromScenario(scenario) {
+  const match = /^block0*(\d+)(?:_|$)/.exec(String(scenario ?? ''));
+  const index = match ? Number(match[1]) : null;
+  return index >= 1 ? index : null;
+}
+
+export function normalizeMhwsInundationResponse(payload) {
+  const totalM2 = toNumber(payload?.area_inundated_m2);
+  const districts = (Array.isArray(payload?.districts) ? payload.districts : [])
+    .map((d) => ({
+      districtId: String(d?.cdid ?? ''),
+      districtName: d?.district_name ?? 'Unknown',
+      areaM2: toNumber(d?.area_inundated_m2) ?? 0,
+      areaHa: toNumber(d?.area_inundated_ha) ?? 0,
+      percentOfTotal: toNumber(d?.percentage_of_total) ?? 0,
+    }))
+    .sort((a, b) => b.areaM2 - a.areaM2);
+  return {
+    cycleId: payload?.cycle_id != null ? String(payload.cycle_id) : null,
+    block: toNumber(payload?.block),
+    areaM2: totalM2,
+    areaHa: toNumber(payload?.area_inundated_ha),
+    areaKm2: toNumber(payload?.area_inundated_km2),
+    depthThresholdM: toNumber(payload?.depth_threshold_m),
+    mhwsElevationM: toNumber(payload?.mhws_elevation_m_msl),
+    marginAboveMhwsM: toNumber(payload?.margin_above_mhws_m),
+    filterElevationM: toNumber(payload?.filter_elevation_m_msl),
+    landMaskSource: payload?.land_mask_source ?? null,
+    methodologyVersion: payload?.methodology_version ?? null,
+    districts,
+    outsideDistrictsHa: toNumber(payload?.outside_districts_ha) ?? 0,
+    // Inundated-land footprint (WGS84 GeoJSON), drawn on the map; null on a dry window.
+    geometry: payload?.geometry ?? null,
+  };
+}
+
+function mhwsErrorMessage(status, payload) {
+  if (status === 404) return 'Not available in this deployment yet.';
+  if (status === 503) return payload?.detail || 'No forecast hazard cycle has been published yet.';
+  return 'Area inundated above MHWS failed to load.';
+}
+
+export async function fetchCookIslandsMhwsInundation({ block = 1, minDepthM = MHWS_DEFAULT_MIN_DEPTH_M } = {}) {
+  const url = `/cok/inundation/latest/mhws-adjusted?block=${encodeURIComponent(block)}&min_depth_m=${encodeURIComponent(minDepthM)}`;
+  const response = await fetch(url);
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  if (!response.ok) throw new Error(mhwsErrorMessage(response.status, body));
+  return normalizeMhwsInundationResponse(body);
+}
+
+// The water marks the backend serves, as a margin above MHWS in cm. 17.5 is the
+// working mark; 0 (plain MHWS) and 15/20 (the scientists' "15-20 cm") are shown
+// beside it so the choice can be judged. `kind` matches the contour file.
+export const MHWS_LINES = [
+  { marginCm: 0, kind: 'mhws', label: 'MHWS', short: 'MHWS' },
+  { marginCm: 15, kind: 'range', label: 'MHWS + 15 cm', short: '+15 cm' },
+  { marginCm: 17.5, kind: 'working', label: 'MHWS + 17.5 cm', short: '+17.5 cm' },
+  { marginCm: 20, kind: 'range', label: 'MHWS + 20 cm', short: '+20 cm' },
+];
+
+// /cok/inundation/latest/mhws-adjusted/summary: area above every water mark for
+// one block (no geometry), so the marks can be compared in a table.
+export function normalizeMhwsSummaryResponse(payload) {
+  const levels = (Array.isArray(payload?.levels) ? payload.levels : []).map((lv) => ({
+    marginCm: toNumber(lv?.margin_above_mhws_cm),
+    filterElevationM: toNumber(lv?.filter_elevation_m_msl),
+    areaHa: toNumber(lv?.area_inundated_ha) ?? 0,
+    outsideDistrictsHa: toNumber(lv?.outside_districts_ha) ?? 0,
+    districts: (Array.isArray(lv?.districts) ? lv.districts : []).map((d) => ({
+      districtId: String(d?.cdid ?? ''),
+      districtName: d?.district_name ?? 'Unknown',
+      areaHa: toNumber(d?.area_inundated_ha) ?? 0,
+    })),
+  }));
+  return {
+    cycleId: payload?.cycle_id != null ? String(payload.cycle_id) : null,
+    block: toNumber(payload?.block),
+    depthThresholdM: toNumber(payload?.depth_threshold_m),
+    defaultMarginCm: toNumber(payload?.default_margin_cm),
+    levels,
+  };
+}
+
+export async function fetchCookIslandsMhwsSummary({ block = 1, minDepthM = MHWS_DEFAULT_MIN_DEPTH_M } = {}) {
+  const url = `/cok/inundation/latest/mhws-adjusted/summary?block=${encodeURIComponent(block)}&min_depth_m=${encodeURIComponent(minDepthM)}`;
+  const response = await fetch(url);
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  if (!response.ok) throw new Error(mhwsErrorMessage(response.status, body));
+  return normalizeMhwsSummaryResponse(body);
+}
+
+// Static MHWS contour: the line where the LiDAR ground crosses +0.328 m above
+// mean sea level along the shore (the seaward edge of "land above MHWS" that
+// the backend uses). Built once from the DTM; drawn on the map as a reference
+// line, the usual way a tidal datum is shown.
+const MHWS_CONTOUR_URL = `${process.env.PUBLIC_URL || ''}/data/cok_mhws_contour_4326.geojson`;
+
+export async function fetchCookIslandsMhwsContour() {
+  const response = await fetch(MHWS_CONTOUR_URL);
+  if (!response.ok) throw new Error('The MHWS contour is not available in this deployment.');
+  return response.json();
+}
+
+// Wraps a result's geometry as a FeatureCollection for a MapLibre geojson source.
+export function mhwsFloodFeatureCollection(result) {
+  if (!result?.geometry) return { type: 'FeatureCollection', features: [] };
+  return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: result.geometry, properties: {} }] };
+}

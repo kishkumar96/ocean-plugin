@@ -51,7 +51,7 @@ async function discoverLandingAreaSites(timeIndex, vessel) {
 // view -- this hits the backend once per site, so it shouldn't fire
 // automatically in the background.
 export function useCookIslandsLandingAreaComparison(vessel, enabled) {
-  const [state, setState] = useState({ loading: false, error: null, rows: [] });
+  const [state, setState] = useState({ loading: false, error: null, rows: [], omittedSites: [] });
 
   useEffect(() => {
     if (!enabled || !vessel) return undefined;
@@ -121,10 +121,14 @@ export function useCookIslandsLandingAreaComparison(vessel, enabled) {
 
       if (cancelled) return;
       const withData = rows.filter((row) => row.steps.length);
+      // Named sites the model returned nothing for are kept as names so reports can
+      // say they were left out, instead of silently listing only the sites with data.
+      const omittedSites = rows.filter((row) => !row.steps.length).map((row) => row.name ?? row.label ?? 'Unknown site');
       setState({
         loading: false,
         error: withData.length ? null : 'No suitability timeseries returned for any landing area.',
         rows: withData,
+        omittedSites,
       });
     })();
 

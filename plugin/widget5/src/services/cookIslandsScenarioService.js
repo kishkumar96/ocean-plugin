@@ -254,18 +254,34 @@ function computeRankScore(decision) {
   return decision.worstHazardClass * 1e9 + exposurePct * 1e6 + unavailable * 1e3 + duration;
 }
 
+// A scenario is only eligible to be recommended when the model returned a value
+// for most of its route samples. Otherwise "Suitable" can just mean "the few
+// samples that happened to be available were fine" while the rest are unknown,
+// which would beat a fully-covered Caution scenario on hazard class alone.
+export const MIN_RECOMMEND_COVERAGE = 0.8;
+
+export function hasSufficientCoverage(decision) {
+  if (!decision || !(decision.totalSamples > 0)) return false;
+  const available = decision.totalSamples - (decision.unavailableSamples ?? 0);
+  return available / decision.totalSamples >= MIN_RECOMMEND_COVERAGE;
+}
+
 // Decorates every scenario with its derived decision + rank score, and picks
-// the single best-ranked scenario (if any has a ready result) as recommended.
+// the best-ranked scenario with sufficient coverage as recommended (none if
+// no scenario qualifies -- better no recommendation than one on thin evidence).
 export function rankScenarios(scenarios) {
   const decorated = scenarios.map((scenario) => {
     const decision = scenario.status === 'ready'
       ? deriveRouteDecision(scenario.forecastResult, scenario.vessel)
       : null;
-    return { scenario, decision, rankScore: computeRankScore(decision) };
+    return {
+      scenario, decision, rankScore: computeRankScore(decision),
+      insufficientCoverage: Boolean(decision) && !hasSufficientCoverage(decision),
+    };
   });
 
   const best = decorated.reduce((champion, entry) => (
-    Number.isFinite(entry.rankScore) && (!champion || entry.rankScore < champion.rankScore) ? entry : champion
+    Number.isFinite(entry.rankScore) && !entry.insufficientCoverage && (!champion || entry.rankScore < champion.rankScore) ? entry : champion
   ), null);
 
   return {
@@ -518,7 +534,19 @@ export function buildRouteAdvisoryBriefConfig({
   };
 }
 
-export function buildScenarioComparisonBriefConfig({ scenarios, recommendedId, vesselLabelFor }) {
+// Are these scenarios really comparable? Different model runs or different route
+// geometry make a side-by-side ranking misleading, so the brief reports both.
+export function analyzeScenarioSet(scenarios) {
+  const runs = [...new Set(scenarios.map((s) => s.modelRunStartAtRun).filter(Boolean).map((r) => new Date(r).toISOString()))];
+  const unknownRun = scenarios.filter((s) => !s.modelRunStartAtRun).length;
+  const samePoint = (a, b) => Math.abs(a.lon - b.lon) < 1e-5 && Math.abs(a.lat - b.lat) < 1e-5;
+  const first = scenarios[0]?.routePoints;
+  const geometryConsistent = scenarios.every((s) => Array.isArray(s.routePoints) && Array.isArray(first)
+    && s.routePoints.length === first.length && s.routePoints.every((p, i) => samePoint(p, first[i])));
+  return { distinctModelRuns: runs, modelRunsDiffer: runs.length > 1, unknownModelRunCount: unknownRun, geometryConsistent };
+}
+
+export function buildScenarioComparisonBriefConfig({ scenarios, recommendedId, vesselLabelFor, supersededIds = [] }) {
   return {
     area: { type: 'scenario_comparison', label: 'Scenario Comparison Advisory Brief' },
     scenarioComparison: {
@@ -528,7 +556,16 @@ export function buildScenarioComparisonBriefConfig({ scenarios, recommendedId, v
         decision: scenario.status === 'ready'
           ? deriveRouteDecision(scenario.forecastResult, scenario.vessel)
           : null,
+      })).map((s) => ({
+        ...s,
+        insufficientCoverage: Boolean(s.decision) && !hasSufficientCoverage(s.decision),
+        superseded: supersededIds.includes(s.id),
+        // hazard class per route sample (null = unavailable) for the mini timeline
+        timeline: (s.forecastResult?.samples ?? []).map((smp) => (
+          smp?.available === false || !Number.isFinite(smp?.hazard_class) ? null : smp.hazard_class
+        )),
       })),
+      consistency: analyzeScenarioSet(scenarios),
       recommendedId,
       generatedAt: new Date().toISOString(),
     },

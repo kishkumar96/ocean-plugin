@@ -57,3 +57,41 @@ export function worstBlockIndex(blocks) {
   if (!Array.isArray(blocks) || blocks.length === 0) return -1;
   return blocks.reduce((bestI, b, i) => (b.totalLoss > blocks[bestI].totalLoss ? i : bestI), 0);
 }
+
+export function fmtHectares(ha) {
+  if (ha === null || ha === undefined || !Number.isFinite(ha)) return '—';
+  if (ha === 0) return '0 ha';
+  if (ha < 0.01) return '<0.01 ha';
+  return `${ha.toFixed(ha < 10 ? 2 : 1)} ha`;
+}
+
+// ── Port assets (wharf / marina / jetty) ─────────────────────────────────
+// RiskScape samples SFINCS depth at Port assets from the harbour water beside
+// the structure, so their losses are often not flooding of the structure
+// itself (checked against the LiDAR: the wharf decks sit above the tide line).
+// These helpers let the UI show the estimate with and without them, using the
+// per-asset feed that is already loaded.
+export const PORT_ASSET_TYPE = 'Port';
+
+// scenario -> total Port loss (USD), from /cok/impact/latest/assets features.
+export function portLossByScenario(features) {
+  const out = new Map();
+  if (!Array.isArray(features)) return out;
+  for (const f of features) {
+    const p = f?.properties;
+    if (p?.asset !== PORT_ASSET_TYPE || !p.scenario) continue;
+    const loss = Number(p.total_loss);
+    if (Number.isFinite(loss)) out.set(p.scenario, (out.get(p.scenario) ?? 0) + loss);
+  }
+  return out;
+}
+
+// The block with its Port loss removed from the total and from the sector Port
+// belongs to (infrastructure). Everything else is left as reported.
+export function blockWithoutPort(block, portLoss) {
+  if (!block || !(portLoss > 0)) return block;
+  const loss = Math.max((block.totalLoss ?? 0) - portLoss, 0);
+  const sectors = { ...(block.lossesBySector ?? {}) };
+  if (Number.isFinite(sectors.infrastructure)) sectors.infrastructure = Math.max(sectors.infrastructure - portLoss, 0);
+  return { ...block, totalLoss: loss, lossesBySector: sectors };
+}

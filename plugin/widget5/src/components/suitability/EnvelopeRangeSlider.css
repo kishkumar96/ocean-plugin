@@ -105,6 +105,16 @@
   pointer-events: none;
 }
 
+.envelope-range__track { overflow: hidden; }
+
+.envelope-range__track-hatch {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  background: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.38) 0 2px, transparent 2px 6px);
+}
+
 .envelope-range__input {
   position: absolute;
   left: 0;

@@ -1,0 +1,16 @@
+# Docker's build context is NOT filtered by .gitignore -- without this file, `COPY . .` in
+# the Dockerfile pulls host node_modules, any local build/ output, and the multi-GB
+# terrain/imagery tile pyramids (gitignored precisely because they're too large for git)
+# straight into the builder stage.
+node_modules
+build
+coverage
+.git
+public/imagery
+public/terrain
+*.har
+pdf-samples
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

@@ -14,12 +14,11 @@ import {
   IslandZoomControl,
   DataInfo,
 } from './shared/UIComponents';
-import { Waves, Wind, Navigation, Activity, Info, Settings, Timer, Triangle, CloudRain, MapPin, SlidersHorizontal, BarChart2, FastForward, Route, DollarSign, AlertTriangle, RotateCcw, Save, ListChecks, FileDown } from 'lucide-react';
+import { Waves, Wind, Navigation, Activity, Info, Settings, Timer, Triangle, CloudRain, MapPin, SlidersHorizontal, BarChart2, FastForward, DollarSign, AlertTriangle, RotateCcw, Save } from 'lucide-react';
 import { RISK_COLORS, RISK_LABELS } from '../services/riskDataService';
 import { useResponsiveUI } from '../hooks/useWindowSize';
 import ImpactTabPanel from './impact/ImpactTabPanel';
 import { computeModelStatus, MODEL_STATUS } from './impact/impactFormat';
-import { DISTRICT_LOSS_COLOR_STOPS } from '../services/cookIslandsImpactService';
 import FancyIcon from './FancyIcon';
 import '../styles/fancyIcons.css';
 import InundationThresholdEditor from './InundationThresholdEditor';
@@ -33,6 +32,10 @@ import { applyEnvelopeEdit, envelopeDiffersFromPreset, envelopeSliderMax } from 
 import CookIslandsRouteControls from './route/CookIslandsRouteControls';
 import CookIslandsScenarioComparisonPanel from './route/CookIslandsScenarioComparisonPanel';
 import CookIslandsAdvisoryPanel from './advisory/CookIslandsAdvisoryPanel';
+import ImpactLayerSwitches from './ImpactLayerSwitches';
+import SuitabilityTasks, { ThresholdBasisBadge } from './suitability/SuitabilityTasks';
+import CollapsibleSection from './shared/CollapsibleSection';
+import ImpactMapKey from './ImpactMapKey';
 import CookIslandsSuitabilityReadinessCard from './suitability/CookIslandsSuitabilityReadinessCard';
 import { formatZoned } from '../utils/timeZoneFormat';
 
@@ -143,6 +146,9 @@ const ForecastApp = ({
   onSelectImpactAsset,
   onImpactWindowSelect,
   onImpactScenarioChange,
+  onMhwsResult,
+  impactWindowMismatch = null,
+  onSyncImpactWindow,
   onRetryImpact,
   onImpactsVisibleChange,
 }) => {
@@ -202,6 +208,25 @@ const ForecastApp = ({
 
   // Route controls only exist on the suitability layer; leaving it mid-draw
   // would strand the crosshair cursor with no button to cancel.
+  // Vessel suitability and coastal flood risk are two different hazards drawn in similar red/amber/green:
+  // while suitability is selected the risk points are hidden (a checkbox in Vessel Class brings them
+  // back), and the user's previous choice is restored when they leave the suitability layer.
+  const riskPointsBeforeSuitabilityRef = useRef(null);
+  const hideRiskPoints = isSuitabilityLayer || impactsVisible;
+  useEffect(() => {
+    if (hideRiskPoints) {
+      if (riskPointsBeforeSuitabilityRef.current === null) {
+        riskPointsBeforeSuitabilityRef.current = activeLayers?.riskPoints !== false;
+        setActiveLayers?.((prev) => ({ ...prev, riskPoints: false }));
+      }
+    } else if (riskPointsBeforeSuitabilityRef.current !== null) {
+      const restore = riskPointsBeforeSuitabilityRef.current;
+      riskPointsBeforeSuitabilityRef.current = null;
+      setActiveLayers?.((prev) => ({ ...prev, riskPoints: restore }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hideRiskPoints]);
+
   useEffect(() => {
     if (!isSuitabilityLayer && routePickMode) setRoutePickMode?.(false);
   }, [isSuitabilityLayer, routePickMode, setRoutePickMode]);
@@ -577,10 +602,10 @@ const ForecastApp = ({
                 type="button"
                 className={`inundation-threshold-trigger__btn${inundationThresholds.isDirty ? ' inundation-threshold-trigger__btn--dirty' : ''}`}
                 onClick={() => setShowThresholdEditor(true)}
-                title="Customise depth bands and severity labels"
+                title="Customise the map's depth categories and severity labels"
               >
                 <SlidersHorizontal size={14} />
-                Edit Thresholds
+                Edit map depth categories
                 {inundationThresholds.isDirty && (
                   <span className="inundation-threshold-trigger__badge" title="Unsaved changes">●</span>
                 )}
@@ -590,7 +615,7 @@ const ForecastApp = ({
               </span>
             </div>
             <div className="inundation-threshold-trigger__hint">
-              Refine depth bands and severity descriptions as observed event data comes in. Changes apply live to the map popup and legend.
+              Depth bands and labels used to colour the map and its legend (not the minimum depth counted as land flooding). Changes apply live.
             </div>
           </ControlGroup>
 
@@ -663,7 +688,7 @@ const ForecastApp = ({
             mapRotation={0} 
           />
           
-          {activeLayers?.riskPoints !== false && (() => {
+          {!impactsVisible && activeLayers?.riskPoints !== false && (() => {
             const riskLegendInfoText = "Colors show forecast maximum total water level against each point's Minor/Moderate thresholds. Zoomed out, one marker per island represents its highest-risk point — zoom in for every point.";
             return (
               <div className="marine-legend marine-legend--left" style={{ minWidth: 150, left: 20, right: 'auto' }}>
@@ -690,21 +715,12 @@ const ForecastApp = ({
           })()}
 
           <div className="marine-legend-group">
-          {impactsVisible && activeLayers?.impactDistricts !== false && (
-            <div className="marine-legend marine-legend--district">
-              <div className="marine-legend-title">District Damage</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.5rem' }}>
-                {DISTRICT_LOSS_COLOR_STOPS.map(({ color, label }) => (
-                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', color: '#e0f7ff' }}>
-                    <span style={{ width: 12, height: 12, borderRadius: 3, background: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.3)' }} />
-                    {label}
-                  </div>
-                ))}
-                <div style={{ fontSize: '0.7rem', color: '#b8d2db', lineHeight: 1.35, marginTop: '0.15rem' }}>
-                  Estimated economic damage for the selected forecast window, modeled by RiskScape.
-                </div>
-              </div>
-            </div>
+          {/* One key for the impact layers on the map: depth ramp always, other legends on demand. */}
+          {impactsVisible && (
+            <ImpactMapKey
+              activeLayers={activeLayers}
+              depthLegend={isRasterInundation ? getLegendConfig(selectedLegendLayer?.variable ?? selectedLegendLayer?.value ?? 'inundation', selectedLegendLayer) : null}
+            />
           )}
 
           {isSuitabilityLayer && (
@@ -714,7 +730,7 @@ const ForecastApp = ({
                 {[
                   { color: '#2A9D8F', label: 'Suitable' },
                   { color: '#F4A261', label: 'Caution' },
-                  { color: '#E63946', label: 'Warning / Not recommended' },
+                  { color: '#E63946', label: 'Warning' },
                 ].map(({ color, label }) => (
                   <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', color: '#e0f7ff' }}>
                     <span style={{ width: 14, height: 14, borderRadius: '50%', background: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.3)' }} />
@@ -736,7 +752,7 @@ const ForecastApp = ({
             </div>
           )}
 
-          {!isSuitabilityLayer && selectedLegendLayer && (
+          {!isSuitabilityLayer && selectedLegendLayer && !(impactsVisible && isRasterInundation) && (
             <div className="marine-legend">
               {(() => {
                 const legendConfig = getLegendConfig(selectedLegendLayer.variable ?? selectedLegendLayer.value, selectedLegendLayer);
@@ -900,20 +916,22 @@ const ForecastApp = ({
               role="tabpanel"
               aria-labelledby="right-panel-tab-impacts"
             >
-              {inundationControlGroups}
+              {/* The answer first: impact summary and window, then everything that configures the map. */}
               <ControlGroup
                 icon={<FancyIcon icon={DollarSign} animationType="pulse" color="#E63946" />}
                 title="Flood Impacts"
                 ariaLabel="RiskScape flood impact assessment for the inundation forecast"
               >
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem', cursor: 'pointer', marginBottom: '0.5rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={activeLayers?.impactDistricts !== false}
-                    onChange={(e) => setActiveLayers?.(prev => ({ ...prev, impactDistricts: e.target.checked }))}
-                  />
-                  Show district damage on map
-                </label>
+                {impactWindowMismatch && (
+                  <div role="status" style={{ marginBottom: '0.6rem', padding: '0.5rem 0.65rem', borderRadius: 9, border: '1px solid rgba(251, 191, 36, 0.45)', background: 'rgba(251, 191, 36, 0.09)', fontSize: '0.72rem', lineHeight: 1.4, color: '#fde68a' }}>
+                    The map is showing {impactWindowMismatch.mapLabel}, but the impact figures below are for {impactWindowMismatch.impactLabel}.
+                    {onSyncImpactWindow && (
+                      <button type="button" className="map-display-option__btn" style={{ display: 'block', marginTop: '0.4rem' }} onClick={onSyncImpactWindow}>
+                        Show the impact window on the map
+                      </button>
+                    )}
+                  </div>
+                )}
                 <ImpactTabPanel
                   data={impactData}
                   assets={impactAssets}
@@ -921,13 +939,23 @@ const ForecastApp = ({
                   onRetry={onRetryImpact}
                   onWindowSelect={onImpactWindowSelect}
                   onScenarioChange={onImpactScenarioChange}
+                  onMhwsResult={onMhwsResult}
                   initialScenario={impactInitialScenario}
                   onSelectAsset={onSelectImpactAsset}
                   onExpand={onShowImpact}
                   timeDisplayZone={timeDisplayZone}
                 />
               </ControlGroup>
-              {forecastTimeGroup}
+
+              <CollapsibleSection
+                title="Map settings"
+                icon={<FancyIcon icon={Settings} animationType="spin" color="#9c27b0" />}
+                summary="layers, time window, depth bands, opacity"
+                storageKey="cok.impactMapSettings.v1"
+              >
+                <ImpactLayerSwitches activeLayers={activeLayers} setActiveLayers={setActiveLayers} />
+                {inundationControlGroups}
+                {forecastTimeGroup}
               <ControlGroup
                 icon={<FancyIcon icon={Settings} animationType="spin" color="#9c27b0" />}
                 title={UI_CONFIG.SECTIONS.DISPLAY_OPTIONS.title}
@@ -940,6 +968,7 @@ const ForecastApp = ({
                   ariaLabel={UI_CONFIG.ARIA_LABELS.overlayOpacity}
                 />
               </ControlGroup>
+              </CollapsibleSection>
             </div>
           )}
 
@@ -1021,220 +1050,213 @@ const ForecastApp = ({
               ))}
             </div>
             <CookIslandsSuitabilityReadinessCard
+              compact
               selectedVessel={vesselClass}
               forecastTimeLabel={currentSliderDate ? formatZoned(currentSliderDate, timeDisplayZone) : null}
             />
           </ControlGroup>
         )}
 
-        {/* Route Forecast rides the Vessel Class chosen just above, so it lives
-            with the suitability layer instead of on every layer. */}
+        {/* Suitability tools: one task open at a time (progressive disclosure), vessel choice stays on top. */}
         {isSuitabilityLayer && (
           <ControlGroup
-            icon={<FancyIcon icon={Route} animationType="pulse" color="#38bdf8" />}
-            title="Route Forecast"
-            ariaLabel="Vessel route suitability forecast"
+            icon={<FancyIcon icon={SlidersHorizontal} animationType="pulse" color="#38bdf8" />}
+            title="Suitability Tools"
+            ariaLabel="Vessel suitability tools: plan a route, compare, export, thresholds"
           >
-            <CookIslandsRouteControls
-              routePoints={routePoints}
-              routePickMode={routePickMode}
-              setRoutePickMode={setRoutePickMode}
-              routeSpeedKt={routeSpeedKt}
-              setRouteSpeedKt={setRouteSpeedKt}
-              routeDepartureTime={routeDepartureTime}
-              setRouteDepartureTime={setRouteDepartureTime}
-              routeForecastLoading={routeForecastLoading}
-              routeForecastError={routeForecastError}
-              maxDepartureTime={forecastEndTime}
-              minDepartureTime={forecastStartTime}
-              timeDisplayZone={timeDisplayZone}
-              onRunRouteForecast={onRunRouteForecast}
-              onClearRoute={onClearRoute}
-              onUndoRoutePoint={onUndoRoutePoint}
+            <SuitabilityTasks
+              tasks={{
+                route: () => (
+                  <>
+                    <ThresholdBasisBadge isCustom={isCustomEnvelope} />
+                                <CookIslandsRouteControls
+                                  routePoints={routePoints}
+                                  routePickMode={routePickMode}
+                                  setRoutePickMode={setRoutePickMode}
+                                  routeSpeedKt={routeSpeedKt}
+                                  setRouteSpeedKt={setRouteSpeedKt}
+                                  routeDepartureTime={routeDepartureTime}
+                                  setRouteDepartureTime={setRouteDepartureTime}
+                                  routeForecastLoading={routeForecastLoading}
+                                  routeForecastError={routeForecastError}
+                                  maxDepartureTime={forecastEndTime}
+                                  minDepartureTime={forecastStartTime}
+                                  timeDisplayZone={timeDisplayZone}
+                                  onRunRouteForecast={onRunRouteForecast}
+                                  onClearRoute={onClearRoute}
+                                  onUndoRoutePoint={onUndoRoutePoint}
+                                />
+                  </>
+                ),
+                compare: () => (
+                  <>
+                                <CookIslandsScenarioComparisonPanel
+                                  scenarios={scenarios}
+                                  currentInputs={{ routePoints, vessel: vesselClass, speedKt: routeSpeedKt, departureTime: routeDepartureTime }}
+                                  currentModelRunStart={currentModelRunStart}
+                                  runningScenarioIds={runningScenarioIds}
+                                  onSaveCurrent={onSaveCurrentAsScenario}
+                                  onDuplicate={onDuplicateScenario}
+                                  onRemove={onRemoveScenario}
+                                  onRun={onRunScenario}
+                                  onRunAll={onRunAllScenarios}
+                                  onExportBrief={onExportScenarioComparisonBrief}
+                                  highlightScenarioId={confirmedScenarioId}
+                                />
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', margin: '0.8rem 0 0.6rem' }} />
+                    <div style={{ fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.3rem' }}>Landing areas</div>
+                                <div style={{ fontSize: '0.7rem', color: 'rgba(203, 213, 225, 0.72)', marginBottom: '0.5rem' }}>
+                                  Compare the next 7 days of suitability at every named landing and fishing-ground site at once.
+                                </div>
+                                <button
+                                  type="button"
+                                  className="map-display-option__btn"
+                                  style={{ width: '100%' }}
+                                  onClick={onShowLandingAreaComparison}
+                                >
+                                  Compare landing areas
+                                </button>
+                  </>
+                ),
+                export: () => (
+                  <>
+                    <ThresholdBasisBadge isCustom={isCustomEnvelope} />
+                                <CookIslandsAdvisoryPanel
+                                  routeForecastResult={routeForecastResult}
+                                  routePoints={routePoints}
+                                  routeResultStale={routeResultStale}
+                                  routeResultSuperseded={routeResultSuperseded}
+                                  vesselClass={vesselClass}
+                                  routeSpeedKt={routeSpeedKt}
+                                  timeDisplayZone={timeDisplayZone}
+                                  mapCustomEnvelope={mapCustomEnvelope}
+                                  currentModelRunStart={currentModelRunStart}
+                                  scenarios={scenarios}
+                                  onExportScenarioComparisonBrief={onExportScenarioComparisonBrief}
+                                  onShowLandingAreaComparison={onShowLandingAreaComparison}
+                                  mapInstance={mapInstance}
+                                  suitabilityTimeIndex={sliderIndex}
+                                  currentSliderDate={currentSliderDate}
+                                />
+                  </>
+                ),
+                thresholds: () => (
+                  <>
+                                <div
+                                  className="map-display-option__segmented"
+                                  role="radiogroup"
+                                  aria-label="Suitability classification basis"
+                                >
+                                  <button
+                                    type="button"
+                                    className={`map-display-option__btn${!isCustomEnvelope ? ' map-display-option__btn--active' : ''}`}
+                                    role="radio"
+                                    aria-checked={!isCustomEnvelope}
+                                    onClick={() => setSuitabilityMode?.('preset')}
+                                  >
+                                    Vessel preset
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={`map-display-option__btn${isCustomEnvelope ? ' map-display-option__btn--active' : ''}`}
+                                    role="radio"
+                                    aria-checked={isCustomEnvelope}
+                                    onClick={() => setSuitabilityMode?.('custom')}
+                                  >
+                                    Custom envelope
+                                  </button>
+                                </div>
+
+                                <div style={{ fontSize: '0.72rem', color: '#8fa8c2', marginTop: '0.5rem', lineHeight: 1.35 }}>
+                                  {isCustomEnvelope
+                                    ? `User-defined estimate for ${VESSEL_CLASS_OPTIONS.find((v) => v.value === vesselClass)?.label ?? 'this vessel'}. Applies to the map only.`
+                                    : 'Uses the configured wind/wave thresholds for the selected vessel class.'}
+                                </div>
+
+                                {!isCustomEnvelope ? (
+                                  <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                    <div style={{ fontSize: '0.78rem', color: '#b0c4d8' }}>
+                                      Caution — Wind {formatWind(effectiveEnvelope.cautionWindKt)} · Wave {formatWave(effectiveEnvelope.cautionWaveHeightM)}
+                                    </div>
+                                    <div style={{ fontSize: '0.78rem', color: '#b0c4d8' }}>
+                                      Warning — Wind {formatWind(effectiveEnvelope.maxWindKt)} · Wave {formatWave(effectiveEnvelope.maxWaveHeightM)}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div style={{ marginTop: '0.6rem', display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
+                                    <EnvelopeRangeSlider
+                                      label="Wind"
+                                      unit="kt"
+                                      min={0}
+                                      max={windSliderMax}
+                                      step={1}
+                                      cautionValue={effectiveEnvelope.cautionWindKt}
+                                      avoidValue={effectiveEnvelope.maxWindKt}
+                                      onCautionChange={(v) => updateCustomEnvelope('cautionWindKt', v)}
+                                      onAvoidChange={(v) => updateCustomEnvelope('maxWindKt', v)}
+                                      formatValue={formatWind}
+                                    />
+                                    <EnvelopeRangeSlider
+                                      label="Wave"
+                                      unit="m"
+                                      min={0}
+                                      max={waveSliderMax}
+                                      step={0.1}
+                                      cautionValue={effectiveEnvelope.cautionWaveHeightM}
+                                      avoidValue={effectiveEnvelope.maxWaveHeightM}
+                                      onCautionChange={(v) => updateCustomEnvelope('cautionWaveHeightM', v)}
+                                      onAvoidChange={(v) => updateCustomEnvelope('maxWaveHeightM', v)}
+                                      formatValue={formatWave}
+                                    />
+                                    <div className="envelope-actions">
+                                      <div className="envelope-actions__buttons">
+                                        <button
+                                          type="button"
+                                          className="envelope-reset-btn"
+                                          disabled={!customEnvelopeChanged}
+                                          onClick={resetCustomEnvelope}
+                                          title={customEnvelopeChanged ? "Restore this vessel's preset wind/wave thresholds" : 'Nothing to restore: the ranges already match the vessel preset'}
+                                        >
+                                          <RotateCcw size={13} />
+                                          Restore defaults
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="envelope-save-btn"
+                                          disabled={!customEnvelopeIsDirty}
+                                          onClick={saveCustomEnvelope}
+                                          title={customEnvelopeIsDirty ? 'Save these ranges for this vessel in this browser' : 'Nothing to save: change a range first'}
+                                        >
+                                          <Save size={13} />
+                                          Save ranges
+                                        </button>
+                                      </div>
+                                      <span
+                                        className={`envelope-actions__status${customEnvelopeSaveError ? ' envelope-actions__status--error' : ''}`}
+                                        role={customEnvelopeSaveError ? 'alert' : 'status'}
+                                      >
+                                        {customEnvelopeSaveError
+                                          || (customEnvelopeIsDirty
+                                            ? (customEnvelopeFromShare
+                                              ? 'Ranges from a shared link, not saved. Saving replaces your own ranges for this vessel.'
+                                              : 'Unsaved changes.')
+                                            : customEnvelope
+                                              ? 'Saved for this vessel in this browser.'
+                                              : 'Using the vessel preset.')}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                  </>
+                ),
+              }}
             />
           </ControlGroup>
         )}
 
-        {isSuitabilityLayer && (
-          <ControlGroup
-            icon={<FancyIcon icon={FileDown} animationType="pulse" color="#38bdf8" />}
-            title="Advisory"
-            ariaLabel="Download PDF advisories: route, scenario comparison, or landing-area comparison"
-          >
-            <CookIslandsAdvisoryPanel
-              routeForecastResult={routeForecastResult}
-              routeResultStale={routeResultStale}
-              routeResultSuperseded={routeResultSuperseded}
-              vesselClass={vesselClass}
-              routeSpeedKt={routeSpeedKt}
-              timeDisplayZone={timeDisplayZone}
-              mapCustomEnvelope={mapCustomEnvelope}
-              currentModelRunStart={currentModelRunStart}
-              scenarios={scenarios}
-              onExportScenarioComparisonBrief={onExportScenarioComparisonBrief}
-              onShowLandingAreaComparison={onShowLandingAreaComparison}
-              mapInstance={mapInstance}
-              suitabilityTimeIndex={sliderIndex}
-              currentSliderDate={currentSliderDate}
-            />
-          </ControlGroup>
-        )}
 
-        {isSuitabilityLayer && (
-          <ControlGroup
-            icon={<FancyIcon icon={ListChecks} animationType="pulse" color="#2A9D8F" />}
-            title="Scenario Comparison"
-            ariaLabel="Compare vessel route scenarios"
-          >
-            <CookIslandsScenarioComparisonPanel
-              scenarios={scenarios}
-              currentInputs={{ routePoints, vessel: vesselClass, speedKt: routeSpeedKt, departureTime: routeDepartureTime }}
-              currentModelRunStart={currentModelRunStart}
-              runningScenarioIds={runningScenarioIds}
-              onSaveCurrent={onSaveCurrentAsScenario}
-              onDuplicate={onDuplicateScenario}
-              onRemove={onRemoveScenario}
-              onRun={onRunScenario}
-              onRunAll={onRunAllScenarios}
-              onExportBrief={onExportScenarioComparisonBrief}
-              highlightScenarioId={confirmedScenarioId}
-            />
-          </ControlGroup>
-        )}
 
-        {isSuitabilityLayer && (
-          <ControlGroup
-            icon={<FancyIcon icon={Anchor} animationType="pulse" color="#38bdf8" />}
-            title="Landing Areas"
-            ariaLabel="Compare vessel suitability across landing and fishing-ground sites"
-          >
-            <div style={{ fontSize: '0.7rem', color: 'rgba(203, 213, 225, 0.72)', marginBottom: '0.5rem' }}>
-              Compare the next 7 days of suitability at every named landing and fishing-ground site at once.
-            </div>
-            <button
-              type="button"
-              className="map-display-option__btn"
-              style={{ width: '100%' }}
-              onClick={onShowLandingAreaComparison}
-            >
-              Compare landing areas
-            </button>
-          </ControlGroup>
-        )}
 
-        {isSuitabilityLayer && (
-          <ControlGroup
-            icon={<FancyIcon icon={SlidersHorizontal} animationType="pulse" color="#F4A261" />}
-            title="Hazard Thresholds"
-            ariaLabel="Suitability classification basis"
-          >
-            <div
-              className="map-display-option__segmented"
-              role="radiogroup"
-              aria-label="Suitability classification basis"
-            >
-              <button
-                type="button"
-                className={`map-display-option__btn${!isCustomEnvelope ? ' map-display-option__btn--active' : ''}`}
-                role="radio"
-                aria-checked={!isCustomEnvelope}
-                onClick={() => setSuitabilityMode?.('preset')}
-              >
-                Vessel preset
-              </button>
-              <button
-                type="button"
-                className={`map-display-option__btn${isCustomEnvelope ? ' map-display-option__btn--active' : ''}`}
-                role="radio"
-                aria-checked={isCustomEnvelope}
-                onClick={() => setSuitabilityMode?.('custom')}
-              >
-                Custom envelope
-              </button>
-            </div>
-
-            <div style={{ fontSize: '0.72rem', color: '#8fa8c2', marginTop: '0.5rem', lineHeight: 1.35 }}>
-              {isCustomEnvelope
-                ? `User-defined estimate for ${VESSEL_CLASS_OPTIONS.find((v) => v.value === vesselClass)?.label ?? 'this vessel'}. Applies to the map only.`
-                : 'Uses the configured wind/wave thresholds for the selected vessel class.'}
-            </div>
-
-            {!isCustomEnvelope ? (
-              <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                <div style={{ fontSize: '0.78rem', color: '#b0c4d8' }}>
-                  Caution — Wind {formatWind(effectiveEnvelope.cautionWindKt)} · Wave {formatWave(effectiveEnvelope.cautionWaveHeightM)}
-                </div>
-                <div style={{ fontSize: '0.78rem', color: '#b0c4d8' }}>
-                  Warning — Wind {formatWind(effectiveEnvelope.maxWindKt)} · Wave {formatWave(effectiveEnvelope.maxWaveHeightM)}
-                </div>
-              </div>
-            ) : (
-              <div style={{ marginTop: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <EnvelopeRangeSlider
-                  label="Wind"
-                  unit="kt"
-                  min={0}
-                  max={windSliderMax}
-                  step={1}
-                  cautionValue={effectiveEnvelope.cautionWindKt}
-                  avoidValue={effectiveEnvelope.maxWindKt}
-                  onCautionChange={(v) => updateCustomEnvelope('cautionWindKt', v)}
-                  onAvoidChange={(v) => updateCustomEnvelope('maxWindKt', v)}
-                  formatValue={formatWind}
-                />
-                <EnvelopeRangeSlider
-                  label="Wave"
-                  unit="m"
-                  min={0}
-                  max={waveSliderMax}
-                  step={0.1}
-                  cautionValue={effectiveEnvelope.cautionWaveHeightM}
-                  avoidValue={effectiveEnvelope.maxWaveHeightM}
-                  onCautionChange={(v) => updateCustomEnvelope('cautionWaveHeightM', v)}
-                  onAvoidChange={(v) => updateCustomEnvelope('maxWaveHeightM', v)}
-                  formatValue={formatWave}
-                />
-                <div className="envelope-actions">
-                  <div className="envelope-actions__buttons">
-                    <button
-                      type="button"
-                      className="envelope-reset-btn"
-                      disabled={!customEnvelopeChanged}
-                      onClick={resetCustomEnvelope}
-                      title="Restore this vessel's preset wind/wave thresholds"
-                    >
-                      <RotateCcw size={13} />
-                      Restore defaults
-                    </button>
-                    <button
-                      type="button"
-                      className="envelope-save-btn"
-                      disabled={!customEnvelopeIsDirty}
-                      onClick={saveCustomEnvelope}
-                      title="Save these ranges for this vessel in this browser"
-                    >
-                      <Save size={13} />
-                      Save ranges
-                    </button>
-                  </div>
-                  <span
-                    className={`envelope-actions__status${customEnvelopeSaveError ? ' envelope-actions__status--error' : ''}`}
-                    role={customEnvelopeSaveError ? 'alert' : 'status'}
-                  >
-                    {customEnvelopeSaveError
-                      || (customEnvelopeIsDirty
-                        ? (customEnvelopeFromShare
-                          ? 'Ranges from a shared link, not saved. Saving replaces your own ranges for this vessel.'
-                          : 'Unsaved changes.')
-                        : customEnvelope
-                          ? 'Saved for this vessel in this browser.'
-                          : 'Using the vessel preset.')}
-                  </span>
-                </div>
-              </div>
-            )}
-          </ControlGroup>
-        )}
 
         {/* Below 1024px there is no Impacts tab, so the inundation controls stay
             here, grouped under the layer picker. On desktop they live in the

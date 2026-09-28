@@ -8,7 +8,7 @@ import {
 } from '../../services/cookIslandsImpactService';
 
 const TEXT_PRIMARY = '#f8fafc';
-const TEXT_MUTED = 'rgba(203, 213, 225, 0.72)';
+const TEXT_MUTED = 'rgba(226, 232, 240, 0.82)';
 
 // Same teal/amber/red family as HAZARD_COLORS/IMPACT_SECTOR_COLORS elsewhere
 // in the app, not the risk-circles' own No/Minor/Moderate Risk blue/orange/
@@ -84,7 +84,7 @@ function AssetRow({ feature, index, onSelectAsset }) {
         }}>
           {label}
         </div>
-        <div style={{ fontSize: '0.66rem', color: TEXT_MUTED, marginTop: '0.15rem' }}>
+        <div style={{ fontSize: '0.72rem', color: TEXT_MUTED, marginTop: '0.15rem' }}>
           Depth {fmtDepth(props.hazard)} · Loss {fmtUsdShort(props.totalLoss)}
         </div>
       </div>
@@ -122,7 +122,7 @@ function CategoryRow({ category, expanded, onToggle, onSelectAsset, filters }) {
         {maxSeverity
           ? <SeverityBadge severity={maxSeverity} />
           : <span style={{
-              padding: '0.15rem 0.5rem', borderRadius: 999, fontSize: '0.64rem', fontWeight: 700,
+              padding: '0.15rem 0.5rem', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
               color: TEXT_MUTED, border: '1px solid rgba(255,255,255,0.18)', flexShrink: 0,
             }}>None</span>}
         <span style={{ fontWeight: 700, fontSize: '0.82rem', flex: 1 }}>
@@ -168,7 +168,7 @@ function ImpactCategoryAccordion({ features, onSelectAsset }) {
   // container is the accordion's own wrapper, not a page-level ref, so this
   // works regardless of where the accordion is mounted.
   const [expandedUseType, setExpandedUseType] = useState(null);
-  const [affectedOnly, setAffectedOnly] = useState(false);
+  const [affectedOnly, setAffectedOnly] = useState(true);
   const [severityFilter, setSeverityFilter] = useState('');
   const containerRef = useRef(null);
   const scrollTopRef = useRef(0);
@@ -183,6 +183,8 @@ function ImpactCategoryAccordion({ features, onSelectAsset }) {
     if (severityFilter && c.severityCounts[severityFilter] === 0) return false;
     return true;
   });
+
+  const hiddenUnaffected = categories.filter((c) => c.affectedCount === 0).length;
 
   if (categories.length === 0) {
     return (
@@ -223,6 +225,12 @@ function ImpactCategoryAccordion({ features, onSelectAsset }) {
           </select>
         </label>
       </div>
+      {affectedOnly && hiddenUnaffected > 0 && !severityFilter && (
+        <div style={{ fontSize: '0.74rem', color: TEXT_MUTED, marginBottom: '0.4rem' }}>
+          {hiddenUnaffected} unaffected {hiddenUnaffected === 1 ? 'category' : 'categories'} hidden ·{' '}
+          <button type="button" onClick={() => setAffectedOnly(false)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#7dd3fc', fontSize: 'inherit' }}>Show all {categories.length}</button>
+        </div>
+      )}
       <div
         ref={containerRef}
         onScroll={(e) => { scrollTopRef.current = e.currentTarget.scrollTop; }}

@@ -1,0 +1,189 @@
+import { buildDomainReportBundle, validateScope, planDailyPanels } from '../domainReportBundle';
+import { parseRunId, zonedWallTimeToUtc, findForbiddenPhrases, stepLevel, formatLocal } from '../reportRules';
+
+const B = { west: -160, south: -22, east: -159.5, north: -21 };
+const H = 3600e3;
+const T0 = Date.UTC(2026, 8, 24, 0);
+
+const meta = { runId: '2026092312', schemaVersion: '1.0.0', forecastStart: new Date(T0), forecastEnd: new Date(T0 + 228 * H), timestepCount: 229, locations: [], vessels: {} };
+const stepFor = (i, v, bounds, over = {}) => ({
+  timeIndex: i, validTime: T0 + i * H, vessel: v, available: true, suitable: 60, caution: 30, warning: 10,
+  counts: { suitable: 60, caution: 30, warning: 10 }, classifiedPoints: 100, eligiblePoints: 100, totalPoints: 100,
+  statisticsBasis: bounds ? 'points_in_bounds' : 'full_domain', requestedBounds: bounds, appliedBounds: bounds,
+  domainBounds: { west: -166, south: -22.5, east: -157, north: -8.5 }, ...over,
+});
+const deps = (over = {}) => ({
+  fetchMeta: async () => meta,
+  fetchStep: async (i, v, b) => stepFor(i, v, b),
+  fetchContrast: async () => ({ timeIndex: 40, validTime: T0 + 40 * H, contrastScore: 80, suitableByVessel: {}, mostSuitableVessel: 'larger_vessels', leastSuitableVessel: 'traditional_craft' }),
+  fetchMap: async (v, i, b) => ({ dataUrl: `data:image/png;base64,${v}${i}`, appliedBounds: b }),
+  ...over,
+});
+
+describe('report rules', () => {
+  test('parses run ids and stepLevel escalates at 20% Warning', () => {
+    expect(parseRunId('2026092312').toISOString()).toBe('2026-09-23T12:00:00.000Z');
+    expect(parseRunId('bad')).toBeNull();
+    expect(stepLevel(20, 0)).toBe(2);
+    expect(stepLevel(5, 0)).toBe(1);
+    expect(stepLevel(0, 0)).toBe(0);
+  });
+  test('local wall time in Rarotonga (UTC-10) converts correctly', () => {
+    expect(zonedWallTimeToUtc(2026, 9, 24, 12, 'Pacific/Rarotonga').toISOString()).toBe('2026-09-24T22:00:00.000Z');
+    expect(formatLocal('2026-09-24T22:00:00Z')).toMatch(/12:00 CKT/);
+  });
+  test('forbidden phrases catch commands and assurances', () => {
+    expect(findForbiddenPhrases('safe conditions for departure')).toHaveLength(1);
+    expect(findForbiddenPhrases('Proceed with caution')).toHaveLength(1);
+    expect(findForbiddenPhrases('Avoid this area')).toHaveLength(1);
+    expect(findForbiddenPhrases('Modelled conditions exceed the Caution threshold.')).toEqual([]);
+  });
+});
+
+describe('validateScope', () => {
+  test('viewport with matching applied bounds is not a mismatch', () => {
+    const s = validateScope({ requested: 'viewport', requestedBounds: B }, [stepFor(0, 'x', B)]);
+    expect(s.mismatch).toBe(false);
+    expect(s.effective).toBe('viewport');
+  });
+  test('viewport requested but the service reports full_domain -> mismatch, effective domain', () => {
+    const s = validateScope({ requested: 'viewport', requestedBounds: B }, [stepFor(0, 'x', null)]);
+    expect(s.mismatch).toBe(true);
+    expect(s.effective).toBe('domain');
+  });
+  test('different applied bounds are a mismatch', () => {
+    const s = validateScope({ requested: 'viewport', requestedBounds: B }, [stepFor(0, 'x', B, { appliedBounds: { ...B, east: -158 } })]);
+    expect(s.mismatch).toBe(true);
+  });
+});
+
+describe('planDailyPanels', () => {
+  const common = { forecastStartMs: T0, forecastEndMs: T0 + 228 * H, stepMs: H, timeZone: 'Pacific/Rarotonga' };
+  test('local-noon targets, matched to a step, with "beyond horizon" instead of guessing', () => {
+    const p = planDailyPanels({ ...common, validTimeMs: T0 + 100 * H, days: 6 });
+    expect(p).toHaveLength(6);
+    expect(p.filter((x) => !x.beyondHorizon).map((x) => new Date(x.matchedTime).getUTCHours())).toEqual(p.filter((x) => !x.beyondHorizon).map(() => 22));
+    expect(p.some((x) => x.beyondHorizon)).toBe(true);
+    expect(p.filter((x) => x.beyondHorizon).every((x) => x.timeIndex === null && x.matchedTime === null)).toBe(true);
+  });
+});
+
+describe('buildDomainReportBundle', () => {
+  const base = { vessel: 'small_craft', timeIndex: 10, bounds: B, scope: 'viewport', timeDisplayZone: 'Pacific/Rarotonga', now: () => new Date('2026-09-24T02:00:00Z') };
+
+  test('current-time bundle carries provenance, scope and coverage', async () => {
+    const b = await buildDomainReportBundle({ ...base, horizonHours: 0 }, deps());
+    expect(b.modelRun.time.toISOString()).toBe('2026-09-23T12:00:00.000Z');
+    expect(b.modelRun.ageHours).toBeCloseTo(14);
+    expect(b.scope.effective).toBe('viewport');
+    expect(b.scope.mismatch).toBe(false);
+    expect(b.coverage.points).toEqual({ classified: 100, eligible: 100, total: 100 });
+    expect(b.timeSeries).toBeNull();
+    expect(b.maps.selected.dataUrl).toMatch(/^data:image/);
+    expect(b.warnings).toEqual([]);
+  });
+
+  test('a scope mismatch is reported and the effective scope is what the service used', async () => {
+    const b = await buildDomainReportBundle({ ...base, horizonHours: 0 }, deps({ fetchStep: async (i, v) => stepFor(i, v, null) }));
+    expect(b.scope.mismatch).toBe(true);
+    expect(b.scope.effective).toBe('domain');
+    expect(b.warnings.join(' ')).toMatch(/differs from the request/);
+  });
+
+  test('a map drawn at a different extent is dropped, not shown', async () => {
+    const b = await buildDomainReportBundle({ ...base, horizonHours: 0 }, deps({ fetchMap: async () => ({ dataUrl: 'data:x', appliedBounds: { ...B, east: -150 } }) }));
+    expect(b.maps.selected).toBeNull();
+    expect(b.warnings.join(' ')).toMatch(/map could not be produced/);
+  });
+
+  test('no map view falls back to the whole domain, with a warning', async () => {
+    const b = await buildDomainReportBundle({ ...base, bounds: null, horizonHours: 0 }, deps());
+    expect(b.scope.requested).toBe('domain');
+    expect(b.warnings.join(' ')).toMatch(/whole forecast domain was used/);
+  });
+
+  test('an outlook builds series, analysis, contrast panels and daily panels; failed steps are gaps', async () => {
+    let calls = 0;
+    const b = await buildDomainReportBundle({ ...base, timeIndex: 100, horizonHours: 168 }, deps({
+      fetchStep: async (i, v, bnd) => { calls += 1; if (v === 'small_craft' && i === 112) throw new Error('boom'); return stepFor(i, v, bnd, i > 130 && i < 140 ? { warning: 40, caution: 20, suitable: 40 } : {}); },
+    }));
+    const series = b.timeSeries.byVessel.small_craft;
+    expect(series[0].timeIndex).toBe(100);
+    expect(series.find((s) => s.timeIndex === 112).available).toBe(false);
+    expect(b.timeSeries.analysis.small_craft.unavailable).toHaveLength(1);
+    expect(b.timeSeries.analysis.small_craft.elevated.length).toBeGreaterThan(0);
+    expect(b.maps.contrast.panels).toHaveLength(4);
+    expect(b.maps.daily).toHaveLength(6);
+    expect(b.maps.daily.some((p) => p.beyondHorizon)).toBe(true);
+    expect(calls).toBeGreaterThan(100);
+    expect(b.warnings.join(' ')).toMatch(/could not be assessed/);
+  });
+
+  test('a zero-point step is an unavailable gap, never Suitable', async () => {
+    const b = await buildDomainReportBundle({ ...base, horizonHours: 72 }, deps({
+      fetchStep: async (i, v, bnd) => stepFor(i, v, bnd, v === 'small_craft' ? { available: false, suitable: null, caution: null, warning: null, classifiedPoints: 0, eligiblePoints: 0, totalPoints: 0 } : {}),
+    }));
+    expect(b.timeSeries.byVessel.small_craft.every((s) => s.available === false)).toBe(true);
+    expect(b.timeSeries.analysis.small_craft.best).toBeNull();
+  });
+
+  test('abort is surfaced as a cancellation, not a partial report', async () => {
+    const ac = new AbortController();
+    await expect(buildDomainReportBundle({ ...base, horizonHours: 168, signal: ac.signal }, deps({
+      fetchStep: async () => { ac.abort(); const e = new Error('x'); e.name = 'AbortError'; throw e; },
+    }))).rejects.toThrow();
+  });
+});
+
+describe('optional backend provenance fields', () => {
+  const base = { vessel: 'small_craft', timeIndex: 10, bounds: B, scope: 'viewport', horizonHours: 0, now: () => new Date('2026-09-24T02:00:00Z') };
+  test('uses run_id and methodology_version from the statistics when the service provides them', async () => {
+    const b = await buildDomainReportBundle(base, deps({ fetchStep: async (i, v, bnd) => stepFor(i, v, bnd, { runId: '2026092312', methodologyVersion: 'cok-suitability-v2' }) }));
+    expect(b.methodology.methodologyVersion).toBe('cok-suitability-v2');
+    expect(b.modelRun.runId).toBe('2026092312');
+  });
+  test('warns when the statistics and the run metadata disagree on the model run (forecast updated mid-build)', async () => {
+    const b = await buildDomainReportBundle(base, deps({ fetchStep: async (i, v, bnd) => stepFor(i, v, bnd, { runId: '2026092400' }) }));
+    expect(b.warnings.join(' ')).toMatch(/forecast may have updated/);
+    expect(b.modelRun.time.toISOString()).toBe('2026-09-24T00:00:00.000Z');
+  });
+});
+
+describe('bulk outlook series', () => {
+  const base = { vessel: 'small_craft', timeIndex: 100, bounds: B, scope: 'viewport', horizonHours: 72, now: () => new Date('2026-09-24T02:00:00Z') };
+  const bulkSteps = (v) => [100, 106, 112, 118].map((i) => ({ ...stepFor(i, v, B), suitable: 70, caution: 20, warning: 10 }));
+  const codes = ['traditional_craft', 'very_small_motorised_craft', 'small_craft', 'larger_vessels'];
+
+  test('uses ONE bulk request instead of vessels x steps single requests', async () => {
+    const fetchStep = jest.fn(async (i, v, bnd) => stepFor(i, v, bnd));
+    const fetchSeries = jest.fn(async () => ({ vessels: Object.fromEntries(codes.map((c) => [c, bulkSteps(c)])) }));
+    const b = await buildDomainReportBundle(base, deps({ fetchStep, fetchSeries }));
+    expect(fetchSeries).toHaveBeenCalledTimes(1);
+    expect(b.timeSeries.byVessel.small_craft).toHaveLength(4);
+    // single-step calls remain only for the current time (4 vessels) + contrast + daily panels, not the outlook grid
+    expect(fetchStep.mock.calls.length).toBeLessThan(25);
+  });
+
+  test('falls back to per-step requests when the bulk endpoint is not deployed', async () => {
+    const fetchSeries = jest.fn(async () => { const e = new Error('HTTP 404'); e.status = 404; throw e; });
+    const b = await buildDomainReportBundle(base, deps({ fetchSeries }));
+    expect(b.timeSeries.byVessel.small_craft.length).toBeGreaterThan(4);
+    expect(b.timeSeries.byVessel.small_craft.every((s) => s.available)).toBe(true);
+  });
+
+  test('a bulk response missing a vessel is treated as unusable (fallback), not partially trusted', async () => {
+    const fetchSeries = jest.fn(async () => ({ vessels: { small_craft: bulkSteps('small_craft') } }));
+    const b = await buildDomainReportBundle(base, deps({ fetchSeries }));
+    expect(b.timeSeries.byVessel.traditional_craft.length).toBeGreaterThan(0);
+  });
+});
+
+describe('flat-summary time semantics', () => {
+  test('uses model_run_time and reports the hindcast hours before the run', async () => {
+    const m = { ...meta, runId: null, modelRunTime: new Date('2026-09-23T12:00:00Z'), methodologyVersion: 'cok-suitability-live-v1', hindcastHoursBeforeRun: 48 };
+    const b = await buildDomainReportBundle({ vessel: 'small_craft', timeIndex: 10, bounds: B, scope: 'viewport', horizonHours: 0, now: () => new Date('2026-09-24T02:00:00Z') }, deps({ fetchMeta: async () => m }));
+    expect(b.modelRun.time.toISOString()).toBe('2026-09-23T12:00:00.000Z');
+    expect(b.methodology.methodologyVersion).toBe('cok-suitability-live-v1');
+    expect(b.forecastWindow.hindcastHoursBeforeRun).toBe(48);
+  });
+});

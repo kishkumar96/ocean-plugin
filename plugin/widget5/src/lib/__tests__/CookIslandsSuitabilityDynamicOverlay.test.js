@@ -121,6 +121,20 @@ describe('CookIslandsSuitabilityDynamicOverlay visibility race', () => {
     );
   });
 
+  test('uses linear resampling so coarse custom cells do not render as hard rectangles', () => {
+    const map = fakeMap();
+    const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
+
+    overlay._ensureMapSource({ lonMin: -160, lonMax: -159, latMin: -22, latMax: -21 });
+
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paint: expect.objectContaining({ 'raster-resampling': 'linear' }),
+      }),
+      undefined,
+    );
+  });
+
   test('setVisible still updates an already-created layer directly, as before', () => {
     const map = fakeMap();
     map.getLayer.mockReturnValue(true);

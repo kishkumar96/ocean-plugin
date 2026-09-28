@@ -5,6 +5,7 @@ import { useCookIslandsLandingAreaComparison } from '../../hooks/useCookIslandsL
 import CookIslandsLandingAreaComparisonHeatmap from './CookIslandsLandingAreaComparisonHeatmap';
 import CookIslandsLandingAreaTimeseries from './CookIslandsLandingAreaTimeseries';
 import { exportCookIslandsLandingAreaComparisonPdf } from '../../utils/CookIslandsLandingAreaComparisonPdf';
+import { exportCookIslandsLandingSiteAdvisoryPdf } from '../../utils/CookIslandsLandingSiteAdvisoryPdf';
 
 const TEXT_MUTED = 'rgba(203, 213, 225, 0.72)';
 
@@ -51,14 +52,39 @@ function CookIslandsLandingAreaComparisonPanel({ vesselClass, currentSliderDate,
     setExporting(true);
     setExportError('');
     try {
-      await exportCookIslandsLandingAreaComparisonPdf({ rows: comparison.rows, vesselLabel, timeDisplayZone });
+      await exportCookIslandsLandingAreaComparisonPdf({ rows: comparison.rows, omittedSites: comparison.omittedSites, vesselLabel, timeDisplayZone });
     } catch (err) {
       console.error('[CookIslandsLandingAreaComparisonPanel] PDF export failed:', err);
       setExportError(err.message || 'PDF export failed.');
     } finally {
       setExporting(false);
     }
-  }, [comparison.rows, exporting, vesselLabel, timeDisplayZone]);
+  }, [comparison.rows, comparison.omittedSites, exporting, vesselLabel, timeDisplayZone]);
+
+  // Full three-page advisory for the site selected under "This location".
+  const [exportingSite, setExportingSite] = useState(false);
+  const handleExportSitePdf = useCallback(async () => {
+    if (exportingSite || !selectedRow) return;
+    setExportingSite(true);
+    setExportError('');
+    try {
+      const validMs = new Date(currentSliderDate ?? Date.now()).getTime();
+      const nearest = (selectedRow.steps ?? []).reduce((best, s) => {
+        const d = Math.abs(new Date(s.valid_time ?? s.time).getTime() - validMs);
+        return d < best.d ? { d, s } : best;
+      }, { d: Infinity, s: null }).s;
+      await exportCookIslandsLandingSiteAdvisoryPdf({
+        site: selectedRow, rows: comparison.rows, omittedSites: comparison.omittedSites,
+        vesselCode: vesselClass, vesselLabel, validTime: currentSliderDate ?? new Date(),
+        timeIndex: nearest?.time_index, timeDisplayZone,
+      });
+    } catch (err) {
+      console.error('[CookIslandsLandingAreaComparisonPanel] Site advisory PDF failed:', err);
+      setExportError(err.message || 'PDF export failed.');
+    } finally {
+      setExportingSite(false);
+    }
+  }, [exportingSite, selectedRow, comparison.rows, comparison.omittedSites, vesselClass, vesselLabel, currentSliderDate, timeDisplayZone]);
 
   return (
     <div>
@@ -128,20 +154,36 @@ function CookIslandsLandingAreaComparisonPanel({ vesselClass, currentSliderDate,
                 display: 'block', width: '100%', marginTop: '0.25rem',
                 padding: '0.35rem 0.5rem', borderRadius: 6, fontSize: '0.78rem',
                 background: 'rgba(255,255,255,0.05)', color: '#f8fafc',
+                colorScheme: 'dark',
                 border: '1px solid rgba(255,255,255,0.14)',
               }}
             >
               {comparison.rows.map((row) => (
-                <option key={row.id} value={row.id}>{row.name}</option>
+                <option key={row.id} value={row.id} style={{ background: '#0b1730', color: '#f8fafc' }}>
+                  {row.name}
+                </option>
               ))}
             </select>
           </label>
           <CookIslandsLandingAreaTimeseries
             steps={selectedRow?.steps ?? []}
             vesselLabel={vesselLabel}
+            vesselClass={vesselClass}
+            site={selectedRow}
             currentSliderDate={currentSliderDate}
             isDarkMode
           />
+          <button
+            type="button"
+            className="map-display-option__btn"
+            style={{ marginTop: '0.6rem' }}
+            onClick={handleExportSitePdf}
+            disabled={exportingSite || !selectedRow}
+            title="Three-page advisory for this site: map with the 500 m assessment area, seven-day timeline, operating windows and all-site comparison"
+          >
+            <FileDown size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />
+            {exportingSite ? 'Generating…' : 'Site advisory PDF'}
+          </button>
         </>
       )}
     </div>

@@ -6,6 +6,8 @@ import {
   deriveRouteDecision,
   suggestBetterVessel,
   rankScenarios,
+  hasSufficientCoverage,
+  analyzeScenarioSet,
   isScenarioStale,
   isScenarioRouteStale,
   isScenarioSuperseded,
@@ -131,6 +133,25 @@ describe('rankScenarios', () => {
     expect(recommendedId).toBe(safe.id);
   });
 
+  test('a scenario with mostly unavailable samples is not recommended over a fully covered one', () => {
+    const sparse = routeResponseBody(0);
+    sparse.samples = [sparse.samples[0], ...Array.from({ length: 9 }, (_, i) => ({ ...sparse.samples[0], sample_index: i + 1, hazard_class: null, available: false }))];
+    const thin = { ...createScenario({ vessel: 'small_craft', routePoints, departureTime: '2026-09-20T06:00', speedKt: 8 }), status: 'ready', forecastResult: sparse };
+    const full = { ...createScenario({ vessel: 'small_craft', routePoints, departureTime: '2026-09-20T06:00', speedKt: 8, existingScenarios: [thin] }), status: 'ready', forecastResult: routeResponseBody(1) };
+    const { recommendedId, entries } = rankScenarios([thin, full]);
+    expect(recommendedId).toBe(full.id);
+    expect(entries.find((e) => e.scenario.id === thin.id).insufficientCoverage).toBe(true);
+    // ...and with only the thin one there is nothing to recommend.
+    expect(rankScenarios([thin]).recommendedId).toBeNull();
+  });
+
+  test('hasSufficientCoverage needs at least 80% of samples available', () => {
+    expect(hasSufficientCoverage({ totalSamples: 10, unavailableSamples: 2 })).toBe(true);
+    expect(hasSufficientCoverage({ totalSamples: 10, unavailableSamples: 3 })).toBe(false);
+    expect(hasSufficientCoverage({ totalSamples: 0, unavailableSamples: 0 })).toBe(false);
+    expect(hasSufficientCoverage(null)).toBe(false);
+  });
+
   test('draft/error scenarios never get recommended', () => {
     const draft = createScenario({ vessel: 'small_craft', routePoints, departureTime: '2026-09-20T06:00', speedKt: 8 });
     const { recommendedId } = rankScenarios([draft]);
@@ -228,4 +249,20 @@ describe('driverLabel', () => {
 
 test('MAX_SCENARIOS is 4', () => {
   expect(MAX_SCENARIOS).toBe(4);
+});
+
+describe('analyzeScenarioSet', () => {
+  const pts = [{ lon: -159.78, lat: -21.21 }, { lon: -160.0, lat: -21.05 }];
+  test('flags different model runs and different route geometry', () => {
+    const a = { modelRunStartAtRun: '2026-09-23T12:00:00Z', routePoints: pts };
+    const b = { modelRunStartAtRun: '2026-09-23T00:00:00Z', routePoints: [...pts.slice(0, 1), { lon: -160.5, lat: -21.05 }] };
+    const out = analyzeScenarioSet([a, b]);
+    expect(out.modelRunsDiffer).toBe(true);
+    expect(out.geometryConsistent).toBe(false);
+  });
+  test('same run and same route is consistent; a missing run is counted', () => {
+    const a = { modelRunStartAtRun: '2026-09-23T12:00:00Z', routePoints: pts };
+    expect(analyzeScenarioSet([a, { ...a }])).toMatchObject({ modelRunsDiffer: false, geometryConsistent: true, unknownModelRunCount: 0 });
+    expect(analyzeScenarioSet([a, { routePoints: pts }]).unknownModelRunCount).toBe(1);
+  });
 });

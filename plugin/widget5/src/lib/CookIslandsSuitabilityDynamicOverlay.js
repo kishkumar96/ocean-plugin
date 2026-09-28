@@ -37,6 +37,11 @@ const HAZARD_RGB = {
   2: [230, 57, 70],    // #E63946 Warning
 };
 
+// Suitable coverage is contextual information, not a warning mask. Keeping
+// it faint lets the satellite basemap remain readable while the two hazard
+// classes retain the strong visual emphasis used by the preset overlay.
+const HAZARD_ALPHA = { 0: 0.18, 1: 0.82, 2: 0.9 };
+
 export class CookIslandsSuitabilityDynamicOverlay {
   constructor(map) {
     this._map = map;
@@ -432,7 +437,7 @@ export class CookIslandsSuitabilityDynamicOverlay {
         pixels[pixelIndex] = r;
         pixels[pixelIndex + 1] = g;
         pixels[pixelIndex + 2] = b;
-        pixels[pixelIndex + 3] = Math.round(this._opacity * 255);
+        pixels[pixelIndex + 3] = Math.round(this._opacity * HAZARD_ALPHA[hazardClass] * 255);
       }
     }
 
@@ -475,7 +480,10 @@ export class CookIslandsSuitabilityDynamicOverlay {
       type: 'raster',
       source: SOURCE_ID,
       layout: { visibility: this._visible ? 'visible' : 'none' },
-      paint: { 'raster-opacity': this._opacity, 'raster-resampling': 'nearest' },
+      // The custom grid is intentionally coarser than the preset tile layer.
+      // Linear resampling avoids exposing each source cell as a hard-edged
+      // rectangle when MapLibre scales it to the map viewport.
+      paint: { 'raster-opacity': this._opacity, 'raster-resampling': 'linear' },
     }, beforeId);
   }
 

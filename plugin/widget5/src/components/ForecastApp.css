@@ -104,12 +104,14 @@
   bottom: 152px;
   z-index: 999;
   display: flex;
+  flex-wrap: wrap; /* on a narrow map the legends wrap into rows instead of running off/over each other */
   align-items: flex-end;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px 10px;
   max-width: calc(100% - 40px);
   pointer-events: none;
 }
+
 
 .marine-legend-group > .marine-legend {
   position: relative;
@@ -1842,9 +1844,9 @@
   grid-template-columns: 1fr 1fr;
   gap: 0.35rem;
   padding: 0.22rem;
-  background: rgba(6, 18, 32, 0.58);
-  border: 1px solid rgba(100, 180, 220, 0.2);
-  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.3);
+  border: none;
+  border-radius: 8px;
 }
 
 .map-display-option__btn {
@@ -1890,7 +1892,9 @@
 .envelope-actions {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.6rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 0.9rem;
 }
 
 .envelope-actions__buttons {
@@ -1906,7 +1910,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.35rem 0.65rem;
+  justify-content: center;
+  padding: 0.5rem 1rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.04);
@@ -1918,16 +1923,25 @@
 }
 
 .envelope-save-btn {
-  background: rgba(42, 157, 143, 0.16);
-  border-color: rgba(42, 157, 143, 0.55);
-  color: #d9fff7;
+  background: #2a9d8f;
+  border-color: #2a9d8f;
+  color: #fff;
 }
 
-.envelope-reset-btn:hover:not(:disabled),
-.envelope-save-btn:hover:not(:disabled) {
+/* Restore is the secondary action: outline only. */
+.envelope-reset-btn {
+  background: transparent;
+}
+
+.envelope-reset-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.09);
   border-color: rgba(255, 255, 255, 0.26);
   color: #e8f4ff;
+}
+
+.envelope-save-btn:hover:not(:disabled) {
+  background: #33b3a3;
+  border-color: #33b3a3;
 }
 
 .envelope-reset-btn:disabled,
@@ -1942,8 +1956,8 @@
 }
 
 .envelope-actions__status {
-  color: #8fa8c2;
-  font-size: 0.68rem;
+  color: #a9c0d8;
+  font-size: 0.72rem;
   line-height: 1.3;
 }
 
@@ -2468,13 +2482,15 @@
   .main-container {
     /* Single column stacked layout — the missing rule that caused map to collapse to 0px */
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr 280px;
+    grid-template-rows: 1fr min(46dvh, 380px);
     gap: 0.25rem;
     padding: 0.25rem;
   }
 
   .controls-panel {
-    height: 260px;
+    /* Taller than the old 260px: at that height only the first heading was visible, so the primary
+       controls (vessel class, tools) sat below the fold. Capped so the map keeps the top half. */
+    height: min(46dvh, 360px);
     padding: 0.5rem;
   }
   
@@ -3688,4 +3704,21 @@ body:not(.dark-mode) .next-btn:disabled {
   background: #f8fafc;
   border-color: rgba(0, 119, 182, 0.2);
   color: #94a3b8;
+}
+
+
+/* Phones: the page header and legends were taking a quarter of the screen. One-line title, no
+   subtitle, and no separate Coastal Risk legend (the points speak for themselves at this size). */
+@media (max-width: 600px) {
+  .modern-header__title {
+    font-size: 1rem !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 62vw;
+  }
+  .modern-header__title + p { display: none; }
+  .marine-legend--left { display: none; }
+  .marine-legend { padding: 0.4rem 0.55rem; }
+  .marine-legend-title { font-size: 0.62rem; }
 }

@@ -17,6 +17,7 @@ import {
   routeThresholdText,
   customEnvelopeNoteText,
   buildCookIslandsRouteAdvisoryPdfDoc,
+  routeEvidence,
 } from '../CookIslandsRouteAdvisoryPdf';
 
 describe('formatNumber', () => {
@@ -358,6 +359,29 @@ describe('buildCookIslandsRouteAdvisoryPdfDoc pagination', () => {
     expect(page2Text).toMatch(/Showing \d+ of 120 samples/);
   });
 
+  test('prints a SUPERSEDED notice only when the result is superseded', async () => {
+    const result = {
+      departure_time: '2026-08-31T06:00:00Z', samples: makeSamples(5),
+      summary: { distance_nm: 2, duration_hours: 0.5, worst_hazard_class: 1, recommendation: 'Caution' },
+    };
+    const all = (doc) => doc.pages.map((p) => p.join(' | ')).join(' | ');
+    const fresh = await buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel: 'small_craft', speedKt: 8 });
+    const stale = await buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel: 'small_craft', speedKt: 8, superseded: true });
+    expect(all(fresh.doc)).not.toMatch(/SUPERSEDED/);
+    expect(all(stale.doc)).toMatch(/SUPERSEDED: a newer forecast run was available/);
+  });
+
+  test('a worst sample with a missing wind/wave reading gets no primary driver instead of a zero-substituted one', async () => {
+    const samples = makeSamples(4).map((smp) => ({ ...smp, hazard_class: 1, wind_speed_kt: null }));
+    const result = {
+      departure_time: '2026-08-31T06:00:00Z', samples,
+      summary: { distance_nm: 2, duration_hours: 0.5, worst_hazard_class: 1, recommendation: 'Caution' },
+    };
+    const { doc } = await buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel: 'small_craft', speedKt: 8 });
+    const text = doc.pages[0].join(' | ');
+    expect(text).not.toMatch(/Waves|Wind & waves/);
+  });
+
   test('a single-page table (no page breaks) still gets exactly one footer on page 1 and one on the table page', async () => {
     const result = {
       departure_time: '2026-08-31T06:00:00Z',
@@ -417,5 +441,63 @@ describe('buildCookIslandsRouteAdvisoryPdfDoc pagination', () => {
       const text = doc.pages[1].join(' | ');
       expect(text).toMatch(/Model run: unavailable/);
     });
+  });
+});
+
+describe('routeEvidence', () => {
+  const at = (m) => new Date(Date.UTC(2026, 8, 24, 0, m)).toISOString();
+  const smp = (i, hc, available = true) => ({ eta: at(i * 15), hazard_class: hc, available });
+  const now = new Date(Date.UTC(2026, 8, 24, 2, 0));
+
+  test('coverage, cadence, age and separate Caution/Warning shares of assessed samples', () => {
+    const samples = [smp(0, 0), smp(1, 1), smp(2, 2), smp(3, 2), smp(4, null, false)];
+    const ev = routeEvidence({ samples, departureTime: at(0), modelRunStart: '2026-09-23T12:00:00Z', generatedAt: now });
+    expect(ev.available).toBe(4);
+    expect(ev.total).toBe(5);
+    expect(ev.confidence).toBe('reduced'); // 80%
+    expect(ev.intervalMin).toBe(15);
+    expect(ev.forecastAgeHours).toBeCloseTo(14);
+    expect(ev.cautionPercent).toBeCloseTo(25);
+    expect(ev.warningPercent).toBeCloseTo(50);
+  });
+
+  test('flags a departure that has already passed, and low coverage as insufficient', () => {
+    const ev = routeEvidence({ samples: [smp(0, 0), smp(1, null, false), smp(2, null, false)], departureTime: at(0), generatedAt: now });
+    expect(ev.departurePassed).toBe(true);
+    expect(ev.confidence).toBe('insufficient');
+    expect(routeEvidence({ samples: [smp(0, 0)], departureTime: '2026-09-25T00:00:00Z', generatedAt: now }).departurePassed).toBe(false);
+  });
+
+  test('an empty route is insufficient and has no shares', () => {
+    const ev = routeEvidence({ samples: [], generatedAt: now });
+    expect(ev.confidence).toBe('insufficient');
+    expect(ev.warningPercent).toBeNull();
+  });
+
+  test('the PDF prints coverage confidence, cadence and a passed-departure notice', async () => {
+    const samples = Array.from({ length: 6 }, (_, i) => ({ sample_index: i, eta: at(i * 15), distance_nm: i, hazard_class: i % 2, hazard_label: 'x', wave_height_m: 1, wind_speed_kt: 10, lat: -21 + i * 0.01, lon: -159.8, available: true }));
+    const { doc } = await buildCookIslandsRouteAdvisoryPdfDoc({
+      result: { departure_time: at(0), samples, summary: { distance_nm: 5, duration_hours: 1, worst_hazard_class: 1 } },
+      vessel: 'small_craft', speedKt: 8, modelRunStart: '2026-09-23T12:00:00Z', startLabel: 'Avarua', destinationLabel: 'Aitutaki',
+    });
+    const text = doc.pages[0].join(' | ');
+    expect(text).toMatch(/Coverage: high — 6 of 6 samples assessed/);
+    expect(text).toMatch(/about every 15 min/);
+    expect(text).toMatch(/Departure time has already passed/);
+    expect(text).toMatch(/Avarua to Aitutaki/);
+  });
+});
+
+describe('route report departure suggestion', () => {
+  test('states the modelled improvement when the server search found a better departure', async () => {
+    const samples = Array.from({ length: 4 }, (_, i) => ({ sample_index: i, eta: new Date(Date.UTC(2026, 8, 24, 0, i * 15)).toISOString(), distance_nm: i, lat: -21, lon: -159.8, hazard_class: 1, hazard_label: 'Caution', wave_height_m: 1, wind_speed_kt: 16, available: true }));
+    const { doc } = await buildCookIslandsRouteAdvisoryPdfDoc({
+      result: { departure_time: '2026-09-25T00:00:00Z', samples, summary: { distance_nm: 3, duration_hours: 1, worst_hazard_class: 1 } },
+      vessel: 'small_craft', speedKt: 8,
+      departureSuggestion: { departureTime: '2026-09-25T21:00:00Z', requested: { caution_percent: 64, warning_percent: 0 }, best: { caution_percent: 9, warning_percent: 0 } },
+    });
+    const text = doc.pages[0].join(' | ');
+    expect(text).toMatch(/A later departure \(.*\) may find better modelled conditions/);
+    expect(text).toMatch(/64% at the requested time, 9% then/);
   });
 });

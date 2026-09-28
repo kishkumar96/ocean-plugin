@@ -107,14 +107,14 @@ export default function EnvelopeRangeSlider({
           </span>
           {' · '}
           <span className="envelope-range__readout-avoid">
-            Avoid
+            Warning
             <NumberField
               value={avoidValue}
               onChange={onAvoidChange}
               min={min}
               max={max}
               step={step}
-              ariaLabel={`${label} avoid threshold, ${unit}`}
+              ariaLabel={`${label} warning threshold, ${unit}`}
               describedBy={constraintId}
               className="envelope-range__number envelope-range__number--avoid"
             />
@@ -123,7 +123,7 @@ export default function EnvelopeRangeSlider({
         </span>
       </div>
       <span id={constraintId} className="envelope-range__constraint">
-        Caution must remain at least {format(step)} below Avoid.
+        Caution must remain at least {format(step)} below Warning.
       </span>
       <div className="envelope-range__track-wrap">
         <div
@@ -135,7 +135,10 @@ export default function EnvelopeRangeSlider({
               `${cautionColor} ${cautionPct}%, ${cautionColor} ${avoidPct}%, ` +
               `${avoidColor} ${avoidPct}%, ${avoidColor} 100%)`,
           }}
-        />
+        >
+          {/* Diagonal hatching on the Warning zone, so it is not told apart by colour alone. */}
+          <span className="envelope-range__track-hatch" style={{ left: `${avoidPct}%` }} />
+        </div>
         {/* Both inputs deliberately share the same [min, max] as the track's
             own gradient calculation above, rather than each being narrowed
             to stop at the other handle's position. A native range input

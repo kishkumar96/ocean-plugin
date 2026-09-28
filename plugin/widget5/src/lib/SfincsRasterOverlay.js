@@ -77,6 +77,14 @@ export class SfincsRasterOverlay {
     this._opacity   = config.opacity ?? 0.75;
     this._timeIndex = 0;
     this._rangeWindow  = null;
+    // { cycleId, block }: draw the RiskScape hazard block (the 3-day maximum the impact figures were
+    // computed from) instead of a time range from the model archive. Falls back to the range when the
+    // server does not have that cycle.
+    this._hazardBlock  = config.hazardBlock ?? null;
+    this._hazardToken  = 0;
+    this._hazardKey    = null;
+    this._hazardShown  = false;
+    this.onHazardBlockStatus = null;
     this._categories   = config.inundationCategories ?? null;
     this._renderMode   = config.inundationRenderMode ?? 'continuous';
     this._timesteps    = [];
@@ -148,7 +156,7 @@ export class SfincsRasterOverlay {
       if (this._destroyed) return;
 
       // One rAF so any prior deck.gl GL-context finalization settles before we
-      // write into MapLibre's style (MapboxOverlay shares the GL context).
+      // write into MapLibre's style (MapLibreOverlay shares the GL context).
       await new Promise((resolve) => requestAnimationFrame(resolve));
       if (this._destroyed) return;
 
@@ -220,9 +228,16 @@ export class SfincsRasterOverlay {
     // 'risk-circles' (still above this raster, just not below impact
     // assets) if that layer somehow isn't there yet, matching the same
     // fallback UgridOverlay already uses for the same reason.
-    const beforeId = this._map.getLayer('cok-impact-assets-fill')
-      ? 'cok-impact-assets-fill'
-      : (this._map.getLayer('risk-circles') ? 'risk-circles' : undefined);
+    // The MHWS reference layers (land flooded above MHWS + the MHWS contour)
+    // sit directly below the impact assets, so the raster goes below THEM
+    // first: they are a reference line drawn over the depth colours, and were
+    // completely hidden under this raster along the coast when it was
+    // inserted just below the assets instead.
+    const beforeId = this._map.getLayer('cok-mhws-flood-fill')
+      ? 'cok-mhws-flood-fill'
+      : this._map.getLayer('cok-impact-assets-fill')
+        ? 'cok-impact-assets-fill'
+        : (this._map.getLayer('risk-circles') ? 'risk-circles' : undefined);
     this._map.addLayer({
       id: LAYER_ID,
       type: 'raster',
@@ -274,20 +289,30 @@ export class SfincsRasterOverlay {
 
   // ── URL builders (range-max mode only — see file header) ──────────────────
 
-  _buildRangeMaxImageUrl(rw) {
-    const params = new URLSearchParams({
-      start_index: String(rw.startIndex ?? 0),
-      end_index:   String(rw.endIndex   ?? 47),
-      vmin: String(this._vmin),
-      vmax: String(this._vmax),
-    });
+  // Colour parameters shared by every server-rendered depth image.
+  _renderParams(params) {
+    params.set('vmin', String(this._vmin));
+    params.set('vmax', String(this._vmax));
     if (this._renderMode === 'continuous') {
       params.set('render_mode', 'continuous');
     } else {
       const tp = serializeThresholdParams(this._categories);
       if (tp) Object.entries(tp).forEach(([k, v]) => params.set(k, v));
     }
+    return params;
+  }
+
+  _buildRangeMaxImageUrl(rw) {
+    const params = this._renderParams(new URLSearchParams({
+      start_index: String(rw.startIndex ?? 0),
+      end_index:   String(rw.endIndex   ?? 47),
+    }));
     return `${this._apiBase}/range-max/raster-png?${params}`;
+  }
+
+  _buildHazardBlockUrl({ cycleId, block }) {
+    const params = this._renderParams(new URLSearchParams());
+    return `${this._apiBase}/cok/hazard/${encodeURIComponent(cycleId)}/block/${encodeURIComponent(block)}/raster-png?${params}`;
   }
 
   // [lat, lon] bounds → MapLibre image coordinates [TL, TR, BR, BL]
@@ -457,6 +482,58 @@ export class SfincsRasterOverlay {
     this._inRangeMax = true;
   }
 
+  // ── hazard-block mode ─────────────────────────────────────────────────────
+  // The exact raster RiskScape read for one forecast window of one cycle. Fetched as a blob so a
+  // server that lacks the cycle (404) can be detected and the time-range image used instead.
+
+  async _applyHazardBlock() {
+    const hb = this._hazardBlock;
+    const coords = this._imageCoords();
+    if (!hb || !coords) return;
+    const url = this._buildHazardBlockUrl(hb);
+    if (this._hazardShown && this._hazardKey === url) return;
+
+    this._cancelPendingLoad();
+    const token = ++this._hazardToken;
+    try {
+      const resp = await fetch(url, { signal: this._abortController.signal });
+      if (token !== this._hazardToken || this._destroyed) return;
+      if (!resp.ok) throw new Error(`hazard block ${hb.cycleId}/${hb.block} returned ${resp.status}`);
+      const blob = await resp.blob();
+      if (token !== this._hazardToken || this._destroyed) return;
+      const blobUrl = URL.createObjectURL(blob);
+      const source = this._map.getSource(SOURCE_ID);
+      if (!source || typeof source.updateImage !== 'function') { URL.revokeObjectURL(blobUrl); return; }
+      this._revokeBlobUrl();
+      this._currentBlobUrl = blobUrl;
+      source.updateImage({ url: blobUrl, coordinates: coords });
+      this._inRangeMax = true;
+      this._hazardShown = true;
+      this._hazardKey = url;
+      this.onHazardBlockStatus?.({ state: 'ok', cycleId: resp.headers.get('X-Hazard-Cycle') || hb.cycleId, block: hb.block });
+    } catch (err) {
+      if (err?.name === 'AbortError' || token !== this._hazardToken || this._destroyed) return;
+      console.warn('[SfincsRasterOverlay] hazard block unavailable, using the time range instead', err);
+      this._hazardShown = false;
+      this._hazardKey = null;
+      this.onHazardBlockStatus?.({ state: 'unavailable', cycleId: hb.cycleId, block: hb.block, reason: err?.message });
+      this._applyTimeRangeOrFrame();
+    }
+  }
+
+  // Whatever the map would show with no hazard block: the range image, else the timestep frame.
+  _applyTimeRangeOrFrame() {
+    const isRangeMax = this._rangeWindow && this._rangeWindow.mode !== 'single';
+    if (isRangeMax && this._bounds) {
+      this._applyRangeMax(this._rangeWindow);
+    } else {
+      this._inRangeMax = false;
+      this._cancelPendingLoad();
+      if (this._imageCoords()) this._loadFrame(this._timeIndex);
+      else this._updateTiles();
+    }
+  }
+
   // ── public interface ──────────────────────────────────────────────────────
 
   setTimeIndex(timeIndex) {
@@ -481,8 +558,9 @@ export class SfincsRasterOverlay {
     } catch (_) {}
   }
 
-  updateConfig({ rangeWindow, inundationCategories, minVisibleDepth, inundationRenderMode } = {}) {
+  updateConfig({ rangeWindow, hazardBlock, inundationCategories, minVisibleDepth, inundationRenderMode } = {}) {
     if (rangeWindow          !== undefined) this._rangeWindow = rangeWindow;
+    if (hazardBlock          !== undefined) this._hazardBlock = hazardBlock;
     const recolor = inundationCategories !== undefined
       || (minVisibleDepth !== undefined && minVisibleDepth !== null)
       || (inundationRenderMode !== undefined && inundationRenderMode !== this._renderMode);
@@ -493,19 +571,17 @@ export class SfincsRasterOverlay {
     if (recolor) this._frameCache.clear();
     if (!this._sourceReady) return;
 
-    const isRangeMax = this._rangeWindow && this._rangeWindow.mode !== 'single';
-    if (isRangeMax && this._bounds) {
-      this._applyRangeMax(this._rangeWindow);
-    } else {
-      this._inRangeMax = false;
-      this._cancelPendingLoad();
-      const coords = this._imageCoords();
-      if (coords) {
-        this._loadFrame(this._timeIndex);
-      } else {
-        this._updateTiles();
-      }
+    if (this._hazardBlock) {
+      this._applyHazardBlock();
+      return;
     }
+    if (this._hazardShown) {
+      this._hazardShown = false;
+      this._hazardKey = null;
+      this._hazardToken += 1; // drop any fetch still in flight
+      this.onHazardBlockStatus?.(null);
+    }
+    this._applyTimeRangeOrFrame();
   }
 
   async getTimeseriesAtPoint(lng, lat) {

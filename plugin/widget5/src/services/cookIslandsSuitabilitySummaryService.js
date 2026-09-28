@@ -46,7 +46,9 @@ async function fetchCookIslandsSuitabilitySummaryFromBackend(timeIndex, bounds) 
       point_count: body?.total_points ?? 0,
     }];
   }));
-  return { vessels: Object.fromEntries(entries) };
+  // Bounds-scoped only if bounds were actually sent; otherwise the backend
+  // summarised its whole domain.
+  return { vessels: Object.fromEntries(entries), statisticsBasis: boundsParams ? 'viewport' : 'domain' };
 }
 
 async function fetchCookIslandsSuitabilitySummaryFromPoints(timeIndex) {
@@ -81,7 +83,8 @@ async function fetchCookIslandsSuitabilitySummaryFromPoints(timeIndex) {
       point_count: bucket.total,
     };
   }
-  return { vessels, point_count: features.length };
+  // Always the whole domain: this fallback cannot honour the map bounds.
+  return { vessels, point_count: features.length, statisticsBasis: 'domain' };
 }
 
 // bounds ({ west, south, east, north }, optional): scopes both the
@@ -90,6 +93,8 @@ async function fetchCookIslandsSuitabilitySummaryFromPoints(timeIndex) {
 // points-based fallback ignores bounds -- it always summarizes the whole
 // domain, since scoping it correctly would mean duplicating the same
 // point-in-bounds filtering the backend patch already does server-side.
+// The result carries `statisticsBasis` ('viewport' | 'domain') so a report can
+// say which one its percentages actually describe.
 export async function fetchCookIslandsSuitabilitySummary(timeIndex, bounds = null) {
   try {
     return await fetchCookIslandsSuitabilitySummaryFromBackend(timeIndex, bounds);

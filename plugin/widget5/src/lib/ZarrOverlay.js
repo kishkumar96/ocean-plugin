@@ -1,6 +1,6 @@
 // ZarrOverlay.js — renders a regular-grid Zarr raster (SFINCS, WW3, etc.) via deck.gl + MapLibre.
 // Adapted from zarr_web/src/lib/zarrOverlay.ts (TypeScript stripped, zarrita → zarr v0.6.3).
-import { MapboxOverlay } from '@deck.gl/mapbox';
+import { MapLibreOverlay } from '@deck.gl/maplibre';
 import { BitmapLayer } from '@deck.gl/layers';
 import { getColormap } from './colormaps';
 import { withRetry } from './withRetry';
@@ -23,7 +23,7 @@ export class ZarrOverlay {
   constructor(map, config) {
     this.map = map;
     this.config = config;
-    this.overlay = new MapboxOverlay({ interleaved: false, layers: [] });
+    this.overlay = new MapLibreOverlay({ interleaved: false, layers: [] });
     this.map.addControl(this.overlay);
 
     this.dataset = null;       // metadata: bounds, shape, timeCount, timeLabels

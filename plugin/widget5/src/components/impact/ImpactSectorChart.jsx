@@ -1,93 +1,41 @@
-import React, { useEffect, useMemo, useRef } from 'react';
-import { Chart, ArcElement, DoughnutController, Legend, Tooltip } from 'chart.js';
+import React, { useMemo } from 'react';
 import { IMPACT_SECTOR_COLORS, IMPACT_SECTOR_LABELS, IMPACT_SECTOR_ORDER } from '../../services/cookIslandsImpactService';
-
-Chart.register(ArcElement, DoughnutController, Legend, Tooltip);
 
 const fmtUsd = (value) => `$${Math.round(value).toLocaleString()}`;
 
-// Doughnut breakdown of one block's economic damage by sector, following the same raw
-// canvas + manual Chart instance lifecycle already used by
-// components/risk/WaterLevelChart.jsx (react-chartjs-2 is a listed
-// dependency but unused anywhere in this codebase -- matching the
-// established local pattern rather than introducing a second charting
-// style). Zero-value sectors are dropped before charting, same as the
-// reference PARTneR app's regional popups, so the legend isn't cluttered
-// with six slices when only two or three are ever nonzero here.
-function ImpactSectorChart({ sectorValues, isDarkMode = false }) {
-  const canvasRef = useRef(null);
-  const chartInstanceRef = useRef(null);
-
-  const chartData = useMemo(() => {
+// Sorted horizontal bars for one window's economic damage by sector, with the value and share printed
+// on each row: comparison needs no legend lookup and no hovering. Zero-value sectors are dropped.
+// `isDarkMode` is kept for call-site compatibility; the panel is always dark.
+function ImpactSectorChart({ sectorValues }) {
+  const rows = useMemo(() => {
     const entries = IMPACT_SECTOR_ORDER
       .map((key) => ({ key, value: sectorValues?.[key] ?? 0 }))
-      .filter((entry) => entry.value > 0);
-    return entries;
+      .filter((entry) => entry.value > 0)
+      .sort((a, b) => b.value - a.value);
+    const total = entries.reduce((sum, e) => sum + e.value, 0);
+    return entries.map((e) => ({ ...e, share: total > 0 ? e.value / total : 0 }));
   }, [sectorValues]);
 
-  useEffect(() => {
-    if (!canvasRef.current || chartData.length === 0) return undefined;
-
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy();
-      chartInstanceRef.current = null;
-    }
-
-    chartInstanceRef.current = new Chart(canvasRef.current.getContext('2d'), {
-      type: 'doughnut',
-      data: {
-        labels: chartData.map((e) => IMPACT_SECTOR_LABELS[e.key] ?? e.key),
-        datasets: [{
-          data: chartData.map((e) => e.value),
-          backgroundColor: chartData.map((e) => IMPACT_SECTOR_COLORS[e.key] ?? '#64748b'),
-          borderColor: isDarkMode ? '#0f172a' : '#ffffff',
-          borderWidth: 2,
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '62%',
-        plugins: {
-          legend: {
-            position: 'right',
-            labels: {
-              color: isDarkMode ? '#e2e8f0' : '#334155',
-              usePointStyle: true,
-              boxWidth: 10,
-              boxHeight: 10,
-              font: { size: 11 },
-            },
-          },
-          tooltip: {
-            backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.94)' : 'rgba(255, 255, 255, 0.96)',
-            titleColor: isDarkMode ? '#f8fafc' : '#0f172a',
-            bodyColor: isDarkMode ? '#e2e8f0' : '#1e293b',
-            borderColor: isDarkMode ? '#334155' : '#cbd5e1',
-            borderWidth: 1,
-            callbacks: {
-              label: (ctx) => `${ctx.label}: ${fmtUsd(ctx.parsed)}`,
-            },
-          },
-        },
-      },
-    });
-
-    return () => {
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.destroy();
-        chartInstanceRef.current = null;
-      }
-    };
-  }, [chartData, isDarkMode]);
-
-  if (chartData.length === 0) {
-    return <div style={{ fontSize: '0.75rem', color: 'rgba(203, 213, 225, 0.65)', textAlign: 'center', padding: '1rem' }}>No economic damage recorded for this window.</div>;
+  if (rows.length === 0) {
+    return <div style={{ fontSize: '0.8rem', color: 'rgba(203, 213, 225, 0.75)', textAlign: 'center', padding: '1rem' }}>No economic damage recorded for this window.</div>;
   }
 
   return (
-    <div style={{ height: 180 }}>
-      <canvas ref={canvasRef} />
+    <div role="list" aria-label="Economic damage by sector" style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+      {rows.map((row) => (
+        <div key={row.key} role="listitem">
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', fontSize: '0.8rem', color: '#f8fafc', marginBottom: 2 }}>
+            <span>{IMPACT_SECTOR_LABELS[row.key] ?? row.key}</span>
+            <span style={{ fontWeight: 700 }}>
+              {fmtUsd(row.value)}
+              <span style={{ fontWeight: 500, color: 'rgba(203, 213, 225, 0.75)', marginLeft: '0.4rem' }}>{Math.round(row.share * 100)}%</span>
+            </span>
+          </div>
+          <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.08)' }}>
+            <div style={{ width: `${Math.max(row.share * 100, 2)}%`, height: '100%', borderRadius: 4, background: IMPACT_SECTOR_COLORS[row.key] ?? '#64748b' }} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

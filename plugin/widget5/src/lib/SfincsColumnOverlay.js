@@ -1,9 +1,9 @@
 // SfincsColumnOverlay.js
-// Renders SFINCS flood depth as 3D extruded columns via deck.gl ColumnLayer + MapboxOverlay.
+// Renders SFINCS flood depth as 3D extruded columns via deck.gl ColumnLayer + MapLibreOverlay.
 // Fetches /grid?time_index=N from the FastAPI and maps each wet cell to a coloured column
 // whose height is proportional to water depth. Works best alongside MapLibre terrain.
 
-import { MapboxOverlay } from '@deck.gl/mapbox';
+import { MapLibreOverlay } from '@deck.gl/maplibre';
 import { ColumnLayer } from '@deck.gl/layers';
 
 // SFINCS grid resolution in WGS84 degrees (5 m at Rarotonga ≈ 0.000045°)
@@ -55,7 +55,7 @@ export class SfincsColumnOverlay {
     this.onLoadingChange = null;
     this.onErrorChange   = null;
 
-    this._overlay = new MapboxOverlay({
+    this._overlay = new MapLibreOverlay({
       interleaved: true,
       layers: [],
       getTooltip: ({ object }) => object && {

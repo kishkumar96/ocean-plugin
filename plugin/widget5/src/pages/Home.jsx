@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { describeWindowMismatch } from '../components/impact/impactWindowSync';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import BottomOffCanvas from './BottomOffCanvas';
 import BottomBuoyOffCanvas from './BottomBuoyOffCanvas';
@@ -27,7 +28,7 @@ import {
   isRouteResultStale,
   isScenarioSuperseded,
 } from '../services/cookIslandsScenarioService';
-import { fetchCookIslandsImpactLatest, fetchCookIslandsImpactAssets, fetchCookIslandsImpactDistricts, fetchCookIslandsImpactDistrictsGeojson, fetchCookIslandsDistrictBoundaries, buildFullDistrictChoropleth } from '../services/cookIslandsImpactService';
+import { fetchCookIslandsImpactLatest, fetchCookIslandsImpactAssets, fetchCookIslandsImpactDistricts, fetchCookIslandsImpactDistrictsGeojson, fetchCookIslandsDistrictBoundaries, buildFullDistrictChoropleth, fetchCookIslandsMhwsContour, mhwsFloodFeatureCollection, mhwsBlockIndexFromScenario } from '../services/cookIslandsImpactService';
 import { exportCookIslandsScenarioComparisonPdf } from '../utils/CookIslandsScenarioComparisonPdf';
 import { findNearestIndex } from '../components/InundationWindowControl';
 import { findIslandZoomTarget } from '../config/islandConfig';
@@ -58,6 +59,11 @@ function CookIslandsForecast() {
     waveForecast: true,
     riskPoints: sharedState?.filters?.riskPoints !== false,
     impactDistricts: sharedState?.filters?.impactDistricts !== false,
+    mhwsContour: true,
+    // Off by default: the +15/+20 cm lines sit ~1-3 m from the working mark on the ground, so at
+    // most zooms they merge into one line. The table compares the areas; turn on to see them.
+    mhwsAltContours: false,
+    mhwsFlood: true,
   });
   const [sliderIndex, setSliderIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -246,6 +252,21 @@ function CookIslandsForecast() {
   // layer) shouldn't need to pull polygon geometry it'll never render.
   const [impactDistrictsGeojson, setImpactDistrictsGeojson] = useState({ loading: false, error: null, geojson: null });
   const impactSurfaceVisible = impactsVisible || Boolean(showBottomCanvas && bottomCanvasData?.mode === 'impact');
+  // The impact window on screen -> the hazard block (same cycle, same window) RiskScape read, so the
+  // map's depth layer is exactly what the impact figures were computed from. Only while an impact
+  // surface is showing; elsewhere the inundation layer keeps its own time controls.
+  const [impactHazardSelection, setImpactHazardSelection] = useState(null); // { cycleId, block }
+  const [hazardBlockStatus, setHazardBlockStatus] = useState(null);
+  const hazardBlock = useMemo(
+    () => (impactSurfaceVisible && impactHazardSelection ? { cycleId: impactHazardSelection.cycleId, block: impactHazardSelection.block } : null),
+    [impactSurfaceVisible, impactHazardSelection],
+  );
+  // MHWS reference layers: the static routine-tide zone, and the latest
+  // "flooded above MHWS" result reported up by the Impacts tab (so the map
+  // always matches the figure and depth threshold shown there).
+  const [mhwsContour, setMhwsContour] = useState({ loading: false, error: null, geojson: null });
+  const [mhwsResult, setMhwsResult] = useState(null);
+  const mhwsFloodGeojson = useMemo(() => mhwsFloodFeatureCollection(mhwsResult), [mhwsResult]);
 
   // Mutual exclusion: only one panel open at a time
   useEffect(() => { if (showBottomCanvas) setShowBuoyCanvas(false); }, [showBottomCanvas]);
@@ -293,6 +314,8 @@ function CookIslandsForecast() {
     minVisibleDepth: inundationThresholds.minVisibleDepth,
     inundationRenderMode,
     rangeWindow,
+    hazardBlock,
+    onHazardBlockStatus: setHazardBlockStatus,
     terrainEnabled,
     terrainConfig: MAP_TERRAIN_CONFIG,
     flood3dEnabled: floodDisplayMode === '3d',
@@ -311,6 +334,11 @@ function CookIslandsForecast() {
     impactDistrictsGeojson: impactDistrictsGeojson.geojson,
     impactDistrictsVisible: impactSurfaceVisible && activeLayers?.impactDistricts !== false,
     impactDistrictsScenario: impactSelectedScenario,
+    mhwsContourGeojson: mhwsContour.geojson,
+    mhwsContourVisible: impactSurfaceVisible && activeLayers?.mhwsContour !== false,
+    mhwsAltContourVisible: impactSurfaceVisible && activeLayers?.mhwsAltContours !== false,
+    mhwsFloodGeojson,
+    mhwsFloodVisible: impactSurfaceVisible && activeLayers?.mhwsFlood !== false,
     initialMapView: sharedState?.map ?? null,
     initialBasemapId: activeBasemapId,
   });
@@ -680,6 +708,22 @@ function CookIslandsForecast() {
       });
   }, [impactSurfaceVisible]);
 
+  // Static MHWS contour line: fetched once, the first time the impact
+  // surface is visible and that layer is switched on.
+  const mhwsContourFetchedRef = useRef(false);
+  const wantMhwsContour = impactSurfaceVisible && (activeLayers?.mhwsContour !== false || activeLayers?.mhwsAltContours !== false);
+  useEffect(() => {
+    if (!wantMhwsContour || mhwsContourFetchedRef.current) return;
+    mhwsContourFetchedRef.current = true;
+    setMhwsContour((prev) => ({ ...prev, loading: true, error: null }));
+    fetchCookIslandsMhwsContour()
+      .then((geojson) => setMhwsContour({ loading: false, error: null, geojson }))
+      .catch((err) => {
+        mhwsContourFetchedRef.current = false;
+        setMhwsContour({ loading: false, error: err.message, geojson: null });
+      });
+  }, [wantMhwsContour]);
+
   // "View impact assessment" (mobile) / "Expand"→"View detailed table"
   // (desktop Impacts tab) — opens the full per-window table in the bottom
   // sheet using whatever impactData already has (no extra fetch; loadImpact
@@ -742,6 +786,9 @@ function CookIslandsForecast() {
   // layer's metadata resolves fast, or was already warm/cached, loading may
   // never actually dip to true and back on this specific switch.
   const pendingImpactWindowRef = useRef(null);
+  // The impact window whose figures are on screen, kept so a map range that drifts away from it
+  // (manual Custom Max, restored saved range) can be flagged and re-synced.
+  const [impactWindowBlock, setImpactWindowBlock] = useState(null);
   const impactWindowRequestedAtRef = useRef(0);
   const IMPACT_WINDOW_PENDING_TIMEOUT_MS = 15000;
 
@@ -777,8 +824,23 @@ function CookIslandsForecast() {
     setRangeWindow({ mode: 'custom', startIndex, endIndex, startTime, endTime });
   }, [capTime.availableTimestamps, capTime.layerId, setRangeWindow]);
 
+  const impactWindowMismatch = useMemo(
+    () => {
+      if (selectedWaveForecast !== 'sfincs-inundation') return null;
+      const ts = capTime.availableTimestamps;
+      const available = ts?.length ? { minMs: new Date(ts[0]).getTime(), maxMs: new Date(ts[ts.length - 1]).getTime() } : null;
+      // The depth layer is the impact window's own hazard block: it cannot describe another period.
+      if (hazardBlock && hazardBlockStatus?.state === 'ok') return null;
+      return describeWindowMismatch(impactWindowBlock, rangeWindow, timeDisplayZone, available);
+    },
+    [selectedWaveForecast, impactWindowBlock, rangeWindow, timeDisplayZone, capTime.availableTimestamps, hazardBlock, hazardBlockStatus],
+  );
+
   const handleImpactWindowSelect = useCallback((block) => {
     if (!block?.dateStart || !block?.dateEnd) return;
+    setImpactWindowBlock(block);
+    const hazardIndex = mhwsBlockIndexFromScenario(block.scenario);
+    setImpactHazardSelection(block.cycleId && hazardIndex ? { cycleId: String(block.cycleId), block: hazardIndex } : null);
     pendingImpactWindowRef.current = block;
     impactWindowRequestedAtRef.current = Date.now();
 
@@ -1045,6 +1107,9 @@ function CookIslandsForecast() {
         onSelectImpactAsset={flyToImpactAsset}
         onImpactWindowSelect={handleImpactWindowSelect}
         onImpactScenarioChange={setImpactSelectedScenario}
+        onMhwsResult={setMhwsResult}
+        impactWindowMismatch={impactWindowMismatch}
+        onSyncImpactWindow={impactWindowBlock ? () => handleImpactWindowSelect(impactWindowBlock) : undefined}
         onImpactsVisibleChange={setImpactsVisible}
         onRetryImpact={loadImpact}
       />
@@ -1064,6 +1129,9 @@ function CookIslandsForecast() {
         onImpactWindowSelect={handleImpactWindowSelect}
         onImpactScenarioChange={setImpactSelectedScenario}
         onSelectImpactAsset={flyToImpactAsset}
+        // The desktop Impacts tab already reports the flood geometry; this covers
+        // the mobile sheet, which has no such section.
+        onMhwsResult={impactsVisible ? undefined : setMhwsResult}
         scenarioCount={scenarios.length}
         onConfirmVesselSuggestion={handleConfirmVesselSuggestion}
         departureSuggestionLoading={departureSuggestionLoading}

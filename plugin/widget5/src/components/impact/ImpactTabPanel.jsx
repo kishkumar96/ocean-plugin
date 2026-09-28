@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { RotateCcw, DollarSign, Building2, Users, Maximize2, Layers, ChevronDown } from 'lucide-react';
+import { RotateCcw, DollarSign, Building2, Users, Maximize2, Layers, ChevronDown, Waves } from 'lucide-react';
 import ImpactSectorChart from './ImpactSectorChart';
+import useMhwsSummaries from './useMhwsSummaries';
 import { formatZoned } from '../../utils/timeZoneFormat';
 import {
   groupImpactAssetUnits,
@@ -8,8 +9,13 @@ import {
   summarizeImpactAssetTypes,
   IMPACT_SECTOR_COLORS,
   IMPACT_SECTOR_LABELS,
+  MHWS_DEFAULT_MIN_DEPTH_M,
+  MHWS_DEPTH_OPTIONS_M,
+  mhwsBlockIndexFromScenario,
+  mhwsMarginLabel,
+  fetchCookIslandsMhwsInundation,
 } from '../../services/cookIslandsImpactService';
-import { fmtUsd, fmtDateRange, parseCycleId, MODEL_STATUS, computeModelStatus, worstBlockIndex } from './impactFormat';
+import { fmtUsd, fmtDateRange, parseCycleId, MODEL_STATUS, computeModelStatus, worstBlockIndex, fmtHectares, portLossByScenario } from './impactFormat';
 
 const TEXT_PRIMARY = '#f8fafc';
 const TEXT_MUTED = 'rgba(203, 213, 225, 0.72)';
@@ -48,11 +54,24 @@ function MetricRow({ icon: Icon, label, value, accentColor }) {
   );
 }
 
+function SummaryTile({ icon: Icon, label, value, color, badge = null }) {
+  return (
+    <div style={{ padding: '0.4rem 0.5rem', borderRadius: 10, background: `${color}14`, border: `1px solid ${color}44`, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.6rem', color: TEXT_MUTED, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+        <Icon size={11} color={color} />
+        {label}
+      </div>
+      <div style={{ fontSize: '1.02rem', fontWeight: 700, color: TEXT_PRIMARY, lineHeight: 1.2 }}>{value}</div>
+      {badge && <div title="Port assets often reflect harbour water beside the structure, not flooding of it; see the note under Aggregated information." style={{ fontSize: '0.58rem', color: '#fcd34d' }}>{badge}</div>}
+    </div>
+  );
+}
+
 function SectionHeading({ children }) {
   return (
-    <div style={{ fontSize: '0.66rem', color: TEXT_MUTED, textTransform: 'uppercase', letterSpacing: '0.02em', fontWeight: 600 }}>
+    <h3 style={{ margin: 0, fontSize: '0.72rem', color: TEXT_MUTED, textTransform: 'uppercase', letterSpacing: '0.02em', fontWeight: 600 }}>
       {children}
-    </div>
+    </h3>
   );
 }
 
@@ -186,7 +205,108 @@ function TopAssetRow({ rank, unit, maxLoss, onSelectAsset }) {
 // only 350-400px) -- the full per-window table lives one click away via
 // onExpand, which reuses CookIslandsImpactPanel (the same component mobile's
 // bottom sheet shows) rather than duplicating a second table implementation.
-function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onScenarioChange, onSelectAsset, onExpand, initialScenario = null, timeDisplayZone = 'Pacific/Rarotonga' }) {
+// Area inundated above Mean High Water Springs (see fetchCookIslandsMhwsInundation
+// for what the number means and why it isn't RiskScape's exposed-area column).
+// Fetches on its own rather than through Home.jsx: it's one small request keyed
+// on (window, depth threshold), and the backend only ever serves the latest
+// cycle, so there's nothing to share with the other impact fetches.
+function MhwsInundationSection({ scenario, impactCycleId, onMhwsResult }) {
+  const block = mhwsBlockIndexFromScenario(scenario);
+  const [minDepthM, setMinDepthM] = useState(MHWS_DEFAULT_MIN_DEPTH_M);
+  const [state, setState] = useState({ loading: false, error: null, result: null });
+
+  // Hand the latest result up so the map's "flooded above MHWS" layer always
+  // matches the numbers shown here (same window, same depth threshold).
+  const onMhwsResultRef = useRef(onMhwsResult);
+  onMhwsResultRef.current = onMhwsResult;
+  // The hazard endpoint always serves the newest hazard run. If that is not the run these impact figures
+  // (and the map's depth range, which follows the impact window dates) belong to, the two would describe
+  // different periods, so the flooded-land layer stays off the map rather than contradict the depth layer.
+  useEffect(() => {
+    const r = state.result;
+    const mismatch = r?.cycleId && impactCycleId && r.cycleId !== String(impactCycleId);
+    onMhwsResultRef.current?.(mismatch ? null : r);
+  }, [state.result, impactCycleId]);
+  useEffect(() => () => onMhwsResultRef.current?.(null), []);
+
+  useEffect(() => {
+    if (block === null) return undefined;
+    let cancelled = false;
+    // Clear the previous window/depth's result (and, via the effect above, the
+    // map's flood layer) so stale numbers never sit under the new selection.
+    setState({ loading: true, error: null, result: null });
+    fetchCookIslandsMhwsInundation({ block, minDepthM })
+      .then((result) => { if (!cancelled) setState({ loading: false, error: null, result }); })
+      .catch((err) => { if (!cancelled) setState({ loading: false, error: err.message, result: null }); });
+    return () => { cancelled = true; };
+  }, [block, minDepthM]);
+
+  if (block === null) return null;
+  const { loading, error, result } = state;
+  const topDistricts = (result?.districts ?? []).filter((d) => d.areaM2 > 0).slice(0, 5);
+  const cycleMismatch = result?.cycleId && impactCycleId && result.cycleId !== String(impactCycleId);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem' }}>
+        <SectionHeading>Area inundated above {mhwsMarginLabel(result?.marginAboveMhwsM)}</SectionHeading>
+        <div role="group" aria-label="Minimum flood depth" title="Minimum counted flood depth" style={{ display: 'flex', gap: '0.25rem' }}>
+          {MHWS_DEPTH_OPTIONS_M.map((depth) => (
+            <button
+              key={depth}
+              type="button"
+              aria-pressed={depth === minDepthM}
+              onClick={() => setMinDepthM(depth)}
+              style={{
+                background: depth === minDepthM ? 'rgba(125, 211, 252, 0.18)' : 'none',
+                border: `1px solid ${depth === minDepthM ? '#7dd3fc' : 'rgba(255,255,255,0.15)'}`,
+                borderRadius: 6, padding: '0.05rem 0.4rem', cursor: 'pointer',
+                fontSize: '0.64rem', color: depth === minDepthM ? '#7dd3fc' : TEXT_MUTED,
+              }}
+            >
+              ≥ {Math.round(depth * 100)} cm
+            </button>
+          ))}
+        </div>
+      </div>
+      {error ? <AssetsNote isError>{error}</AssetsNote>
+        : !result ? <AssetsNote>{loading ? 'Loading…' : 'Unavailable.'}</AssetsNote>
+        : (
+          <div style={{ opacity: loading ? 0.55 : 1 }}>
+            <MetricRow icon={Waves} label="Land inundated beyond routine spring-tide wetting" value={fmtHectares(result.areaHa)} accentColor="#38bdf8" />
+            {topDistricts.length === 0
+              ? <AssetsNote>No land inundated above MHWS in this window at this depth.</AssetsNote>
+              : topDistricts.map((d) => (
+                <div key={d.districtId} style={{ display: 'flex', gap: '0.5rem', padding: '0.2rem 0.25rem', fontSize: '0.74rem' }}>
+                  <span style={{ flex: 1, minWidth: 0, textTransform: 'capitalize' }}>{d.districtName}</span>
+                  <span style={{ color: TEXT_MUTED }}>{Math.round(d.percentOfTotal)}%</span>
+                  <span style={{ fontWeight: 700, minWidth: '4.2rem', textAlign: 'right' }}>{fmtHectares(d.areaHa)}</span>
+                </div>
+              ))}
+            {result.outsideDistrictsHa > 0.005 && (
+              <div style={{ display: 'flex', gap: '0.5rem', padding: '0.2rem 0.25rem', fontSize: '0.74rem', color: TEXT_MUTED }}>
+                <span style={{ flex: 1, minWidth: 0 }}>Outside census districts (coast, harbours)</span>
+                <span>{result.areaHa > 0 ? `${Math.round((100 * result.outsideDistrictsHa) / result.areaHa)}%` : ''}</span>
+                <span style={{ minWidth: '4.2rem', textAlign: 'right' }}>{fmtHectares(result.outsideDistrictsHa)}</span>
+              </div>
+            )}
+            <div style={{ fontSize: '0.62rem', color: TEXT_MUTED, fontStyle: 'italic', lineHeight: 1.4, paddingTop: '0.3rem' }}>
+              Forecast flood depth ≥ {Math.round((result.depthThresholdM ?? minDepthM) * 100)} cm on land above {mhwsMarginLabel(result.marginAboveMhwsM)}{' '}
+              ({result.filterElevationM ?? result.mhwsElevationM ?? 0.328} m above MSL; MHWS itself is {result.mhwsElevationM ?? 0.328} m).
+              The sea, lagoon and the beach below that line are not counted.
+            </div>
+            {cycleMismatch && (
+              <div style={{ fontSize: '0.62rem', color: '#fcd34d', paddingTop: '0.2rem' }}>
+                Hazard cycle {result.cycleId} differs from the impact estimate's cycle {impactCycleId}, so this figure is shown for reference only and its map layer is hidden until the impact run catches up.
+              </div>
+            )}
+          </div>
+        )}
+    </div>
+  );
+}
+
+function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onScenarioChange, onSelectAsset, onExpand, onMhwsResult, initialScenario = null, timeDisplayZone = 'Pacific/Rarotonga' }) {
   const result = data?.result;
   const blocks = useMemo(() => (Array.isArray(result?.blocks) ? result.blocks : []), [result]);
 
@@ -211,9 +331,9 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
   // rather than waiting for the user to click the already-selected chip.
   useEffect(() => {
     onScenarioChange?.(selected?.scenario ?? null);
-    if (selected) onWindowSelect?.(selected);
+    if (selected) onWindowSelect?.({ ...selected, cycleId: result?.cycleId ?? null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.scenario, selected?.dateStart, selected?.dateEnd, selected?.windowStart, selected?.windowEnd]);
+  }, [result?.cycleId, selected?.scenario, selected?.dateStart, selected?.dateEnd, selected?.windowStart, selected?.windowEnd]);
 
   // /cok/impact/latest/assets carries every window's per-asset rows in one
   // fetch; narrow to the selected window, then collapse segments into assets.
@@ -230,6 +350,9 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
   const [expandedAssetType, setExpandedAssetType] = useState(null);
   const topAssets = useMemo(() => topImpactAssetUnits(assetUnits, topLimit), [assetUnits, topLimit]);
   const damagedAssetCount = useMemo(() => assetUnits.filter((u) => u.totalLoss > 0).length, [assetUnits]);
+  // Port assets (wharf/marina/jetty) usually dominate the damage total but often reflect harbour
+  // water beside the structure, not flooding of it -- state that right under the headline number.
+  const portLoss = useMemo(() => portLossByScenario(assetsGeojson?.features).get(selected?.scenario) ?? 0, [assetsGeojson, selected?.scenario]);
   const assetsPending = Boolean(assets?.loading) && !assetsGeojson;
   const assetsFailed = Boolean(assets?.error) && !assetsGeojson;
 
@@ -256,6 +379,13 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
     && !(selected.totalLoss > 0) && !(selected.totalExposedBuildings > 0) && !(selected.totalExposedValue > 0);
 
   const cycleDate = useMemo(() => parseCycleId(result?.cycleId), [result?.cycleId]);
+  // The hazard endpoints serve the newest hazard run; if it is not the run these impact figures came from,
+  // say so beside the status rather than in a separate notice further down.
+  const hazardProbe = useMemo(() => (result?.blocks ?? []).slice(0, 1), [result]);
+  const hazardCheck = useMhwsSummaries(hazardProbe);
+  const newerHazardCycle = Object.values(hazardCheck.byBlock).find(
+    (sm) => sm.cycleId && result?.cycleId && sm.cycleId !== String(result.cycleId),
+  )?.cycleId ?? null;
   const modelStatus = computeModelStatus({
     loading: Boolean(data?.loading), error: data?.error ?? null, result,
     hasPriorResult: Boolean(result),
@@ -293,27 +423,23 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
     <div style={wrapperStyle}>
       <style>{'.impact-tab-chip:focus-visible { outline: 2px solid #38bdf8; outline-offset: 1px; }'}</style>
 
-      {/* Run status + freshness */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <div style={{ fontSize: '0.66rem', color: TEXT_MUTED }}>
-          {cycleDate ? `Forecast issued ${formatZoned(cycleDate, timeDisplayZone)}` : result.label}
+      {/* The answer first: what is affected, when, how badly. Sticky so it stays in view while the
+          rest of the rail scrolls. Window chips select the period; the tiles below them are for
+          that SAME window, so the summary never mixes scenarios. */}
+      <div style={{ position: 'sticky', top: -1, zIndex: 6, margin: '-0.15rem -0.1rem 0', padding: '0.4rem 0.1rem 0.55rem', background: 'rgb(10, 20, 44)', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div style={{ fontSize: '0.66rem', color: TEXT_MUTED }}>
+            {cycleDate ? `Forecast issued ${formatZoned(cycleDate, timeDisplayZone)}` : result.label}
+          </div>
+          <StatusBadge status={modelStatus} />
         </div>
-        <StatusBadge status={modelStatus} />
-      </div>
+        {newerHazardCycle && (
+          <div role="status" style={{ fontSize: '0.72rem', color: '#fde68a' }}>
+            Available, but based on the previous hazard run (newer run {newerHazardCycle} is not in this estimate yet).
+          </div>
+        )}
 
-      {/* Window selector — compact chips, one per consecutive forecast window.
-          Selecting a chip updates the stats/chart below AND pushes that
-          window onto the map (see onWindowSelect below) -- kept as one
-          action, not two, per direct feedback that a separate "commit to
-          map" step made the chips feel like they did nothing. */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-        <div style={{ fontSize: '0.66rem', color: TEXT_MUTED, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
-          Forecast window
-        </div>
-        <div style={{ fontSize: '0.62rem', color: TEXT_MUTED }}>
-          Updates the inundation extent and mapped impacts.
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+        <div role="group" aria-label="Forecast window" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
           {blocks.map((block, i) => {
             const isSelected = i === activeIndex;
             const isWorst = i === worstIndex && block.totalLoss > 0;
@@ -340,31 +466,29 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
             );
           })}
         </div>
-      </div>
 
-      {/* Exposure leads: who and what the flood reaches, before what it costs.
-          All figures below are for the SAME selected window, so the summary
-          never mixes scenarios. */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-        <SectionHeading>Exposure</SectionHeading>
-        {noImpact && (
-          <div role="status" style={{ fontSize: '0.72rem', color: '#5eead4', background: 'rgba(42, 157, 143, 0.14)', border: '1px solid rgba(42, 157, 143, 0.4)', borderRadius: 8, padding: '0.4rem 0.6rem', margin: '0.15rem 0' }}>
+        {noImpact ? (
+          <div role="status" style={{ fontSize: '0.72rem', color: '#5eead4', background: 'rgba(42, 157, 143, 0.14)', border: '1px solid rgba(42, 157, 143, 0.4)', borderRadius: 8, padding: '0.4rem 0.6rem' }}>
             No assets are forecast to be flooded in this window.
           </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.4rem' }}>
+            <SummaryTile icon={Building2} label="Buildings" color="#F4A261" value={selected?.totalExposedBuildings?.toLocaleString() ?? '—'} />
+            <SummaryTile
+              icon={Users}
+              label="Population"
+              color="#a78bfa"
+              value={selected?.population?.value === null || selected?.population?.value === undefined ? '—' : `${selected.population.value.toLocaleString()}${selected.population.validated ? '' : '*'}`}
+            />
+            <SummaryTile
+              icon={DollarSign}
+              label="Est. damage"
+              color="#E63946"
+              value={fmtUsd(selected?.totalLoss)}
+              badge={portLoss > 0 && selected?.totalLoss > 0 ? `${Math.round((100 * portLoss) / selected.totalLoss)}% Port*` : null}
+            />
+          </div>
         )}
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <MetricRow icon={Building2} label="Buildings exposed" value={selected?.totalExposedBuildings?.toLocaleString() ?? '—'} accentColor="#F4A261" />
-          <MetricRow
-            icon={Users}
-            label="Population exposed"
-            value={
-              selected?.population?.value === null || selected?.population?.value === undefined
-                ? '—'
-                : `${selected.population.value.toLocaleString()}${selected.population.validated ? '' : ' (unconfirmed)'}`
-            }
-            accentColor="#a78bfa"
-          />
-        </div>
       </div>
 
       {/* Aggregated information: window totals, then exposed assets across all
@@ -373,6 +497,12 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
         <SectionHeading>Aggregated information</SectionHeading>
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <MetricRow icon={DollarSign} label="Estimated economic damage" value={fmtUsd(selected?.totalLoss)} accentColor="#E63946" />
+          {portLoss > 0 && selected?.totalLoss > 0 && (
+            <div style={{ fontSize: '0.64rem', color: '#fcd34d', lineHeight: 1.4, padding: '0 0 0.4rem 2.1rem' }}>
+              {Math.round((100 * portLoss) / selected.totalLoss)}% ({fmtUsd(portLoss)}) is Port assets, likely overstated (harbour water, not
+              flooding of the structures). Excluding them: <strong>{fmtUsd(Math.max(selected.totalLoss - portLoss, 0))}</strong>.
+            </div>
+          )}
           <MetricRow icon={Layers} label="Total exposed asset value" value={fmtUsd(selected?.totalExposedValue)} accentColor="#38bdf8" />
         </div>
         <div style={{ fontSize: '0.66rem', color: TEXT_MUTED, marginTop: '0.4rem' }}>Exposed assets by type</div>
@@ -391,9 +521,7 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
       </div>
 
       <div>
-        <div style={{ marginBottom: '0.35rem', fontSize: '0.72rem', fontWeight: 600 }}>
-          Economic damage by sector — {fmtDateRange(selected?.dateStart, selected?.dateEnd)}
-        </div>
+        <h3 style={{ margin: '0 0 0.35rem', fontSize: '0.8rem', fontWeight: 600 }}>Economic damage by sector</h3>
         <ImpactSectorChart sectorValues={selected?.lossesBySector} isDarkMode />
       </div>
 
@@ -428,6 +556,13 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
           ))}
       </div>
 
+      <details>
+        <summary style={{ cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, color: '#7dd3fc' }}>Advanced: land flooded above the tide line</summary>
+        <div style={{ marginTop: '0.5rem' }}>
+          <MhwsInundationSection scenario={selected?.scenario ?? null} impactCycleId={result?.cycleId ?? null} onMhwsResult={onMhwsResult} />
+        </div>
+      </details>
+
       {onExpand && (
         <button
           type="button"
@@ -440,6 +575,14 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
         </button>
       )}
 
+      <details style={{ marginTop: '0.5rem' }}>
+        <summary style={{ cursor: 'pointer', fontSize: '0.76rem', color: '#7dd3fc' }}>Why don’t these numbers match?</summary>
+        <div style={{ fontSize: '0.76rem', color: TEXT_MUTED, lineHeight: 1.45, marginTop: '0.3rem' }}>
+          They count different things. “Buildings” counts buildings only; the asset lists count every asset type (wharves, roads, pipes, bridges), so an
+          asset type can show many affected items while buildings show few. A district can show damage with no buildings when the loss is to roads, wharves or pipes.
+          Population is a separate estimate and is 0 when no homes are flooded.
+        </div>
+      </details>
       <div style={{ fontSize: '0.64rem', color: TEXT_MUTED, fontStyle: 'italic', lineHeight: 1.4 }}>
         Estimated forecast economic damage, not observed/confirmed economic damage.
       </div>

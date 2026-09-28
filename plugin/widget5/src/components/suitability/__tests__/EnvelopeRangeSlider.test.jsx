@@ -24,7 +24,7 @@ function renderSlider(overrides = {}) {
     onCautionChange,
     onAvoidChange,
     cautionField: screen.getByRole('spinbutton', { name: /wind caution threshold, kt/i }),
-    avoidField: screen.getByRole('spinbutton', { name: /wind avoid threshold, kt/i }),
+    avoidField: screen.getByRole('spinbutton', { name: /wind warning threshold, kt/i }),
     cautionSlider: screen.getByRole('slider', { name: /wind caution threshold$/i }),
   };
 }

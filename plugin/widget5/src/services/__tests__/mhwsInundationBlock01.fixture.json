@@ -1,0 +1,326 @@
+{
+ "cycle_id": "2026092306",
+ "block": 1,
+ "area_inundated_m2": 41268.7,
+ "area_inundated_ha": 4.1269,
+ "area_inundated_km2": 0.041269,
+ "depth_threshold_m": 0.05,
+ "mhws_elevation_m_msl": 0.328,
+ "margin_above_mhws_m": 0.175,
+ "filter_elevation_m_msl": 0.503,
+ "districts": [
+  {
+   "cdid": "01",
+   "district_name": "kiikii-ooa",
+   "area_inundated_m2": 1.8,
+   "area_inundated_ha": 0.0002,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "02",
+   "district_name": "ngatipa",
+   "area_inundated_m2": 2.9,
+   "area_inundated_ha": 0.0003,
+   "percentage_of_total": 0.01
+  },
+  {
+   "cdid": "03",
+   "district_name": "takuvaine valley",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "04",
+   "district_name": "tutakimoa-teotue",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "05",
+   "district_name": "avatiu valley",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "06",
+   "district_name": "pokoinu",
+   "area_inundated_m2": 224.1,
+   "area_inundated_ha": 0.0224,
+   "percentage_of_total": 0.54
+  },
+  {
+   "cdid": "07",
+   "district_name": "pokoinu-i raro",
+   "area_inundated_m2": 2462.2,
+   "area_inundated_ha": 0.2462,
+   "percentage_of_total": 5.97
+  },
+  {
+   "cdid": "08",
+   "district_name": "akaoa arorangi",
+   "area_inundated_m2": 2183.7,
+   "area_inundated_ha": 0.2184,
+   "percentage_of_total": 5.29
+  },
+  {
+   "cdid": "09",
+   "district_name": "rutaki",
+   "area_inundated_m2": 597.7,
+   "area_inundated_ha": 0.0598,
+   "percentage_of_total": 1.45
+  },
+  {
+   "cdid": "10",
+   "district_name": "avaavaroa/totokoitu",
+   "area_inundated_m2": 109.4,
+   "area_inundated_ha": 0.0109,
+   "percentage_of_total": 0.27
+  },
+  {
+   "cdid": "11",
+   "district_name": "maii&vaii-ngatangiia",
+   "area_inundated_m2": 2858.0,
+   "area_inundated_ha": 0.2858,
+   "percentage_of_total": 6.93
+  },
+  {
+   "cdid": "12",
+   "district_name": "matavera",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "13",
+   "district_name": "ureia",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "14",
+   "district_name": "nikaupara",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "15",
+   "district_name": "amuri-vaipae",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "17",
+   "district_name": "tautu",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "18",
+   "district_name": "tavaenga",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "19",
+   "district_name": "kaumata",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "20",
+   "district_name": "te makatea",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "21",
+   "district_name": "tamarua",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "22",
+   "district_name": "ivirua",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "23",
+   "district_name": "karanga",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "24",
+   "district_name": "mapumai",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "25",
+   "district_name": "teenui",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "26",
+   "district_name": "ngatiarua atiu",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "27",
+   "district_name": "areora",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "28",
+   "district_name": "tengatangi",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "29",
+   "district_name": "kimiangatau-mauke",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "30",
+   "district_name": "makatea areora-mauke",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "31",
+   "district_name": "ngatiarua-mauke",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "32",
+   "district_name": "takaue-mangarei",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "33",
+   "district_name": "auta-atai",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "34",
+   "district_name": "palmerston",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "35",
+   "district_name": "ngake",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "36",
+   "district_name": "roto",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "37",
+   "district_name": "yato",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "38",
+   "district_name": "nassau",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "39",
+   "district_name": "tauhunu",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "40",
+   "district_name": "tukao",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "41",
+   "district_name": "matara",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "42",
+   "district_name": "numahanga",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "43",
+   "district_name": "te tautua",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "44",
+   "district_name": "omoka1",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  },
+  {
+   "cdid": "45",
+   "district_name": "suwarrow national park",
+   "area_inundated_m2": 0.0,
+   "area_inundated_ha": 0.0,
+   "percentage_of_total": 0.0
+  }
+ ],
+ "outside_districts_m2": 32828.8,
+ "outside_districts_ha": 3.2829,
+ "geometry": null,
+ "methodology_version": "mhws-adjusted-v3",
+ "land_mask_source": "LiDAR DTM ground above MHWS + 17.5 cm (0.503 m above MSL): excludes the sea, lagoon and the intertidal beach; Rarotonga only"
+}

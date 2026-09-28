@@ -28,112 +28,28 @@
 // jsPDF's Node build pulls in a PNG decoder chain that needs TextEncoder/
 // TextDecoder, which CRA's default jsdom test environment doesn't provide,
 // and which a real browser (where this code actually runs) always does.
-import { HAZARD_COLORS, VESSEL_OPERATING_ENVELOPE, VESSEL_CLASS_OPTIONS, deriveSuitabilityDriver } from '../lib/CookIslandsSuitabilityOverlay';
+import { VESSEL_OPERATING_ENVELOPE, VESSEL_CLASS_OPTIONS, deriveSuitabilityDriver } from '../lib/CookIslandsSuitabilityOverlay';
 import { tzLabel } from '../utils/timeZoneFormat';
+import { coverageConfidence } from '../reports/reportRules';
 
-// Exported (not just module-local) so CookIslandsScenarioComparisonPdf.js can
-// reuse these same low-level drawing primitives and the app's own visual
-// language (header band, footer disclaimer, hazard palette) instead of a
-// second copy of them -- see that file's header comment.
-export const PAGE_W = 210; // A4 portrait, mm -- CookIslandsScenarioComparisonPdf.js's own layout width, NOT this file's page (see header comment)
-export const HDR_H = 22;
-export const HEADER_BG = [15, 42, 66]; // dark navy, matches the app's header band
-const ACCENT = [0, 212, 255];        // #00d4ff, the app's own accent cyan
+// Shared visual theme (page furniture, palette, hazard colours, formatting) -- see pdfTheme.js.
+// Re-exported here because the scenario and landing reports historically imported these from
+// this file.
+import {
+  PAGE_W, HDR_H, HEADER_BG, TEXT_LT, TEXT_MD, TEXT_DK, GRID_CLR, NO_DATA_GREY,
+  setFill, setDraw, setFont, rect, hazardColor, hazardLight, hazardText, hazardLabel,
+  formatNumber, formatEta, drawHeaderBand, drawFooter, MODEL_DISCLAIMER, StatCard, ensureReportFont,
+} from './pdfTheme';
+
+export {
+  PAGE_W, HDR_H, HEADER_BG, TEXT_LT, TEXT_MD, TEXT_DK, GRID_CLR, NO_DATA_GREY,
+  setFill, setDraw, setFont, rect, hazardColor, hazardLight, hazardText, hazardLabel,
+  formatNumber, formatEta, drawHeaderBand, drawFooter, MODEL_DISCLAIMER, StatCard,
+};
+
 const WIND_LINE = [56, 189, 248];    // sky-400, distinct from both hazard colors and the wave line below
 const WAVE_LINE = [167, 139, 250];   // violet-400
-export const TEXT_LT = [255, 255, 255];
-export const TEXT_MD = [90, 100, 110];
-export const TEXT_DK = [30, 35, 40];
-export const GRID_CLR = [220, 224, 228];
-export const NO_DATA_GREY = [150, 150, 150];
-
-const HAZARD_LIGHT = {
-  0: [220, 243, 240],
-  1: [255, 240, 219],
-  2: [252, 222, 224],
-};
-const HAZARD_TEXT = {
-  0: [25, 94, 89],
-  1: [150, 95, 10],
-  2: [166, 34, 43],
-};
-const HAZARD_LABELS = { 0: 'Suitable', 1: 'Caution', 2: 'Warning' };
 const DRIVER_LABELS = { none: 'None', wind: 'Wind', waves: 'Waves', wind_and_waves: 'Wind & waves' };
-
-export function setFill(doc, rgb) { doc.setFillColor(...rgb); }
-export function setDraw(doc, rgb) { doc.setDrawColor(...rgb); }
-export function setFont(doc, rgb, size, style = 'normal') {
-  doc.setTextColor(...rgb);
-  doc.setFontSize(size);
-  doc.setFont('helvetica', style);
-}
-export function rect(doc, x, y, w, h, fill, draw, lw = 0.1) {
-  setFill(doc, fill);
-  if (draw) { setDraw(doc, draw); doc.setLineWidth(lw); }
-  doc.rect(x, y, w, h, draw ? 'FD' : 'F');
-}
-
-export function hazardColor(h) { return HAZARD_COLORS[h] ? hexToRgb(HAZARD_COLORS[h]) : NO_DATA_GREY; }
-export function hazardLight(h) { return HAZARD_LIGHT[h] ?? [235, 236, 238]; }
-export function hazardText(h) { return HAZARD_TEXT[h] ?? TEXT_MD; }
-export function hazardLabel(h) { return HAZARD_LABELS[h] ?? 'Unknown'; }
-function hexToRgb(hex) {
-  const raw = hex.replace('#', '');
-  return [0, 2, 4].map((i) => parseInt(raw.slice(i, i + 2), 16));
-}
-
-export function formatNumber(value, digits = 1) {
-  // null/undefined must short-circuit before Number() -- Number(null) is 0,
-  // which is finite, so this would otherwise fabricate a "0" reading for an
-  // explicitly unavailable (out-of-domain) sample.
-  if (value === null || value === undefined) return '—';
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(digits) : '—';
-}
-
-export function formatEta(dateLike, timeDisplayZone) {
-  const d = new Date(dateLike);
-  if (Number.isNaN(d.getTime())) return '—';
-  try {
-    return new Intl.DateTimeFormat('en-GB', {
-      timeZone: timeDisplayZone, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
-    }).format(d);
-  } catch {
-    return d.toISOString().slice(0, 16).replace('T', ' ');
-  }
-}
-
-// Reads the page's own actual width off the doc (doc.internal.pageSize.
-// getWidth()) rather than assuming the portrait PAGE_W constant -- lets
-// every report (portrait or landscape) reuse this same header/footer
-// drawing instead of each needing its own copy hardcoded to a width.
-export function drawHeaderBand(doc, { title, subtitle, rightLine1, rightLine2 }) {
-  const pageWidth = doc.internal.pageSize.getWidth();
-  rect(doc, 0, 0, pageWidth, HDR_H, HEADER_BG);
-  setFont(doc, TEXT_LT, 15, 'bold');
-  doc.text(title, 8, HDR_H * 0.45);
-  if (subtitle) {
-    setFont(doc, ACCENT, 9);
-    doc.text(subtitle, 8, HDR_H * 0.8);
-  }
-  if (rightLine1) {
-    setFont(doc, TEXT_LT, 8.5);
-    doc.text(rightLine1, pageWidth - 8, HDR_H * 0.45, { align: 'right' });
-  }
-  if (rightLine2) {
-    setFont(doc, [200, 210, 220], 7.5);
-    doc.text(rightLine2, pageWidth - 8, HDR_H * 0.8, { align: 'right' });
-  }
-}
-
-export const MODEL_DISCLAIMER = 'SWAN wave model guidance. Vessel operating envelope thresholds are advisory defaults, not navigation advice — use alongside official warnings and local seamanship.';
-export function drawFooter(doc) {
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  setFont(doc, TEXT_MD, 6.2, 'italic');
-  const lines = doc.splitTextToSize(MODEL_DISCLAIMER, pageWidth - 16);
-  doc.text(lines, pageWidth / 2, pageHeight - 4 - (lines.length - 1) * 3, { align: 'center' });
-}
 
 function projectLonLatToRect(lon, lat, bbox, rectX, rectY, rectW, rectH) {
   const px = rectX + ((lon - bbox.lonMin) / (bbox.lonMax - bbox.lonMin)) * rectW;
@@ -375,13 +291,6 @@ export function routeThresholdText(vesselCode) {
     + `Warning from ${formatNumber(rule.maxWindKt, 0)} kt or ${formatNumber(rule.maxWaveHeightM, 1)} m.`;
 }
 
-export function StatCard(doc, x, y, w, h, label, value, valueColor = TEXT_DK) {
-  rect(doc, x, y, w, h, [255, 255, 255], GRID_CLR, 0.25);
-  setFont(doc, TEXT_MD, 6.2, 'bold');
-  doc.text(label.toUpperCase(), x + 3, y + 5.5);
-  setFont(doc, valueColor, 11, 'bold');
-  doc.text(value, x + 3, y + 12.5);
-}
 
 // Only rendered by the caller when hazard >= 1 (matching widget1: an
 // all-clear route has no "critical point" worth a dedicated panel). Shows
@@ -475,7 +384,7 @@ export function drawHazardTimelineRibbon(doc, x, y, w, h, samples) {
 // guessing which axis a given line belongs to at a glance (the legend
 // below states it explicitly too). No tide/current series: this app has no
 // sea-level dataset for Cook Islands to plot one from.
-export function drawWindWaveChart(doc, x, y, w, h, samples, vesselCode) {
+export function drawWindWaveChart(doc, x, y, w, h, samples, vesselCode, timeDisplayZone = 'Pacific/Rarotonga') {
   rect(doc, x, y, w, h, [255, 255, 255], GRID_CLR, 0.25);
   const pts = samples.filter((s) => s?.eta && Number.isFinite(new Date(s.eta).getTime())
     && Number.isFinite(s.wind_speed_kt) && Number.isFinite(s.wave_height_m));
@@ -486,11 +395,13 @@ export function drawWindWaveChart(doc, x, y, w, h, samples, vesselCode) {
   }
 
   const chartTop = y + 4;
-  const chartH = h - 16; // reserve space for the legend row below the plot
+  const chartH = h - 22; // reserve space for the time axis and the legend row below the plot
+  const chartLeft = x + 10; // reserve space for the wind (left) axis labels
+  const chartRight = x + w - 10; // reserve space for the wave (right) axis labels
   const times = pts.map((s) => new Date(s.eta).getTime());
   const t0 = times[0];
   const span = times[times.length - 1] - t0 || 1;
-  const xAt = (t) => x + 3 + ((t - t0) / span) * (w - 6);
+  const xAt = (t) => chartLeft + ((t - t0) / span) * (chartRight - chartLeft);
 
   const envelope = VESSEL_OPERATING_ENVELOPE[vesselCode];
   const winds = pts.map((s) => s.wind_speed_kt);
@@ -500,13 +411,42 @@ export function drawWindWaveChart(doc, x, y, w, h, samples, vesselCode) {
   const windY = (v) => chartTop + chartH - (v / windMax) * chartH;
   const waveY = (v) => chartTop + chartH - (v / waveMax) * chartH;
 
+  // Gridlines + axis tick labels: wind (left, kt) drives the gridlines; wave (right, m)
+  // gets its own labels at the same rows so both series can be read off the one chart.
+  const windStep = windMax > 40 ? 20 : windMax > 15 ? 10 : 5;
+  setDraw(doc, GRID_CLR); doc.setLineWidth(0.15);
+  for (let v = 0; v <= windMax; v += windStep) {
+    doc.line(chartLeft, windY(v), chartRight, windY(v));
+    setFont(doc, TEXT_MD, 5.4); doc.text(`${Math.round(v)}`, chartLeft - 1.5, windY(v) + 1, { align: 'right' });
+    setFont(doc, TEXT_MD, 5.4); doc.text(`${((v / windMax) * waveMax).toFixed(1)}`, chartRight + 1.5, windY(v) + 1);
+  }
+
+  // Time axis along the bottom, matching the ETA of the plotted samples.
+  setDraw(doc, GRID_CLR); doc.setLineWidth(0.15);
+  const axisY = chartTop + chartH;
+  const tickCount = Math.min(pts.length, 5);
+  const timeLabel = (ms) => {
+    try {
+      return new Intl.DateTimeFormat('en-GB', { timeZone: timeDisplayZone, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ms));
+    } catch {
+      return new Date(ms).toISOString().slice(11, 16);
+    }
+  };
+  for (let i = 0; i < tickCount; i += 1) {
+    const t = t0 + (i / Math.max(1, tickCount - 1)) * span;
+    const px = xAt(t);
+    doc.line(px, axisY, px, axisY + 1.6);
+    setFont(doc, TEXT_MD, 5.2);
+    doc.text(timeLabel(t), px, axisY + 4.5, { align: i === tickCount - 1 ? 'right' : (i === 0 ? 'left' : 'center') });
+  }
+
   if (envelope) {
     doc.setLineWidth(0.35);
     doc.setLineDashPattern([1, 1], 0);
     setDraw(doc, hazardColor(1));
-    doc.line(x + 3, windY(envelope.cautionWindKt), x + w - 3, windY(envelope.cautionWindKt));
+    doc.line(chartLeft, windY(envelope.cautionWindKt), chartRight, windY(envelope.cautionWindKt));
     setDraw(doc, hazardColor(2));
-    doc.line(x + 3, windY(envelope.maxWindKt), x + w - 3, windY(envelope.maxWindKt));
+    doc.line(chartLeft, windY(envelope.maxWindKt), chartRight, windY(envelope.maxWindKt));
     doc.setLineDashPattern([], 0);
   }
 
@@ -542,14 +482,41 @@ export function drawWindWaveChart(doc, x, y, w, h, samples, vesselCode) {
 // the built jsPDF document (page count, output bytes) without needing a
 // browser's download machinery -- doc.save() below is a thin, untestable
 // side effect on top of this.
+// Evidence about how much weight a route result can bear, all derived from the samples:
+// coverage (available/total, high|reduced|insufficient), approximate sampling interval,
+// forecast age at generation, whether the departure time has already passed, and the
+// separate Caution and Warning shares of the *assessed* samples (unavailable excluded).
+export function routeEvidence({ samples = [], departureTime = null, modelRunStart = null, generatedAt = new Date() }) {
+  const total = samples.length;
+  const assessed = samples.filter((s) => s && s.available !== false && Number.isFinite(s.hazard_class));
+  const available = assessed.length;
+  const times = samples.map((s) => new Date(s?.eta).getTime()).filter(Number.isFinite);
+  const intervalMin = times.length > 1 ? (times[times.length - 1] - times[0]) / (times.length - 1) / 60000 : null;
+  const runMs = modelRunStart ? new Date(modelRunStart).getTime() : NaN;
+  const depMs = departureTime ? new Date(departureTime).getTime() : NaN;
+  const share = (n) => (available > 0 ? (100 * n) / available : null);
+  return {
+    total, available, ratio: total ? available / total : 0,
+    confidence: coverageConfidence(available, total),
+    intervalMin,
+    forecastAgeHours: Number.isFinite(runMs) ? (generatedAt.getTime() - runMs) / 3600e3 : null,
+    departurePassed: Number.isFinite(depMs) ? depMs < generatedAt.getTime() : false,
+    cautionPercent: share(assessed.filter((s) => s.hazard_class === 1).length),
+    warningPercent: share(assessed.filter((s) => s.hazard_class >= 2).length),
+  };
+}
+
 export async function buildCookIslandsRouteAdvisoryPdfDoc({
   result, vessel, speedKt, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null, modelRunStart = null,
-  vesselSuggestion = null, departureSuggestion = null,
+  vesselSuggestion = null, departureSuggestion = null, superseded = false, startLabel: startLabelParam = null, destinationLabel: destinationLabelParam = null,
 }) {
+  const startLabel = startLabelParam ?? result?.start_label ?? null;
+  const destinationLabel = destinationLabelParam ?? result?.destination_label ?? null;
   if (!result) throw new Error('No route forecast result to export.');
 
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  await ensureReportFont(doc);
   doc.setProperties({
     title: 'Cook Islands Route Advisory',
     subject: 'Vessel route suitability forecast',
@@ -573,8 +540,14 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
   const hazard = summary.worst_hazard_class;
   const exceedance = worstSample ? computeExceedance(vessel, worstSample) : null;
   const unavailableCount = samples.filter((s) => s?.available === false || !Number.isFinite(s?.hazard_class)).length;
+  // A missing wind or wave reading must not be treated as 0 (which would name the
+  // other parameter as the driver on incomplete input) -- report no driver instead.
+  const worstReadingsComplete = worstSample
+    && Number.isFinite(worstSample.wind_speed_kt) && Number.isFinite(worstSample.wave_height_m);
   const primaryDriver = hazardAvailable && hazard > 0 && worstSample
-    ? deriveSuitabilityDriver(vessel, worstSample.wind_speed_kt ?? 0, worstSample.wave_height_m ?? 0)
+    ? (worstReadingsComplete
+      ? deriveSuitabilityDriver(vessel, worstSample.wind_speed_kt, worstSample.wave_height_m)
+      : null)
     : 'none';
   const generatedAt = new Date();
 
@@ -585,7 +558,7 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
     // card set), but it's still a real assumption every downstream number
     // (duration, ETAs) depends on -- stated here rather than silently
     // dropped from the visible report now that it lost its dedicated card.
-    subtitle: `${vesselLabel} · ${formatNumber(speedKt, 1)} kt assumed speed`,
+    subtitle: `${vesselLabel} · ${formatNumber(speedKt, 1)} kt assumed speed${startLabel && destinationLabel ? ` · ${startLabel} to ${destinationLabel}` : ''}`,
     rightLine1: `Departure: ${formatEta(result.departure_time, timeDisplayZone)} ${tzLabel(timeDisplayZone)}`,
     rightLine2: `Generated ${formatEta(generatedAt, timeDisplayZone)} ${tzLabel(timeDisplayZone)} · Page 1 of 2`,
   });
@@ -617,7 +590,28 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
     'Samples',
     unavailableCount > 0 ? `${samples.length} (${unavailableCount} unavail.)` : String(samples.length),
   );
-  y = cardY + cardH + 6;
+  y = cardY + cardH + 4;
+
+  // Evidence line: how far the result can be relied on (coverage, cadence, age, exposure).
+  const ev = routeEvidence({ samples, departureTime: result.departure_time, modelRunStart: modelRunStart ?? result.model_run_time ?? null, generatedAt });
+  const fmtPct = (v) => (v === null ? '—' : `${Math.round(v)}%`);
+  setFont(doc, TEXT_MD, 6.8);
+  const evLines = doc.splitTextToSize(
+    `Coverage: ${ev.confidence} — ${ev.available} of ${ev.total} samples assessed · `
+    + `Sampling: ${ev.intervalMin !== null ? `about every ${Math.round(ev.intervalMin)} min` : 'unknown'} · `
+    + `Exposure (assessed samples): ${fmtPct(ev.cautionPercent)} Caution, ${fmtPct(ev.warningPercent)} Warning · `
+    + `Forecast age: ${ev.forecastAgeHours !== null ? `${Math.round(ev.forecastAgeHours)} h at generation` : 'model run not reported'}`,
+    pageW * 0.42,
+  );
+  doc.text(evLines, 8, y + 2);
+  y += evLines.length * 3.5 + 3;
+  if (ev.departurePassed) {
+    setFont(doc, hazardText(1), 7, 'bold');
+    const passed = doc.splitTextToSize('Departure time has already passed: conditions before now are historical; re-run the route for a current departure.', pageW * 0.42);
+    doc.text(passed, 8, y);
+    y += passed.length * 3.6 + 1.5;
+  }
+  y += 2;
 
   // Critical-point panel -- only when there's actually a hazard to explain
   // (matches widget1: an all-clear route gets no dedicated panel).
@@ -645,8 +639,15 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
   }
   if (departureSuggestion?.departureTime) {
     setFont(doc, TEXT_MD, 7, 'italic');
-    doc.text(`A later departure (${formatEta(departureSuggestion.departureTime, timeDisplayZone)}) may find better conditions.`, 8, y);
-    y += 5;
+    setFont(doc, TEXT_MD, 7, 'italic');
+    const b = departureSuggestion.best; const r = departureSuggestion.requested;
+    const share = (x) => (x ? Math.round((x.caution_percent ?? 0) + (x.warning_percent ?? 0)) : null);
+    const detail = b && r && share(b) !== null && share(r) !== null
+      ? ` Modelled Caution+Warning share of assessed samples: ${share(r)}% at the requested time, ${share(b)}% then.`
+      : '';
+    const depLines = doc.splitTextToSize(`A later departure (${formatEta(departureSuggestion.departureTime, timeDisplayZone)}) may find better modelled conditions.${detail}`, leftColW);
+    doc.text(depLines, 8, y);
+    y += depLines.length * 3.6 + 2;
   }
 
   // Right column: route sketch, given the extra landscape width.
@@ -694,7 +695,7 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
   setFont(doc, TEXT_DK, 8, 'bold');
   doc.text('Wind & wave profile', chartColX, cy);
   cy += 3;
-  drawWindWaveChart(doc, chartColX, cy, chartColW, 55, samples, vessel);
+  drawWindWaveChart(doc, chartColX, cy, chartColW, 55, samples, vessel, timeDisplayZone);
   cy += 55 + 7;
 
   setFont(doc, TEXT_DK, 8, 'bold');
@@ -729,6 +730,15 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
     : 'Model run: unavailable';
   doc.text(`${modelRunText} · Source: SWAN wave model forecast (Cook Islands) via /cok/suitability/route`, chartColX, cy);
   cy += 6;
+  if (superseded) {
+    setFont(doc, hazardText(1), 7.5, 'bold');
+    const supLines = doc.splitTextToSize(
+      'SUPERSEDED: a newer forecast run was available when this advisory was exported. Re-run the route before relying on it.',
+      chartColW,
+    );
+    doc.text(supLines, chartColX, cy);
+    cy += supLines.length * 3.6 + 3;
+  }
 
   setFont(doc, TEXT_DK, 8, 'bold');
   doc.text('Data completeness', chartColX, cy);
@@ -737,8 +747,8 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
   const completenessText = samples.length === 0
     ? 'No samples returned for this route.'
     : unavailableCount === 0
-      ? `All ${samples.length} sampled points along the route returned a reading — full coverage.`
-      : `${unavailableCount} of ${samples.length} sampled points had no model coverage (outside the forecast domain) — not the same as a confirmed-safe reading.`;
+      ? `All ${samples.length} sampled points along the route returned a reading — full coverage (${ev.confidence}).`
+      : `${unavailableCount} of ${samples.length} sampled points had no model coverage (outside the forecast domain) — coverage ${ev.confidence}; unavailable is not the same as a confirmed-safe reading.`;
   doc.text(doc.splitTextToSize(completenessText, chartColW), chartColX, cy);
 
   drawFooter(doc);

@@ -1,3 +1,4 @@
+/* eslint-disable testing-library/no-node-access */
 import React from 'react';
 import fs from 'fs';
 import path from 'path';
@@ -8,6 +9,19 @@ import { normalizeImpactAssetsResponse } from '../../../services/cookIslandsImpa
 
 // The doughnut needs a real canvas; irrelevant to what is tested here.
 jest.mock('../ImpactSectorChart', () => () => <div data-testid="sector-chart" />);
+
+// This file doesn't test MHWS behaviour (see ImpactTabPanel.mhws.test.jsx for that), but
+// ImpactTabPanel always mounts both useMhwsSummaries and a child MhwsInundationSection,
+// each firing its own fetch on mount/prop-change. Rather than guess how many ticks it takes
+// each of those independent chains to settle (a fixed-delay flush proved unreliable -- it
+// made the warning count worse, not better, because MhwsInundationSection refetches on
+// every scenario-prop change some of these tests trigger), give both a fetch that never
+// resolves: matches the pattern CookIslandsSuitabilityReadinessCard.test.jsx already uses
+// for the same reason. Nothing here asserts on MHWS data, so leaving it perpetually
+// "loading" is harmless -- and a promise that never settles can never update state outside
+// act() after the test (and RTL's auto-unmount) has already moved on.
+beforeEach(() => { global.fetch = jest.fn(() => new Promise(() => {})); });
+afterEach(() => { delete global.fetch; });
 
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../services/__tests__/impactAssetsBlock01.fixture.json'), 'utf8'));
 const geojson = normalizeImpactAssetsResponse(fixture);
@@ -44,7 +58,8 @@ describe('ImpactTabPanel', () => {
   it('leads with exposure, then aggregated information, then the lists', () => {
     const { container } = renderPanel();
     const text = container.textContent;
-    const order = ['Exposure', 'Buildings exposed', 'Aggregated information', 'Estimated economic damage', 'Most damaged assets'];
+    // the sticky summary (buildings, population, damage) leads; the detail sections follow in order
+    const order = ['Buildings', 'Population', 'Aggregated information', 'Estimated economic damage', 'Most damaged assets'];
     const positions = order.map((label) => text.indexOf(label));
     expect(positions.every((p) => p >= 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);

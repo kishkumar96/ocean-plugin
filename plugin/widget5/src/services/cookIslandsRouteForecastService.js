@@ -146,6 +146,29 @@ export function buildRouteForecastPayload({
   };
 }
 
+// Server-side search for a better departure time (same route, vessel and speed):
+// POST /cok/suitability/route/best-departure. `improves` is false (and `best` null) unless a
+// later departure with adequate coverage genuinely beats the requested one. Throws if the
+// endpoint is not deployed, so callers can simply skip the suggestion.
+export async function fetchCookIslandsBestDeparture({
+  routePoints, vessel, departureTime, speedKt, windowHours = 24, stepHours = 3, signal,
+}) {
+  const body = { ...buildRouteForecastPayload({ routePoints, vessel, departureTime, speedKt }), window_hours: windowHours, step_hours: stepHours };
+  const response = await fetch('/cok/suitability/route/best-departure', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
+  });
+  if (!response.ok) throw new Error(`best-departure: HTTP ${response.status}`);
+  const payload = await response.json();
+  return {
+    improves: Boolean(payload?.improves_on_requested) && Boolean(payload?.best),
+    requested: payload?.requested ?? null,
+    best: payload?.best ?? null,
+    minCoverage: toNumber(payload?.min_coverage),
+    windowHours: toNumber(payload?.window_hours),
+    modelRunTime: payload?.model_run_time ?? null,
+  };
+}
+
 export function normalizeRouteForecastResponse(payload, fallback = {}) {
   const samples = Array.isArray(payload?.samples)
     ? payload.samples.map((sample, index) => {

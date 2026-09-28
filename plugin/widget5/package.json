@@ -4,19 +4,16 @@
   "private": true,
   "homepage": "/widget5",
   "dependencies": {
-    "@deck.gl/core": "^9.0.38",
-    "@deck.gl/layers": "^9.0.38",
-    "@deck.gl/mapbox": "^9.0.38",
-    "@deck.gl/react": "^9.0.38",
-    "@luma.gl/constants": "^9.0.28",
-    "@luma.gl/core": "^9.0.28",
-    "@luma.gl/engine": "^9.0.28",
-    "@luma.gl/shadertools": "^9.0.28",
-    "@luma.gl/webgl": "^9.0.28",
-    "@testing-library/dom": "^10.4.1",
-    "@testing-library/jest-dom": "^6.6.4",
-    "@testing-library/react": "^16.3.0",
-    "@testing-library/user-event": "^13.5.0",
+    "@deck.gl/core": "^9.4.0",
+    "@deck.gl/layers": "^9.4.0",
+    "@deck.gl/maplibre": "^9.4.0",
+    "@deck.gl/react": "^9.4.0",
+    "@deck.gl/widgets": "^9.4.0",
+    "@luma.gl/constants": "^9.4.2",
+    "@luma.gl/core": "^9.4.2",
+    "@luma.gl/engine": "^9.4.2",
+    "@luma.gl/shadertools": "^9.4.2",
+    "@luma.gl/webgl": "^9.4.2",
     "bootstrap": "^5.3.3",
     "bootstrap-icons": "^1.11.3",
     "chart.js": "^4.5.0",
@@ -24,23 +21,22 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.544.0",
-    "maplibre-gl": "^5.24.0",
-    "plotly.js": "^3.1.0",
+    "maplibre-gl": "^6.11.2",
+    "plotly.js": "^4.1.1",
     "react": "^19.1.1",
     "react-bootstrap": "^2.10.10",
     "react-chartjs-2": "^5.3.0",
     "react-dom": "^19.1.1",
     "react-plotly.js": "^2.6.0",
     "react-router-dom": "^6.28.0",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4",
     "zarr": "^0.6.3"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "start": "craco start",
+    "build": "craco build",
+    "test": "craco test",
+    "eject": "react-scripts eject",
+    "test:pdf": "node -r sucrase/register/js -r sucrase/register/jsx scripts/pdf-smoke/run.js"
   },
   "eslintConfig": {
     "extends": [
@@ -61,10 +57,16 @@
     ]
   },
   "devDependencies": {
+    "@craco/craco": "^7.1.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.6.4",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^13.5.0",
     "concurrently": "^9.2.1",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "http-proxy-middleware": "^3.0.5",
-    "jest": "^27.5.1"
+    "jest": "^27.5.1",
+    "react-scripts": "5.0.1"
   }
 }

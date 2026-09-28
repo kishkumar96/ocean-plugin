@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import CookIslandsSuitabilityReadinessCard from '../CookIslandsSuitabilityReadinessCard';
 
@@ -69,5 +69,28 @@ describe('CookIslandsSuitabilityReadinessCard', () => {
     mockFetchOnce({ point_count: 1 });
     render(<CookIslandsSuitabilityReadinessCard selectedVessel="traditional_craft" forecastTimeLabel="20 Sep, 06:00 NZT" />);
     expect(screen.getByText('20 Sep, 06:00 NZT')).toBeInTheDocument();
+    // The label renders regardless of probe status, so nothing above already waited for the
+    // mocked fetch to settle -- flush it explicitly so setAreaStatus doesn't fire outside act().
+    await screen.findByText('Ready');
+  });
+
+  describe('compact mode', () => {
+    it('is a one-line data pill with diagnostics only on demand', async () => {
+      mockFetchOnce({ point_count: 54, used_nearest_point_fallback: false });
+      render(<CookIslandsSuitabilityReadinessCard selectedVessel="small_craft" compact />);
+      expect(await screen.findByText('Data ready')).toBeInTheDocument();
+      expect(screen.queryByText(/500 m landing areas/)).toBeNull(); // no diagnostics grid by default
+      fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+      expect(screen.getByText(/500 m landing areas/)).toBeInTheDocument();
+      expect(screen.getByText(/54 source points sampled at Avatiu Harbour/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Hide details' }));
+      expect(screen.queryByText(/500 m landing areas/)).toBeNull();
+    });
+
+    it('says "Limited data" when the endpoint falls back, in plain words', async () => {
+      mockFetchOnce({}, { ok: false, status: 404 });
+      render(<CookIslandsSuitabilityReadinessCard selectedVessel="small_craft" compact />);
+      expect(await screen.findByText('Limited data')).toBeInTheDocument();
+    });
   });
 });

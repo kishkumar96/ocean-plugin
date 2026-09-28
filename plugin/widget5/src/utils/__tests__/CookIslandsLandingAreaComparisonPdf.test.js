@@ -82,10 +82,11 @@ describe('buildCookIslandsLandingAreaComparisonPdfDoc', () => {
     expect(text).toMatch(/Avatiu Harbour/);
     expect(text).toMatch(/Aroa Passage/);
     expect(text).toMatch(/2 sites compared/);
-    // Mixed statistics_basis across rows falls back to the first-priority
-    // label (matches CookIslandsLandingAreaComparisonHeatmap.jsx's own
-    // hasAreaBasis-wins-first priority order).
-    expect(text).toMatch(/500 m area/);
+    // Mixed methods are called mixed, and each row carries its own method tag
+    // rather than every site being labelled with the first one.
+    expect(text).toMatch(/mixed methods/);
+    expect(text).toMatch(/500 m area/); // Avatiu's row tag
+    expect(text).toMatch(/nearest pt/); // Aroa's row tag
     expect(text).toMatch(/not navigation advice/); // shared footer disclaimer
     expect(filename).toMatch(/^cook_islands_landing_area_comparison_.*\.pdf$/);
   });
@@ -109,12 +110,21 @@ describe('buildCookIslandsLandingAreaComparisonPdfDoc', () => {
     expect(text).toMatch(/Unavailable/);
   });
 
+  test('also lists sites the caller reports as omitted', async () => {
+    const { doc } = await buildCookIslandsLandingAreaComparisonPdfDoc({
+      rows: [makeSite({ id: 'a', name: 'Has data' })], omittedSites: ['Out of domain reef'], timeDisplayZone: 'UTC',
+    });
+    expect(doc.pages[0].join(' | ')).toMatch(/Out of domain reef/);
+  });
+
   test('drops a site with no steps at all rather than rendering an all-unavailable row', async () => {
     const rows = [makeSite({ id: 'a', name: 'Has data' }), { id: 'b', name: 'No data at all', steps: [] }];
     const { doc } = await buildCookIslandsLandingAreaComparisonPdfDoc({ rows, timeDisplayZone: 'UTC' });
     const text = doc.pages[0].join(' | ');
     expect(text).toMatch(/Has data/);
-    expect(text).not.toMatch(/No data at all/);
     expect(text).toMatch(/1 site compared/); // singular, and excludes the empty row
+    // ...but the omission is disclosed instead of being silent.
+    expect(text).toMatch(/Not shown — no model data returned for: No data at all/);
+    expect(text).not.toMatch(/2 sites compared/);
   });
 });

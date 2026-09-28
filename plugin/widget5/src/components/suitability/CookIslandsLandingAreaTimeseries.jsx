@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Plot from 'react-plotly.js';
 import Plotly from 'plotly.js/dist/plotly';
 import { Download, Printer } from 'lucide-react';
-import { HAZARD_COLORS } from '../../lib/CookIslandsSuitabilityOverlay';
+import { HAZARD_COLORS, VESSEL_OPERATING_ENVELOPE } from '../../lib/CookIslandsSuitabilityOverlay';
+import { buildChartPrintHtml } from '../../utils/chartPrintHtml';
 import { ROUTE_HAZARD_LABELS } from '../../services/cookIslandsRouteForecastService';
 
 // Ported from widget1's pages/LandingAreaTimeseries.jsx. One deliberate
@@ -39,7 +40,13 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function CookIslandsLandingAreaTimeseries({ steps, vesselLabel, currentSliderDate, isDarkMode = true }) {
+const BASIS_LABELS = {
+  area_500m: 'Worst/most common condition within 500 m of the site',
+  nearest_point_area_fallback: 'Nearest model point (area fallback)',
+  nearest_point_fallback: 'Nearest model point (500 m area endpoint unavailable)',
+};
+
+function CookIslandsLandingAreaTimeseries({ steps, vesselLabel, vesselClass = null, site = null, currentSliderDate, isDarkMode = true }) {
   const [plotHeight, setPlotHeight] = useState(260);
   const chartRef = useRef(null);
   const resizeFrameRef = useRef(null);
@@ -84,24 +91,33 @@ function CookIslandsLandingAreaTimeseries({ steps, vesselLabel, currentSliderDat
     Plotly.toImage(plotlyDivRef.current, { format: 'svg', width: 1200, height: 500 }).then((svgDataUrl) => {
       const win = window.open('', '_blank', 'width=960,height=720');
       if (!win) return;
-      win.document.write(`<!DOCTYPE html><html><head>
-        <title>Landing Area Suitability</title>
-        <style>
-          body { margin: 20px; font-family: Inter, system-ui, sans-serif; color: #0f172a; }
-          h2 { margin: 0 0 4px; font-size: 16px; }
-          img { max-width: 100%; margin-top: 12px; display: block; }
-          .footer { margin-top: 12px; font-size: 11px; color: #94a3b8; }
-          @media print { body { margin: 0; } }
-        </style>
-      </head><body>
-        <h2>Landing Area Suitability${vesselLabel ? ` — ${vesselLabel}` : ''}</h2>
-        <img src="${svgDataUrl}" alt="Landing area suitability chart" />
-        <div class="footer">Generated ${new Date().toLocaleString('en-NZ', { timeZone: 'UTC' })} UTC</div>
-        <script>window.onload = function() { window.print(); };</script>
-      </body></html>`);
+      const times = (steps || []).map((s) => new Date(s?.valid_time)).filter((d) => Number.isFinite(d.getTime()));
+      const span = times.length
+        ? `${times[0].toISOString().slice(0, 16).replace('T', ' ')} to ${times[times.length - 1].toISOString().slice(0, 16).replace('T', ' ')} UTC`
+        : null;
+      const rule = vesselClass ? VESSEL_OPERATING_ENVELOPE[vesselClass] : null;
+      const coords = Number.isFinite(site?.lat) && Number.isFinite(site?.lon) ? `${site.lat.toFixed(4)}, ${site.lon.toFixed(4)}` : null;
+      const basis = site ? (BASIS_LABELS[site.statistics_basis ?? 'area_500m'] ?? site.statistics_basis) : null;
+      win.document.write(buildChartPrintHtml({
+        title: `Landing Area Suitability${site?.name ? ` — ${site.name}` : ''}`,
+        svgDataUrl,
+        alt: 'Landing area suitability chart',
+        meta: [
+          ['Site', site?.name ?? null],
+          ['Location (lat, lon)', coords],
+          ['Vessel', vesselLabel ?? null],
+          ['Data basis', basis ? `${basis}${Number.isFinite(site?.point_count) ? ` (${site.point_count} model points)` : ''}` : null],
+          ['Forecast valid', span],
+          ['Model run', 'Not reported by this endpoint'],
+          ['Caution threshold', rule ? `Hs >= ${rule.cautionWaveHeightM} m or wind >= ${rule.cautionWindKt} kt` : null],
+          ['Warning threshold', rule ? `Hs >= ${rule.maxWaveHeightM} m or wind >= ${rule.maxWindKt} kt` : null],
+          ['Source', 'SWAN wave model forecast (Cook Islands)'],
+        ],
+        disclaimer: 'Model guidance, not navigation advice. Thresholds are advisory defaults; confirm with official marine warnings and local seamanship.',
+      }));
       win.document.close();
     });
-  }, [vesselLabel]);
+  }, [vesselLabel, vesselClass, site, steps]);
 
   const scoredSteps = useMemo(() => (
     (steps || []).filter((s) => Number.isFinite(s?.hazard_class))

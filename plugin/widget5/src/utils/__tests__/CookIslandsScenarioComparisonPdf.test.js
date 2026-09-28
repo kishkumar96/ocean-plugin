@@ -99,7 +99,8 @@ describe('buildCookIslandsScenarioComparisonPdfDoc', () => {
     expect(text).toMatch(/Baseline/);
     expect(text).toMatch(/Faster departure/);
     // Recommended scenario is starred on its card and in the table row.
-    expect((text.match(/★/g) || []).length).toBeGreaterThanOrEqual(2);
+    expect(text).toMatch(/Faster departure {2}- RECOMMENDED/); // card
+    expect(text).toMatch(/Faster departure \*/); // table row
 
     // Comparison table headers and a couple of derived values
     expect(text).toMatch(/Worst/);
@@ -115,7 +116,7 @@ describe('buildCookIslandsScenarioComparisonPdfDoc', () => {
   test('a scenario with no result renders "No result" instead of a fabricated hazard reading', async () => {
     const config = {
       scenarioComparison: {
-        scenarios: [makeScenario({ id: 'scn-1', decision: null, status: 'error', error: 'Route forecast failed' })],
+        scenarios: [makeScenario({ id: 'scn-1', decision: null, status: 'error', error: 'Route forecast failed' }), makeScenario({ id: 'scn-2', name: 'Scenario B' })],
         recommendedId: null,
         generatedAt: '2026-08-31T12:00:00Z',
       },
@@ -124,5 +125,53 @@ describe('buildCookIslandsScenarioComparisonPdfDoc', () => {
     const { doc } = await buildCookIslandsScenarioComparisonPdfDoc(config, { timeDisplayZone: 'UTC' });
     const text = pageText(doc)[0];
     expect(text).toMatch(/Route forecast failed/);
+  });
+
+  test('flags insufficient-coverage scenarios and explains the ranking', async () => {
+    const config = {
+      scenarioComparison: {
+        scenarios: [
+          makeScenario({ id: 'scn-1', name: 'Thin', insufficientCoverage: true, decision: { worstHazardClass: 0, primaryDriver: 'none', cautionPercent: 0, warningPercent: 0, unavailableSamples: 9, totalSamples: 10, durationHours: 4 } }),
+          makeScenario({ id: 'scn-2', name: 'Thin too', insufficientCoverage: true, decision: { worstHazardClass: 1, primaryDriver: 'wind', cautionPercent: 50, warningPercent: 0, unavailableSamples: 8, totalSamples: 10, durationHours: 4 } }),
+        ],
+        recommendedId: null,
+        generatedAt: '2026-08-31T12:00:00Z',
+      },
+    };
+    const { doc } = await buildCookIslandsScenarioComparisonPdfDoc(config, { timeDisplayZone: 'UTC' });
+    const text = pageText(doc)[0];
+    expect(text).toMatch(/INSUFFICIENT COVERAGE/);
+    expect(text).toMatch(/at least 80% of route samples/);
+    expect(text).toMatch(/none is recommended/);
+    expect(text).not.toMatch(/Thin \*|- RECOMMENDED/);
+  });
+
+  test('refuses to build a "comparison" from fewer than two scenarios', async () => {
+    await expect(buildCookIslandsScenarioComparisonPdfDoc({ scenarioComparison: { scenarios: [makeScenario()], recommendedId: null } }))
+      .rejects.toThrow(/at least 2 ready scenarios/);
+  });
+
+  test('shows model run, separate S/C/W percentages, coverage %, rationale and mixed-run / geometry notices', async () => {
+    const dec = (w, c, wn, un) => ({ worstHazardClass: w, primaryDriver: 'wind', suitablePercent: 100 - c - wn, cautionPercent: c, warningPercent: wn, unavailableSamples: un, totalSamples: 20, durationHours: 5 });
+    const config = {
+      scenarioComparison: {
+        scenarios: [
+          makeScenario({ id: 'a', name: 'Alpha', modelRunStartAtRun: '2026-09-23T12:00:00Z', decision: dec(1, 30, 0, 2), timeline: [0, 1, 1, null, 0] }),
+          makeScenario({ id: 'b', name: 'Bravo', modelRunStartAtRun: '2026-09-23T00:00:00Z', superseded: true, decision: dec(2, 10, 20, 0), timeline: [0, 2, 2, 1, 0] }),
+        ],
+        recommendedId: 'a',
+        consistency: { distinctModelRuns: ['2026-09-23T00:00:00.000Z', '2026-09-23T12:00:00.000Z'], modelRunsDiffer: true, unknownModelRunCount: 0, geometryConsistent: false },
+        generatedAt: '2026-09-24T02:00:00Z',
+      },
+    };
+    const { doc } = await buildCookIslandsScenarioComparisonPdfDoc(config, { timeDisplayZone: 'UTC' });
+    const text = pageText(doc)[0];
+    expect(text).toMatch(/Model run: 2026-09-23 12:00 UTC/);
+    expect(text).toMatch(/SUPERSEDED by a newer run/);
+    expect(text).toMatch(/Suitable 70% · Caution 30% · Warning 0%/);
+    expect(text).toMatch(/Coverage 90% \(18 of 20 samples\)/);
+    expect(text).toMatch(/different forecast runs/);
+    expect(text).toMatch(/different route geometry/);
+    expect(text).toMatch(/Why Alpha is recommended/);
   });
 });

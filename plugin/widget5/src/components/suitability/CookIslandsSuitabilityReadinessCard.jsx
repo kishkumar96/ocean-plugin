@@ -21,8 +21,11 @@ function statusMeta(status) {
   return { label: 'Unavailable', icon: TriangleAlert, className: 'is-down' };
 }
 
-export default function CookIslandsSuitabilityReadinessCard({ selectedVessel, forecastTimeLabel }) {
+// compact: a one-line "Data ready" pill that opens the full diagnostics on demand -- the probe details
+// (500 m endpoint, source points, fallback) are operations information, not a forecast decision.
+export default function CookIslandsSuitabilityReadinessCard({ selectedVessel, forecastTimeLabel, compact = false }) {
   const [areaStatus, setAreaStatus] = useState({ status: 'checking', detail: '' });
+  const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -81,6 +84,21 @@ export default function CookIslandsSuitabilityReadinessCard({ selectedVessel, fo
       : 'Landing-area analytics are not yet available on this deployment -- do not treat them as production evidence.'
   ), [productionReady]);
 
+  if (compact && !showDetails) {
+    const pill = { ready: 'Data ready', checking: 'Checking data', fallback: 'Limited data', down: 'Data unavailable' }[areaStatus.status] ?? 'Data unavailable';
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginTop: '0.55rem' }}>
+        <span className={`cok-suitability-readiness__badge ${areaMeta.className}`}>
+          <AreaIcon size={13} />
+          {pill}
+        </span>
+        <button type="button" className="map-display-option__btn" style={{ padding: '0.15rem 0.5rem', fontSize: '0.66rem' }} onClick={() => setShowDetails(true)}>
+          Details
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className={`cok-suitability-readiness ${productionReady ? 'cok-suitability-readiness--ready' : 'cok-suitability-readiness--caution'}`}>
       <div className="cok-suitability-readiness__header">
@@ -96,6 +114,11 @@ export default function CookIslandsSuitabilityReadinessCard({ selectedVessel, fo
           {areaMeta.label}
         </span>
       </div>
+      {compact && (
+        <button type="button" className="map-display-option__btn" style={{ padding: '0.15rem 0.5rem', fontSize: '0.66rem', marginBottom: '0.4rem' }} onClick={() => setShowDetails(false)}>
+          Hide details
+        </button>
+      )}
 
       <div className="cok-suitability-readiness__grid">
         <div>
