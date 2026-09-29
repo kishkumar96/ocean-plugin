@@ -182,7 +182,7 @@ function PanelSpinner({ isDarkMode, message, slowMessage }) {
 function BottomOffCanvas({
   show, onHide, data, currentSliderDate, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null, modelRunStart = null,
   routeResultStale = false, routeResultSuperseded = false,
-  onTimeSelect, onRiskThresholdsSaved, onImpactWindowSelect, onImpactScenarioChange, onMhwsResult, onSelectImpactAsset,
+  onTimeSelect, onRiskThresholdsSaved, onImpactWindowSelect, onImpactScenarioChange, impactInitialScenario = null, onMhwsResult, onSelectImpactAsset,
   scenarioCount = 0, onConfirmVesselSuggestion,
   departureSuggestionLoading, departureSuggestionProgress, departureSuggestionResult, departureSuggestionError,
   onSuggestBetterDeparture, onApplyDepartureSuggestion, onSaveDepartureSuggestionAsScenario,
@@ -702,7 +702,7 @@ function BottomOffCanvas({
             onSaveDepartureSuggestionAsScenario={onSaveDepartureSuggestionAsScenario}
           />
         ) : isImpactMode ? (
-          <CookIslandsImpactPanel data={data} onRetry={data?.onRetry} timeDisplayZone={timeDisplayZone} onWindowSelect={onImpactWindowSelect} onScenarioChange={onImpactScenarioChange} onMhwsResult={onMhwsResult} onSelectAsset={onSelectImpactAsset} />
+          <CookIslandsImpactPanel data={data} onRetry={data?.onRetry} timeDisplayZone={timeDisplayZone} onWindowSelect={onImpactWindowSelect} onScenarioChange={onImpactScenarioChange} initialScenario={impactInitialScenario} onMhwsResult={onMhwsResult} onSelectAsset={onSelectImpactAsset} />
         ) : isInundationMode ? (
           data?.loading
             ? <PanelSpinner isDarkMode={isDarkMode} message="Loading depth timeseries…" />

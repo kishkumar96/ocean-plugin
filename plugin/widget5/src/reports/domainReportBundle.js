@@ -12,7 +12,7 @@
 import {
   fetchSuitabilityMeta, fetchVesselStep, fetchBestContrast, fetchOperationalMap, fetchSummarySeries, fetchDomainBoundary, mapWithLimit, ReportAbortError,
 } from './suitabilityReportService';
-import { parseRunId, zonedWallTimeToUtc } from './reportRules';
+import { parseRunId, zonedWallTimeToUtc, ReportExportBlockedError } from './reportRules';
 import {
   bestWindow, highestRiskStep, elevatedRuns, recoveryWindows, unavailableRuns, coverageOf,
 } from './seriesAnalysis';
@@ -185,6 +185,16 @@ export async function buildDomainReportBundle({
       limitations.push('A map was omitted because the service drew a different extent from the one requested.');
       return null;
     }
+    // x-classified-cells === 0: the service rendered a PNG but nothing on-mesh
+    // fell inside it (e.g. bounds landing entirely on masked/off-mesh cells) --
+    // a real but visually blank map. null means an unpatched deployment that
+    // doesn't send the header yet; treated as unknown, not blank, so this is
+    // additive and never regresses a deployment without it.
+    if (m.classifiedCells === 0) {
+      mapFailure = 'the service rendered an empty map for these bounds';
+      limitations.push('A map was omitted because the service reported no classified data for it.');
+      return null;
+    }
     return m;
   };
   maps.selected = await fetchCheckedMap(vessel, timeIndex);
@@ -193,7 +203,13 @@ export async function buildDomainReportBundle({
     maps.selected = { dataUrl: fallbackMapDataUrl, appliedBounds: null, fallback: true };
     limitations.push('The page 1 map is a screenshot of the on-screen map, not a service-rendered map; it may show layers or an extent that differ slightly from the statistics.');
   } else if (!maps.selected) {
-    warnings.push(`The map could not be produced${mapFailure ? ` (${mapFailure})` : ''}; the report shows statistics only.`);
+    // No service-rendered map AND no on-screen fallback: page 1 would ship as a
+    // polished PDF with a blank map frame next to statistics it can't visually
+    // corroborate. That reads as a broken report, not an honest limitation --
+    // stop here instead of letting the renderer paper over it.
+    throw new ReportExportBlockedError(
+      `Report not generated: the primary map could not be produced${mapFailure ? ` (${mapFailure})` : ''}, and no on-screen map was available as a fallback.`,
+    );
   }
 
   if (wantOutlook) {

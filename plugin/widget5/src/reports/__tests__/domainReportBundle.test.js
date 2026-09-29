@@ -90,10 +90,37 @@ describe('buildDomainReportBundle', () => {
     expect(b.warnings.join(' ')).toMatch(/differs from the request/);
   });
 
-  test('a map drawn at a different extent is dropped, not shown', async () => {
-    const b = await buildDomainReportBundle({ ...base, horizonHours: 0 }, deps({ fetchMap: async () => ({ dataUrl: 'data:x', appliedBounds: { ...B, east: -150 } }) }));
-    expect(b.maps.selected).toBeNull();
-    expect(b.warnings.join(' ')).toMatch(/map could not be produced/);
+  test('a map drawn at a different extent is dropped, and with no fallback screenshot the export is blocked', async () => {
+    // Regression: this used to return a bundle with maps.selected === null and a
+    // warning, which the renderer turned into a page 1 with a blank map frame --
+    // a polished-looking but broken PDF. Blocking here means the analyst sees an
+    // error instead of distributing that.
+    const badMapDeps = deps({ fetchMap: async () => ({ dataUrl: 'data:x', appliedBounds: { ...B, east: -150 } }) });
+    await expect(buildDomainReportBundle({ ...base, horizonHours: 0 }, badMapDeps))
+      .rejects.toMatchObject({ name: 'ReportExportBlockedError', message: expect.stringMatching(/report not generated/i) });
+  });
+
+  test('the same dropped map falls back to an on-screen screenshot when one is supplied', async () => {
+    const badMapDeps = deps({ fetchMap: async () => ({ dataUrl: 'data:x', appliedBounds: { ...B, east: -150 } }) });
+    const b = await buildDomainReportBundle({ ...base, horizonHours: 0, fallbackMapDataUrl: 'data:image/png;base64,fallback' }, badMapDeps);
+    expect(b.maps.selected).toEqual({ dataUrl: 'data:image/png;base64,fallback', appliedBounds: null, fallback: true });
+    expect(b.limitations.join(' ')).toMatch(/screenshot of the on-screen map/);
+  });
+
+  // x-classified-cells === 0: a real PNG the service rendered, correct bounds, but
+  // nothing on-mesh fell inside it -- visually blank without a decoding error or a
+  // bounds mismatch to catch it any other way.
+  test('a map reporting zero classified cells is treated as empty and blocks export', async () => {
+    const emptyMapDeps = deps({ fetchMap: async (v, i, b) => ({ dataUrl: 'data:x', appliedBounds: b, classifiedCells: 0 }) });
+    await expect(buildDomainReportBundle({ ...base, horizonHours: 0 }, emptyMapDeps))
+      .rejects.toMatchObject({ name: 'ReportExportBlockedError', message: expect.stringMatching(/no classified data|empty map/i) });
+  });
+
+  // Older/unpatched deployments won't send x-classified-cells at all -- undefined
+  // must read as "unknown", not "empty", so this stays additive.
+  test('a map with no classified-cells signal (older deployment) is not treated as empty', async () => {
+    const b = await buildDomainReportBundle({ ...base, horizonHours: 0 }, deps());
+    expect(b.maps.selected.dataUrl).toMatch(/^data:image/);
   });
 
   test('no map view falls back to the whole domain, with a warning', async () => {

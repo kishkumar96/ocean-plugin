@@ -254,9 +254,23 @@ export function selectRouteTableRows(samples = [], maxRows = 14) {
 // condition ("conditions approach/exceed the configured envelope") before
 // suggesting a response ("consider delaying"), rather than leading with
 // the command.
-export function routeOperationalRecommendation({ hazardAvailable, hazard, worstRun, timeDisplayZone }) {
+export function routeOperationalRecommendation({
+  hazardAvailable, hazard, worstRun, timeDisplayZone, coverage = null,
+}) {
   if (!hazardAvailable) {
     return 'Assessment unavailable — insufficient model coverage along this route.';
+  }
+  // Below MIN_COVERAGE (reportRules), a hazard reading from the assessed slice
+  // isn't grounds for a route-wide instruction -- report the evidence (the Rating
+  // card above still shows it) but withhold "consider delaying departure"/"Suitable"
+  // either way, matching the coverage gate the scenario-comparison report already
+  // enforces (reportRules.MIN_COVERAGE / coverageConfidence).
+  if (coverage?.confidence === 'insufficient') {
+    const pct = Math.round((coverage.ratio ?? 0) * 100);
+    const hazardNote = hazard > 0
+      ? ` ${hazard === 1 ? 'Caution' : 'Warning'}-level conditions occur within the assessed portion.`
+      : '';
+    return `Assessment incomplete — only ${pct}% of the route could be modelled.${hazardNote} No route recommendation can be produced from this assessment.`;
   }
   if (hazard === 0) {
     return 'Modelled route rating: Suitable within the assessed departure window.';
@@ -564,7 +578,10 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
   });
 
   let y = HDR_H + 6;
-  const recommendation = routeOperationalRecommendation({ hazardAvailable, hazard, worstRun, timeDisplayZone });
+  // Computed here (not just below, by the evidence line) because the recommendation
+  // itself must defer to coverage -- see routeOperationalRecommendation.
+  const ev = routeEvidence({ samples, departureTime: result.departure_time, modelRunStart: modelRunStart ?? result.model_run_time ?? null, generatedAt });
+  const recommendation = routeOperationalRecommendation({ hazardAvailable, hazard, worstRun, timeDisplayZone, coverage: ev });
   const recLines = doc.splitTextToSize(recommendation, pageW - 16);
   setFont(doc, hazardAvailable ? hazardText(hazard) : TEXT_MD, 10.5, 'bold');
   doc.text(recLines, 8, y + 4);
@@ -593,7 +610,6 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
   y = cardY + cardH + 4;
 
   // Evidence line: how far the result can be relied on (coverage, cadence, age, exposure).
-  const ev = routeEvidence({ samples, departureTime: result.departure_time, modelRunStart: modelRunStart ?? result.model_run_time ?? null, generatedAt });
   const fmtPct = (v) => (v === null ? '—' : `${Math.round(v)}%`);
   setFont(doc, TEXT_MD, 6.8);
   const evLines = doc.splitTextToSize(

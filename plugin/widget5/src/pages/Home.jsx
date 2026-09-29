@@ -1128,6 +1128,7 @@ function CookIslandsForecast() {
         onRiskThresholdsSaved={refreshRiskMarkerColors}
         onImpactWindowSelect={handleImpactWindowSelect}
         onImpactScenarioChange={setImpactSelectedScenario}
+        impactInitialScenario={impactSelectedScenario}
         onSelectImpactAsset={flyToImpactAsset}
         // The desktop Impacts tab already reports the flood geometry; this covers
         // the mobile sheet, which has no such section.

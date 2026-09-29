@@ -178,7 +178,27 @@ async function drawPage1(doc, bundle, pageCount) {
     h: 9.5,
   });
 
-  const top = HDR_H + 16;
+  // A viewport request that the service could not honour and fell back to the whole
+  // domain instead (scope.effective !== scope.requested) is a much bigger semantic
+  // change than a minor bounds-snap -- the figures below now describe a different,
+  // larger area than what was asked for. That deserves its own explicit state, not
+  // a line buried in the shared warnings notice further down (which still also
+  // carries this, for anyone reading the evidence card in detail).
+  const scopeSubstituted = bundle.scope.mismatch && bundle.scope.effective !== bundle.scope.requested;
+  let substitutionNoticeH = 0;
+  if (scopeSubstituted) {
+    substitutionNoticeH = notice(doc, {
+      x: MARGIN,
+      y: HDR_H + 4 + 9.5 + 2,
+      w: PAGE_W - 2 * MARGIN,
+      text: `REQUESTED VIEW UNAVAILABLE — this report uses ${scopeLabel(bundle.scope.effective).toLowerCase()} instead. `
+        + `Requested: ${scopeLabel(bundle.scope.requested)}. Applied: ${scopeLabel(bundle.scope.effective)}. `
+        + `Reason: ${bundle.scope.reasons.join(' ')}`,
+      size: 6.8,
+    }) + 2;
+  }
+
+  const top = HDR_H + 16 + substitutionNoticeH;
   const bottom = contentBottom(doc);
   const mapW = 150;
   const colX = MARGIN + mapW + 6;
@@ -502,7 +522,17 @@ function drawPageMethodology(doc, bundle, pageNo, pageCount) {
   sectionTitle(doc, 'SCOPE AND PROVENANCE', MARGIN + 4, y); y += 5;
   const cov = bundle.coverage.points;
   const rows = [
-    ['Statistics scope', `${scopeLabel(bundle.scope.effective)}${bundle.scope.mismatch ? ` — requested: ${scopeLabel(bundle.scope.requested)}` : ''}`],
+    // scope.effective and scope.requested can share the same coarse label (both
+    // "viewport") even when scope.mismatch is true -- the mismatch was in the
+    // applied BOUNDS, not the viewport/domain basis, and scopeLabel() only
+    // distinguishes the latter. Printing "requested: <same label>" would read as
+    // self-contradictory (see reportRules.scopeLabel); say what actually
+    // differed (scope.reasons) instead of repeating an identical-looking label.
+    ['Statistics scope', bundle.scope.mismatch
+      ? (bundle.scope.effective !== bundle.scope.requested
+        ? `${scopeLabel(bundle.scope.effective)} — requested: ${scopeLabel(bundle.scope.requested)}`
+        : `${scopeLabel(bundle.scope.effective)} — ${bundle.scope.reasons.join(' ')}`)
+      : scopeLabel(bundle.scope.effective)],
     ['Statistics basis', bundle.scope.basisReported ?? 'not reported'],
     ['Bounds applied', bundle.scope.appliedBounds ? `W ${bundle.scope.appliedBounds.west}, S ${bundle.scope.appliedBounds.south}, E ${bundle.scope.appliedBounds.east}, N ${bundle.scope.appliedBounds.north}` : 'Whole forecast domain'],
     ['Point coverage', cov ? `${cov.classified} classified of ${cov.eligible ?? '—'} eligible (${cov.total ?? '—'} total)` : 'Unavailable'],

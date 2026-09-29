@@ -1,0 +1,4119 @@
+{
+    "title": "Recording 29/09/2026 at 10:39:01 am",
+    "steps": [
+        {
+            "type": "setViewport",
+            "width": 987,
+            "height": 935,
+            "deviceScaleFactor": 1,
+            "isMobile": false,
+            "hasTouch": false,
+            "isLandscape": false
+        },
+        {
+            "type": "navigate",
+            "url": "http://localhost:3001/",
+            "assertedEvents": [
+                {
+                    "type": "navigation",
+                    "url": "http://localhost:3001/",
+                    "title": "Cook Islands Ocean Dashboard"
+                }
+            ]
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Mean Wave Period forecast variable"
+                ],
+                [
+                    "#right-panel-panel-forecast button:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[1]/div[1]/button[2]"
+                ],
+                [
+                    "pierce/#right-panel-panel-forecast button:nth-of-type(2)"
+                ],
+                [
+                    "text/Mean Wave Period"
+                ]
+            ],
+            "offsetY": 31.4375,
+            "offsetX": 71.802001953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Select variable"
+                ],
+                [
+                    "div.variable-buttons"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[1]/div[1]"
+                ],
+                [
+                    "pierce/div.variable-buttons"
+                ],
+                [
+                    "text/Wave HeightMean"
+                ]
+            ],
+            "offsetY": 86.4375,
+            "offsetX": 68
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Peak Wave Period forecast variable"
+                ],
+                [
+                    "div.controls-panel button:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[1]/div[1]/button[3]"
+                ],
+                [
+                    "pierce/div.controls-panel button:nth-of-type(3)"
+                ],
+                [
+                    "text/Peak Wave Period"
+                ]
+            ],
+            "offsetY": 30.25,
+            "offsetX": 94
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Vessel Suitability forecast variable"
+                ],
+                [
+                    "div.controls-panel button:nth-of-type(4)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[1]/div[1]/button[4]"
+                ],
+                [
+                    "pierce/div.controls-panel button:nth-of-type(4)"
+                ],
+                [
+                    "text/Vessel Suitability"
+                ]
+            ],
+            "offsetY": 11.25,
+            "offsetX": 126.802001953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(2) > div:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[2]/div[1]/button[2]/div[2]"
+                ],
+                [
+                    "pierce/button:nth-of-type(2) > div:nth-of-type(2)"
+                ],
+                [
+                    "text/Dinghies, open"
+                ]
+            ],
+            "offsetY": 8.61456298828125,
+            "offsetX": 59.0728759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(3) > div:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[2]/div[1]/button[3]/div[2]"
+                ],
+                [
+                    "pierce/button:nth-of-type(3) > div:nth-of-type(2)"
+                ],
+                [
+                    "text/Fibreglass, skiffs"
+                ]
+            ],
+            "offsetY": 0.9791259765625,
+            "offsetX": 78.0728759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(4) > div:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[2]/div[1]/button[4]/div[2]"
+                ],
+                [
+                    "pierce/button:nth-of-type(4) > div:nth-of-type(2)"
+                ],
+                [
+                    "text/Decked vessels"
+                ]
+            ],
+            "offsetY": 8.34375,
+            "offsetX": 84.0728759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Plan route"
+                ],
+                [
+                    "#suitability-task-route"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-route\"]"
+                ],
+                [
+                    "pierce/#suitability-task-route"
+                ],
+                [
+                    "text/Plan route"
+                ]
+            ],
+            "offsetY": 23.75,
+            "offsetX": 29
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Draw route"
+                ],
+                [
+                    "#suitability-task-panel div:nth-of-type(1) > button"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[1]/button"
+                ],
+                [
+                    "pierce/#suitability-task-panel div:nth-of-type(1) > button"
+                ],
+                [
+                    "text/Draw route"
+                ]
+            ],
+            "offsetY": 11.5728759765625,
+            "offsetX": 84.8228759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Draw route"
+                ],
+                [
+                    "#suitability-task-panel div:nth-of-type(1) > button"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[1]/button"
+                ],
+                [
+                    "pierce/#suitability-task-panel div:nth-of-type(1) > button"
+                ],
+                [
+                    "text/Draw route"
+                ]
+            ],
+            "offsetY": 6.5728759765625,
+            "offsetX": 68.8228759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Draw route"
+                ],
+                [
+                    "#suitability-task-panel div:nth-of-type(1) > button"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[1]/button"
+                ],
+                [
+                    "pierce/#suitability-task-panel div:nth-of-type(1) > button"
+                ],
+                [
+                    "text/Draw route"
+                ]
+            ],
+            "offsetY": 7.5728759765625,
+            "offsetX": 56.8228759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 700,
+            "offsetX": 344
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 673,
+            "offsetX": 520
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 663,
+            "offsetX": 666
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 570,
+            "offsetX": 670
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 484,
+            "offsetX": 586
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 426,
+            "offsetX": 364
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 353,
+            "offsetX": 306
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 340,
+            "offsetX": 497
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 284,
+            "offsetX": 636
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 186,
+            "offsetX": 634
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 190,
+            "offsetX": 363
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 78,
+            "offsetX": 347
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 67,
+            "offsetX": 626
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 164,
+            "offsetX": 712
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 268,
+            "offsetX": 422
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 309,
+            "offsetX": 328
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 414,
+            "offsetX": 566
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 480,
+            "offsetX": 686
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 574,
+            "offsetX": 423
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Map"
+                ],
+                [
+                    "canvas"
+                ],
+                [
+                    "xpath///*[@id=\"map\"]/div[1]/canvas"
+                ],
+                [
+                    "pierce/canvas"
+                ]
+            ],
+            "offsetY": 637,
+            "offsetX": 483
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Run forecast"
+                ],
+                [
+                    "#suitability-task-panel button:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[3]/button[3]"
+                ],
+                [
+                    "pierce/#suitability-task-panel button:nth-of-type(3)"
+                ],
+                [
+                    "text/Run forecast"
+                ]
+            ],
+            "offsetY": 4.52081298828125,
+            "offsetX": 85.8228759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Download PDF"
+                ],
+                [
+                    "div:nth-of-type(4) > button"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[4]/button"
+                ],
+                [
+                    "pierce/div:nth-of-type(4) > button"
+                ],
+                [
+                    "text/Download PDF"
+                ]
+            ],
+            "offsetY": 21.6353759765625,
+            "offsetX": 60.145751953125
+        },
+        {
+            "type": "navigate",
+            "url": "edge://downloads-hub/",
+            "assertedEvents": [
+                {
+                    "type": "navigation",
+                    "url": "edge://downloads-hub/",
+                    "title": "Downloads"
+                }
+            ]
+        },
+        {
+            "type": "doubleClick",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Close"
+                ],
+                [
+                    "button.bottom-offcanvas__close"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[2]/button[2]"
+                ],
+                [
+                    "pierce/button.bottom-offcanvas__close"
+                ]
+            ],
+            "offsetY": 218,
+            "offsetX": 379
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare"
+                ],
+                [
+                    "#suitability-task-compare"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-compare\"]"
+                ],
+                [
+                    "pierce/#suitability-task-compare"
+                ],
+                [
+                    "text/Compare"
+                ]
+            ],
+            "offsetY": 16.083328247070312,
+            "offsetX": 36.833251953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Save current"
+                ],
+                [
+                    "div.map-display-option button:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[1]/div[3]/button[1]"
+                ],
+                [
+                    "pierce/div.map-display-option button:nth-of-type(1)"
+                ]
+            ],
+            "offsetY": 24.9375,
+            "offsetX": 84.8228759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Thresholds"
+                ],
+                [
+                    "#suitability-task-thresholds"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-thresholds\"]"
+                ],
+                [
+                    "pierce/#suitability-task-thresholds"
+                ],
+                [
+                    "text/Thresholds"
+                ]
+            ],
+            "offsetY": 19.083328247070312,
+            "offsetX": 42.5
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Custom envelope"
+                ],
+                [
+                    "#suitability-task-panel button:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[1]/button[2]"
+                ],
+                [
+                    "pierce/#suitability-task-panel button:nth-of-type(2)"
+                ],
+                [
+                    "text/Custom envelope"
+                ]
+            ],
+            "offsetY": 11.635406494140625,
+            "offsetX": 79.875
+        },
+        {
+            "type": "change",
+            "value": "17",
+            "selectors": [
+                [
+                    "aria/Wind caution threshold"
+                ],
+                [
+                    "#suitability-task-panel > div:nth-of-type(3) > div:nth-of-type(1) input.envelope-range__input--caution"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[3]/div[1]/div[2]/input[1]"
+                ],
+                [
+                    "pierce/#suitability-task-panel > div:nth-of-type(3) > div:nth-of-type(1) input.envelope-range__input--caution"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Wind caution threshold"
+                ],
+                [
+                    "#suitability-task-panel > div:nth-of-type(3) > div:nth-of-type(1) input.envelope-range__input--caution"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[3]/div[1]/div[2]/input[1]"
+                ],
+                [
+                    "pierce/#suitability-task-panel > div:nth-of-type(3) > div:nth-of-type(1) input.envelope-range__input--caution"
+                ]
+            ],
+            "offsetY": 5.875,
+            "offsetX": 117.333251953125,
+            "duration": 1765
+        },
+        {
+            "type": "change",
+            "value": "25",
+            "selectors": [
+                [
+                    "aria/Wind avoid threshold"
+                ],
+                [
+                    "#suitability-task-panel > div:nth-of-type(3) > div:nth-of-type(1) input.envelope-range__input--avoid"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[3]/div[1]/div[2]/input[2]"
+                ],
+                [
+                    "pierce/#suitability-task-panel > div:nth-of-type(3) > div:nth-of-type(1) input.envelope-range__input--avoid"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Wind avoid threshold"
+                ],
+                [
+                    "#suitability-task-panel > div:nth-of-type(3) > div:nth-of-type(1) input.envelope-range__input--avoid"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[3]/div[1]/div[2]/input[2]"
+                ],
+                [
+                    "pierce/#suitability-task-panel > div:nth-of-type(3) > div:nth-of-type(1) input.envelope-range__input--avoid"
+                ]
+            ],
+            "offsetY": 3.875,
+            "offsetX": 165.333251953125,
+            "duration": 2075.7999999998137
+        },
+        {
+            "type": "change",
+            "value": "3",
+            "selectors": [
+                [
+                    "aria/Wave avoid threshold"
+                ],
+                [
+                    "div:nth-of-type(3) > div:nth-of-type(2) input.envelope-range__input--avoid"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[3]/div[2]/div[2]/input[2]"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > div:nth-of-type(2) input.envelope-range__input--avoid"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Wave avoid threshold"
+                ],
+                [
+                    "div:nth-of-type(3) > div:nth-of-type(2) input.envelope-range__input--avoid"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[3]/div[2]/div[2]/input[2]"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > div:nth-of-type(2) input.envelope-range__input--avoid"
+                ]
+            ],
+            "offsetY": 18.59375,
+            "offsetX": 165.333251953125,
+            "duration": 2135.899999999907
+        },
+        {
+            "type": "change",
+            "value": "2.3",
+            "selectors": [
+                [
+                    "aria/Wave caution threshold"
+                ],
+                [
+                    "div:nth-of-type(3) > div:nth-of-type(2) input.envelope-range__input--caution"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[3]/div[2]/div[2]/input[1]"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > div:nth-of-type(2) input.envelope-range__input--caution"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Wave caution threshold"
+                ],
+                [
+                    "div:nth-of-type(3) > div:nth-of-type(2) input.envelope-range__input--caution"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[3]/div[2]/div[2]/input[1]"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > div:nth-of-type(2) input.envelope-range__input--caution"
+                ]
+            ],
+            "offsetY": 18.59375,
+            "offsetX": 132.333251953125,
+            "duration": 2908.399999999907
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Save ranges"
+                ],
+                [
+                    "button.envelope-save-btn"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[3]/div[3]/div/button[2]"
+                ],
+                [
+                    "pierce/button.envelope-save-btn"
+                ],
+                [
+                    "text/Save ranges"
+                ]
+            ],
+            "offsetY": 17.1353759765625,
+            "offsetX": 44.020751953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Plan route"
+                ],
+                [
+                    "#suitability-task-route"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-route\"]"
+                ],
+                [
+                    "pierce/#suitability-task-route"
+                ],
+                [
+                    "text/Plan route"
+                ]
+            ],
+            "offsetY": 22.75,
+            "offsetX": 40
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Run forecast"
+                ],
+                [
+                    "#suitability-task-panel button:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[3]/button[3]"
+                ],
+                [
+                    "pierce/#suitability-task-panel button:nth-of-type(3)"
+                ],
+                [
+                    "text/Run forecast"
+                ]
+            ],
+            "offsetY": 18.510406494140625,
+            "offsetX": 77.8228759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Close"
+                ],
+                [
+                    "button.bottom-offcanvas__close"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[2]/button[2]"
+                ],
+                [
+                    "pierce/button.bottom-offcanvas__close"
+                ]
+            ],
+            "offsetY": 12.33331298828125,
+            "offsetX": 32
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.controls-panel"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div/div[2]"
+                ],
+                [
+                    "pierce/div.controls-panel"
+                ]
+            ],
+            "offsetY": 216,
+            "offsetX": 380
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare"
+                ],
+                [
+                    "#suitability-task-compare"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-compare\"]"
+                ],
+                [
+                    "pierce/#suitability-task-compare"
+                ],
+                [
+                    "text/Compare"
+                ]
+            ],
+            "offsetY": 10.75,
+            "offsetX": 20.833251953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Plan route"
+                ],
+                [
+                    "#suitability-task-route"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-route\"]"
+                ],
+                [
+                    "pierce/#suitability-task-route"
+                ],
+                [
+                    "text/Plan route"
+                ]
+            ],
+            "offsetY": 7.75,
+            "offsetX": 38
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(2) > div:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[2]/div[1]/button[2]/div[2]"
+                ],
+                [
+                    "pierce/button:nth-of-type(2) > div:nth-of-type(2)"
+                ],
+                [
+                    "text/Dinghies, open"
+                ]
+            ],
+            "offsetY": 2.6145782470703125,
+            "offsetX": 155.0728759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(2) > div:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[2]/div[1]/button[2]/div[2]"
+                ],
+                [
+                    "pierce/button:nth-of-type(2) > div:nth-of-type(2)"
+                ],
+                [
+                    "text/Dinghies, open"
+                ]
+            ],
+            "offsetY": 2.6145782470703125,
+            "offsetX": 155.0728759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Thresholds"
+                ],
+                [
+                    "#suitability-task-thresholds"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-thresholds\"]"
+                ],
+                [
+                    "pierce/#suitability-task-thresholds"
+                ],
+                [
+                    "text/Thresholds"
+                ]
+            ],
+            "offsetY": 5.75,
+            "offsetX": 29.5
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Vessel preset"
+                ],
+                [
+                    "div.map-display-option__segmented > button:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[1]/button[1]"
+                ],
+                [
+                    "pierce/div.map-display-option__segmented > button:nth-of-type(1)"
+                ],
+                [
+                    "text/Vessel preset"
+                ]
+            ],
+            "offsetY": 18.96875,
+            "offsetX": 83.8228759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Vessel preset"
+                ],
+                [
+                    "div.map-display-option__segmented > button:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[1]/button[1]"
+                ],
+                [
+                    "pierce/div.map-display-option__segmented > button:nth-of-type(1)"
+                ],
+                [
+                    "text/Vessel preset"
+                ]
+            ],
+            "offsetY": 17.96875,
+            "offsetX": 69.8228759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Plan route"
+                ],
+                [
+                    "#suitability-task-route"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-route\"]"
+                ],
+                [
+                    "pierce/#suitability-task-route"
+                ],
+                [
+                    "text/Plan route"
+                ]
+            ],
+            "offsetY": 1.75,
+            "offsetX": 52
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Run forecast"
+                ],
+                [
+                    "#suitability-task-panel button:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[3]/button[3]"
+                ],
+                [
+                    "pierce/#suitability-task-panel button:nth-of-type(3)"
+                ],
+                [
+                    "text/Run forecast"
+                ]
+            ],
+            "offsetY": 11.1875,
+            "offsetX": 92.8228759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Close"
+                ],
+                [
+                    "button.bottom-offcanvas__close"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[2]/button[2]"
+                ],
+                [
+                    "pierce/button.bottom-offcanvas__close"
+                ]
+            ],
+            "offsetY": 13.33331298828125,
+            "offsetX": 12
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare"
+                ],
+                [
+                    "#suitability-task-compare"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-compare\"]"
+                ],
+                [
+                    "pierce/#suitability-task-compare"
+                ],
+                [
+                    "text/Compare"
+                ]
+            ],
+            "offsetY": 16.75,
+            "offsetX": 22.833251953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Save current"
+                ],
+                [
+                    "div.map-display-option__segmented > button:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[1]/div[3]/button[1]"
+                ],
+                [
+                    "pierce/div.map-display-option__segmented > button:nth-of-type(1)"
+                ],
+                [
+                    "text/Save current"
+                ]
+            ],
+            "offsetY": 20.6041259765625,
+            "offsetX": 58.8228759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Run all"
+                ],
+                [
+                    "div.map-display-option__segmented > button:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[1]/div[3]/button[2]"
+                ],
+                [
+                    "pierce/div.map-display-option__segmented > button:nth-of-type(2)"
+                ],
+                [
+                    "text/Run all"
+                ]
+            ],
+            "offsetY": 6.9375,
+            "offsetX": 91.875
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare[role=\"tabpanel\"]",
+                    "aria/[role=\"table\"]"
+                ],
+                [
+                    "#root table"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[1]/div[6]/table"
+                ],
+                [
+                    "pierce/#root table"
+                ]
+            ],
+            "offsetY": 44.416656494140625,
+            "offsetX": 150.333251953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/100%"
+                ],
+                [
+                    "#root tr:nth-of-type(2) > td:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[1]/div[6]/table/tbody/tr[2]/td[3]"
+                ],
+                [
+                    "pierce/#root tr:nth-of-type(2) > td:nth-of-type(3)"
+                ]
+            ],
+            "offsetY": 17.70831298828125,
+            "offsetX": 8.9166259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Generate Scenario Comparison Brief"
+                ],
+                [
+                    "div.map-display-option > button"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[1]/button"
+                ],
+                [
+                    "pierce/div.map-display-option > button"
+                ],
+                [
+                    "text/Generate Scenario"
+                ]
+            ],
+            "offsetY": 17.9375,
+            "offsetX": 146.333251953125
+        },
+        {
+            "type": "navigate",
+            "url": "edge://downloads-hub/",
+            "assertedEvents": [
+                {
+                    "type": "navigation",
+                    "url": "edge://downloads-hub/",
+                    "title": "Downloads"
+                }
+            ]
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare landing areas"
+                ],
+                [
+                    "#suitability-task-panel > button"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/button"
+                ],
+                [
+                    "pierce/#suitability-task-panel > button"
+                ],
+                [
+                    "text/Compare landing"
+                ]
+            ],
+            "offsetY": 25.75,
+            "offsetX": 147.333251953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/This location"
+                ],
+                [
+                    "div.bottom-offcanvas__body button:nth-of-type(2)"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[2]/div/button[2]"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas__body button:nth-of-type(2)"
+                ],
+                [
+                    "text/This location"
+                ]
+            ],
+            "offsetY": 8.61456298828125,
+            "offsetX": 46.385414123535156
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare all"
+                ],
+                [
+                    "div.bottom-offcanvas div:nth-of-type(2) > div > button:nth-of-type(1)"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[2]/div/button[1]"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas div:nth-of-type(2) > div > button:nth-of-type(1)"
+                ],
+                [
+                    "text/Compare all"
+                ]
+            ],
+            "offsetY": 17.375,
+            "offsetX": 50
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Export PDF"
+                ],
+                [
+                    "div.bottom-offcanvas__body div:nth-of-type(2) > button"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[2]/button"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas__body div:nth-of-type(2) > button"
+                ],
+                [
+                    "text/Export PDF"
+                ]
+            ],
+            "offsetY": 16.947906494140625,
+            "offsetX": 40.927001953125
+        },
+        {
+            "type": "navigate",
+            "url": "edge://downloads-hub/",
+            "assertedEvents": [
+                {
+                    "type": "navigation",
+                    "url": "edge://downloads-hub/",
+                    "title": "Downloads"
+                }
+            ]
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/This location"
+                ],
+                [
+                    "div.bottom-offcanvas__body button:nth-of-type(2)"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[2]/div/button[2]"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas__body button:nth-of-type(2)"
+                ],
+                [
+                    "text/This location"
+                ]
+            ],
+            "offsetY": 17.61456298828125,
+            "offsetX": 38.385414123535156
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Close"
+                ],
+                [
+                    "button.bottom-offcanvas__close"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[2]/button[2]"
+                ],
+                [
+                    "pierce/button.bottom-offcanvas__close"
+                ]
+            ],
+            "offsetY": 20.760406494140625,
+            "offsetX": 15
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Export"
+                ],
+                [
+                    "#suitability-task-export"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-export\"]"
+                ],
+                [
+                    "pierce/#suitability-task-export"
+                ],
+                [
+                    "text/Export"
+                ]
+            ],
+            "offsetY": 5.08331298828125,
+            "offsetX": 57.6666259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Configure & download…"
+                ],
+                [
+                    "#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(1) button"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[1]/div/button"
+                ],
+                [
+                    "pierce/#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(1) button"
+                ],
+                [
+                    "text/Configure & download…"
+                ]
+            ],
+            "offsetY": 21.541656494140625,
+            "offsetX": 73.739501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Generate PDF"
+                ],
+                [
+                    "#suitability-task-panel button:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[4]/button[2]"
+                ],
+                [
+                    "pierce/#suitability-task-panel button:nth-of-type(2)"
+                ],
+                [
+                    "text/Generate PDF"
+                ]
+            ],
+            "offsetY": 23.708328247070312,
+            "offsetX": 61.25
+        },
+        {
+            "type": "navigate",
+            "url": "edge://downloads-hub/",
+            "assertedEvents": [
+                {
+                    "type": "navigation",
+                    "url": "edge://downloads-hub/",
+                    "title": "Downloads"
+                }
+            ]
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Configure & download…"
+                ],
+                [
+                    "#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(1) button"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[1]/div/button"
+                ],
+                [
+                    "pierce/#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(1) button"
+                ],
+                [
+                    "text/Configure & download…"
+                ]
+            ],
+            "offsetY": 18.875,
+            "offsetX": 93.739501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Report"
+                ],
+                [
+                    "label:nth-of-type(1) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[1]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(1) > select"
+                ]
+            ],
+            "offsetY": 8.229156494140625,
+            "offsetX": 155.739501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[3]"
+                ],
+                [
+                    "pierce/label:nth-of-type(3)"
+                ],
+                [
+                    "text/Areaviewport"
+                ]
+            ],
+            "offsetY": 10.510406494140625,
+            "offsetX": 107.739501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Vessel"
+                ],
+                [
+                    "label:nth-of-type(2) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[2]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(2) > select"
+                ],
+                [
+                    "text/very_small_motorised_craft"
+                ]
+            ],
+            "offsetY": 15.229156494140625,
+            "offsetX": 85.739501953125
+        },
+        {
+            "type": "change",
+            "value": "small_craft",
+            "selectors": [
+                [
+                    "aria/Vessel"
+                ],
+                [
+                    "label:nth-of-type(2) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[2]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(2) > select"
+                ],
+                [
+                    "text/very_small_motorised_craft"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Area"
+                ],
+                [
+                    "label:nth-of-type(3) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[3]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(3) > select"
+                ],
+                [
+                    "text/viewport"
+                ]
+            ],
+            "offsetY": 16.229156494140625,
+            "offsetX": 163.739501953125
+        },
+        {
+            "type": "change",
+            "value": "domain",
+            "selectors": [
+                [
+                    "aria/Area"
+                ],
+                [
+                    "label:nth-of-type(3) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[3]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(3) > select"
+                ],
+                [
+                    "text/viewport"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Period"
+                ],
+                [
+                    "label:nth-of-type(4) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[4]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(4) > select"
+                ]
+            ],
+            "offsetY": 22.83331298828125,
+            "offsetX": 123.739501953125
+        },
+        {
+            "type": "change",
+            "value": "168",
+            "selectors": [
+                [
+                    "aria/Period"
+                ],
+                [
+                    "label:nth-of-type(4) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[4]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(4) > select"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Generate PDF"
+                ],
+                [
+                    "#suitability-task-panel button:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[4]/button[2]"
+                ],
+                [
+                    "pierce/#suitability-task-panel button:nth-of-type(2)"
+                ],
+                [
+                    "text/Generate PDF"
+                ]
+            ],
+            "offsetY": 18.4375,
+            "offsetX": 81.25
+        },
+        {
+            "type": "navigate",
+            "url": "edge://downloads-hub/",
+            "assertedEvents": [
+                {
+                    "type": "navigation",
+                    "url": "edge://downloads-hub/",
+                    "title": "Downloads"
+                }
+            ]
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Suitability Tools"
+                ],
+                [
+                    "div:nth-of-type(3) > h3"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[3]/h3"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > h3"
+                ],
+                [
+                    "text/Suitability Tools"
+                ]
+            ],
+            "offsetY": 4.1666259765625,
+            "offsetX": 232
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Configure & download…"
+                ],
+                [
+                    "#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(1) button"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[1]/div/button"
+                ],
+                [
+                    "pierce/#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(1) button"
+                ],
+                [
+                    "text/Configure & download…"
+                ]
+            ],
+            "offsetY": 20.875,
+            "offsetX": 84.739501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Report"
+                ],
+                [
+                    "label:nth-of-type(1) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[1]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(1) > select"
+                ]
+            ],
+            "offsetY": 19.229156494140625,
+            "offsetX": 151.739501953125
+        },
+        {
+            "type": "change",
+            "value": "poster",
+            "selectors": [
+                [
+                    "aria/Report"
+                ],
+                [
+                    "label:nth-of-type(1) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[1]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(1) > select"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Area"
+                ],
+                [
+                    "label:nth-of-type(3) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[3]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(3) > select"
+                ],
+                [
+                    "text/viewport"
+                ]
+            ],
+            "offsetY": 17.229156494140625,
+            "offsetX": 137.739501953125
+        },
+        {
+            "type": "change",
+            "value": "domain",
+            "selectors": [
+                [
+                    "aria/Area"
+                ],
+                [
+                    "label:nth-of-type(3) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[3]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(3) > select"
+                ],
+                [
+                    "text/viewport"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Period"
+                ],
+                [
+                    "label:nth-of-type(4) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[4]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(4) > select"
+                ],
+                [
+                    "text/168"
+                ]
+            ],
+            "offsetY": 10.83331298828125,
+            "offsetX": 135.739501953125
+        },
+        {
+            "type": "change",
+            "value": "72",
+            "selectors": [
+                [
+                    "aria/Period"
+                ],
+                [
+                    "label:nth-of-type(4) > select"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[2]/label[4]/select"
+                ],
+                [
+                    "pierce/label:nth-of-type(4) > select"
+                ],
+                [
+                    "text/168"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Generate PDF"
+                ],
+                [
+                    "#suitability-task-panel button:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[5]/div/div[4]/button[2]"
+                ],
+                [
+                    "pierce/#suitability-task-panel button:nth-of-type(2)"
+                ],
+                [
+                    "text/Generate PDF"
+                ]
+            ],
+            "offsetY": 16.4375,
+            "offsetX": 69.25
+        },
+        {
+            "type": "navigate",
+            "url": "edge://downloads-hub/",
+            "assertedEvents": [
+                {
+                    "type": "navigation",
+                    "url": "edge://downloads-hub/",
+                    "title": "Downloads"
+                }
+            ]
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Export[role=\"tabpanel\"]"
+                ],
+                [
+                    "#suitability-task-panel"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]"
+                ],
+                [
+                    "pierce/#suitability-task-panel"
+                ]
+            ],
+            "offsetY": 10.4791259765625,
+            "offsetX": 318
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(2) button"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[2]/div/button"
+                ],
+                [
+                    "pierce/#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(2) button"
+                ]
+            ],
+            "offsetY": 15.34375,
+            "offsetX": 89.739501953125
+        },
+        {
+            "type": "navigate",
+            "url": "edge://downloads-hub/",
+            "assertedEvents": [
+                {
+                    "type": "navigation",
+                    "url": "edge://downloads-hub/",
+                    "title": "Downloads"
+                }
+            ]
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(3) div:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[3]/div/div[2]"
+                ],
+                [
+                    "pierce/#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(3) div:nth-of-type(2)"
+                ]
+            ],
+            "offsetY": 19.5625,
+            "offsetX": 58.739501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(3) button"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[3]/div/button"
+                ],
+                [
+                    "pierce/#suitability-task-panel > div:nth-of-type(2) > div:nth-of-type(3) button"
+                ]
+            ],
+            "offsetY": 19.8125,
+            "offsetX": 57.739501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.controls-panel div:nth-of-type(4) > div"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[4]/div"
+                ],
+                [
+                    "pierce/div.controls-panel div:nth-of-type(4) > div"
+                ]
+            ],
+            "offsetY": 55.14581298828125,
+            "offsetX": 48.739501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare & export"
+                ],
+                [
+                    "div:nth-of-type(4) button"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-panel\"]/div[2]/div[4]/div/button"
+                ],
+                [
+                    "pierce/div:nth-of-type(4) button"
+                ],
+                [
+                    "text/Compare & export"
+                ]
+            ],
+            "offsetY": 12.28125,
+            "offsetX": 75.739501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Export PDF"
+                ],
+                [
+                    "div.bottom-offcanvas__body div:nth-of-type(2) > button"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[2]/button"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas__body div:nth-of-type(2) > button"
+                ],
+                [
+                    "text/Export PDF"
+                ]
+            ],
+            "offsetY": 9.947906494140625,
+            "offsetX": 38.927001953125
+        },
+        {
+            "type": "navigate",
+            "url": "edge://downloads-hub/",
+            "assertedEvents": [
+                {
+                    "type": "navigation",
+                    "url": "edge://downloads-hub/",
+                    "title": "Downloads"
+                }
+            ]
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.bottom-offcanvas__header > div"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[2]/div"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas__header > div"
+                ]
+            ],
+            "offsetY": 46,
+            "offsetX": 1169
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Close"
+                ],
+                [
+                    "button.bottom-offcanvas__close"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[2]/button[2]"
+                ],
+                [
+                    "pierce/button.bottom-offcanvas__close"
+                ]
+            ],
+            "offsetY": 17,
+            "offsetX": 32
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Select island to fly to"
+                ],
+                [
+                    "#island-zoom-select"
+                ],
+                [
+                    "xpath///*[@id=\"island-zoom-select\"]"
+                ],
+                [
+                    "pierce/#island-zoom-select"
+                ],
+                [
+                    "text/aitutaki"
+                ]
+            ],
+            "offsetY": 17.5416259765625,
+            "offsetX": 193.6041259765625
+        },
+        {
+            "type": "change",
+            "value": "penrhyn",
+            "selectors": [
+                [
+                    "aria/Select island to fly to"
+                ],
+                [
+                    "#island-zoom-select"
+                ],
+                [
+                    "xpath///*[@id=\"island-zoom-select\"]"
+                ],
+                [
+                    "pierce/#island-zoom-select"
+                ],
+                [
+                    "text/aitutaki"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(4) > label"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[4]/label"
+                ],
+                [
+                    "pierce/div:nth-of-type(4) > label"
+                ],
+                [
+                    "text/Show coastal"
+                ]
+            ],
+            "offsetY": 12.53125,
+            "offsetX": 102
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Show coastal risk points"
+                ],
+                [
+                    "div:nth-of-type(4) input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[4]/label/input"
+                ],
+                [
+                    "pierce/div:nth-of-type(4) input"
+                ]
+            ],
+            "offsetY": 9.67706298828125,
+            "offsetX": 102
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(4) > label"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[4]/label"
+                ],
+                [
+                    "pierce/div:nth-of-type(4) > label"
+                ],
+                [
+                    "text/Show coastal"
+                ]
+            ],
+            "offsetY": 12.53125,
+            "offsetX": 102
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Show coastal risk points"
+                ],
+                [
+                    "div:nth-of-type(4) input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-forecast\"]/div[4]/label/input"
+                ],
+                [
+                    "pierce/div:nth-of-type(4) input"
+                ]
+            ],
+            "offsetY": 9.67706298828125,
+            "offsetX": 102
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare"
+                ],
+                [
+                    "#suitability-task-compare"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-compare\"]"
+                ],
+                [
+                    "pierce/#suitability-task-compare"
+                ]
+            ],
+            "offsetY": 12.75,
+            "offsetX": 22.833251953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Thresholds"
+                ],
+                [
+                    "#suitability-task-thresholds"
+                ],
+                [
+                    "xpath///*[@id=\"suitability-task-thresholds\"]"
+                ],
+                [
+                    "pierce/#suitability-task-thresholds"
+                ],
+                [
+                    "text/Thresholds"
+                ]
+            ],
+            "offsetY": 10.75,
+            "offsetX": 32.5
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Inundation & Impacts"
+                ],
+                [
+                    "#right-panel-tab-impacts"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-tab-impacts\"]"
+                ],
+                [
+                    "pierce/#right-panel-tab-impacts"
+                ],
+                [
+                    "text/Inundation &"
+                ]
+            ],
+            "offsetY": 15,
+            "offsetX": 66.46875
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Sep 28 – Oct 1"
+                ],
+                [
+                    "#right-panel-panel-impacts > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) button:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[1]/div[2]/div[1]/div[2]/button[1]"
+                ],
+                [
+                    "pierce/#right-panel-panel-impacts > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) button:nth-of-type(1)"
+                ],
+                [
+                    "text/Sep 28 – Oct"
+                ]
+            ],
+            "offsetY": 15.1875,
+            "offsetX": 12
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Show the impact window on the map"
+                ],
+                [
+                    "#right-panel-panel-impacts > div:nth-of-type(1) > div:nth-of-type(1) > button"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[1]/div[1]/button"
+                ],
+                [
+                    "pierce/#right-panel-panel-impacts > div:nth-of-type(1) > div:nth-of-type(1) > button"
+                ],
+                [
+                    "text/Show the impact"
+                ]
+            ],
+            "offsetY": 16.125,
+            "offsetX": 47.9375
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Advanced: land flooded above the tide line"
+                ],
+                [
+                    "div.controls-panel details:nth-of-type(1) > summary"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[1]/div[2]/details[1]/summary"
+                ],
+                [
+                    "pierce/div.controls-panel details:nth-of-type(1) > summary"
+                ],
+                [
+                    "text/Advanced: land"
+                ]
+            ],
+            "offsetY": 10.20831298828125,
+            "offsetX": 183
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/≥ 5 cm"
+                ],
+                [
+                    "details:nth-of-type(1) button:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[1]/div[2]/details[1]/div/div/div[1]/div/button[1]"
+                ],
+                [
+                    "pierce/details:nth-of-type(1) button:nth-of-type(1)"
+                ],
+                [
+                    "text/≥ 5 cm"
+                ]
+            ],
+            "offsetY": 10.92706298828125,
+            "offsetX": 20.520751953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Why don’t these numbers match?"
+                ],
+                [
+                    "details:nth-of-type(2) > summary"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[1]/div[2]/details[2]/summary"
+                ],
+                [
+                    "pierce/details:nth-of-type(2) > summary"
+                ],
+                [
+                    "text/Why don’t these"
+                ]
+            ],
+            "offsetY": 9.4375,
+            "offsetX": 133
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/View detailed table"
+                ],
+                [
+                    "#right-panel-panel-impacts > div:nth-of-type(1) > div:nth-of-type(2) > button"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[1]/div[2]/button"
+                ],
+                [
+                    "pierce/#right-panel-panel-impacts > div:nth-of-type(1) > div:nth-of-type(2) > button"
+                ],
+                [
+                    "text/View detailed"
+                ]
+            ],
+            "offsetY": 12.1041259765625,
+            "offsetX": 237
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Severity"
+                ],
+                [
+                    "select"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[5]/div[1]/label[2]/select"
+                ],
+                [
+                    "pierce/select"
+                ]
+            ],
+            "offsetY": 5.1978759765625,
+            "offsetX": 81.375
+        },
+        {
+            "type": "change",
+            "value": "high",
+            "selectors": [
+                [
+                    "aria/Severity"
+                ],
+                [
+                    "select"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[5]/div[1]/label[2]/select"
+                ],
+                [
+                    "pierce/select"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Severity"
+                ],
+                [
+                    "select"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[5]/div[1]/label[2]/select"
+                ],
+                [
+                    "pierce/select"
+                ]
+            ],
+            "offsetY": 8.84375,
+            "offsetX": 29.375
+        },
+        {
+            "type": "change",
+            "value": "",
+            "selectors": [
+                [
+                    "aria/Severity"
+                ],
+                [
+                    "select"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[5]/div[1]/label[2]/select"
+                ],
+                [
+                    "pierce/select"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.bottom-offcanvas label:nth-of-type(1)"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[5]/div[1]/label[1]"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas label:nth-of-type(1)"
+                ],
+                [
+                    "text/Affected only"
+                ]
+            ],
+            "offsetY": 7.4478759765625,
+            "offsetX": 41.20833206176758
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Affected only"
+                ],
+                [
+                    "div.bottom-offcanvas input"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[5]/div[1]/label[1]/input"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas input"
+                ]
+            ],
+            "offsetY": 5.3125,
+            "offsetX": 41.20833206176758
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.bottom-offcanvas label:nth-of-type(1)"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[5]/div[1]/label[1]"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas label:nth-of-type(1)"
+                ],
+                [
+                    "text/Affected only"
+                ]
+            ],
+            "offsetY": 7.4478759765625,
+            "offsetX": 41.20833206176758
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Affected only"
+                ],
+                [
+                    "div.bottom-offcanvas input"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[5]/div[1]/label[1]/input"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas input"
+                ]
+            ],
+            "offsetY": 5.3125,
+            "offsetX": 41.20833206176758
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Show all 14"
+                ],
+                [
+                    "div:nth-of-type(5) > div:nth-of-type(2) > button"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[5]/div[2]/button"
+                ],
+                [
+                    "pierce/div:nth-of-type(5) > div:nth-of-type(2) > button"
+                ],
+                [
+                    "text/Show all 14"
+                ]
+            ],
+            "offsetY": 1.40625,
+            "offsetX": 52.92707824707031
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Low–Medium Residential· 1 affected / 3"
+                ],
+                [
+                    "div.bottom-offcanvas div:nth-of-type(1) > button"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[5]/div[2]/div[1]/button"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas div:nth-of-type(1) > button"
+                ],
+                [
+                    "text/Low–MediumResidential·"
+                ]
+            ],
+            "offsetY": 1.40625,
+            "offsetX": 224
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Detailed analysis: districts"
+                ],
+                [
+                    "div.bottom-offcanvas__body > div > details:nth-of-type(1) > summary"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/details[1]/summary"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas__body > div > details:nth-of-type(1) > summary"
+                ],
+                [
+                    "text/Detailed analysis:"
+                ]
+            ],
+            "offsetY": 5.27081298828125,
+            "offsetX": 127
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare all forecast windows"
+                ],
+                [
+                    "div.bottom-offcanvas details:nth-of-type(2) > summary"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/details[2]/summary"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas details:nth-of-type(2) > summary"
+                ],
+                [
+                    "text/Compare all forecast"
+                ]
+            ],
+            "offsetY": 10.5728759765625,
+            "offsetX": 148
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/[role=\"dialog\"]",
+                    "aria/Why don’t these numbers match?"
+                ],
+                [
+                    "details:nth-of-type(3) > summary"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/details[3]/summary"
+                ],
+                [
+                    "pierce/details:nth-of-type(3) > summary"
+                ]
+            ],
+            "offsetY": 8.9166259765625,
+            "offsetX": 174
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/[role=\"dialog\"]",
+                    "aria/Sep 28 – Oct 1[role=\"button\"]"
+                ],
+                [
+                    "div.bottom-offcanvas__body > div > div:nth-of-type(2) > button:nth-of-type(1)"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[3]/div/div[2]/button[1]"
+                ],
+                [
+                    "pierce/div.bottom-offcanvas__body > div > div:nth-of-type(2) > button:nth-of-type(1)"
+                ]
+            ],
+            "offsetY": 9.59375,
+            "offsetX": 44.875
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Close"
+                ],
+                [
+                    "button.bottom-offcanvas__close"
+                ],
+                [
+                    "xpath//html/body/div[3]/div[2]/button[2]"
+                ],
+                [
+                    "pierce/button.bottom-offcanvas__close"
+                ]
+            ],
+            "offsetY": 15.33331298828125,
+            "offsetX": 27
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Why don’t these numbers match?"
+                ],
+                [
+                    "details:nth-of-type(2) > summary"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[1]/div[2]/details[2]/summary"
+                ],
+                [
+                    "pierce/details:nth-of-type(2) > summary"
+                ],
+                [
+                    "text/Why don’t these"
+                ]
+            ],
+            "offsetY": 9.1041259765625,
+            "offsetX": 109
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "#right-panel-panel-impacts > div:nth-of-type(2) span"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/button/span"
+                ],
+                [
+                    "pierce/#right-panel-panel-impacts > div:nth-of-type(2) span"
+                ],
+                [
+                    "text/layers, time"
+                ]
+            ],
+            "offsetY": 2.05206298828125,
+            "offsetX": 189.989501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(2) > div > div:nth-of-type(1) > label:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[1]"
+                ],
+                [
+                    "pierce/div:nth-of-type(2) > div > div:nth-of-type(1) > label:nth-of-type(1)"
+                ],
+                [
+                    "text/District damage"
+                ]
+            ],
+            "offsetY": 7.791656494140625,
+            "offsetX": 34
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/District damage"
+                ],
+                [
+                    "label:nth-of-type(1) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[1]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(1) > input"
+                ]
+            ],
+            "offsetY": 3.260406494140625,
+            "offsetX": 34
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[2]"
+                ],
+                [
+                    "pierce/label:nth-of-type(2)"
+                ],
+                [
+                    "text/Coastal risk"
+                ]
+            ],
+            "offsetY": 5.7291259765625,
+            "offsetX": 34
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Coastal risk points"
+                ],
+                [
+                    "label:nth-of-type(2) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[2]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(2) > input"
+                ]
+            ],
+            "offsetY": 1.1978759765625,
+            "offsetX": 34
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[3]"
+                ],
+                [
+                    "pierce/label:nth-of-type(3)"
+                ],
+                [
+                    "text/MHWS + 17.5 cm line"
+                ]
+            ],
+            "offsetY": 15.6666259765625,
+            "offsetX": 56
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/MHWS + 17.5 cm line"
+                ],
+                [
+                    "label:nth-of-type(3) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[3]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(3) > input"
+                ]
+            ],
+            "offsetY": 11.1353759765625,
+            "offsetX": 56
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(4)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[4]"
+                ],
+                [
+                    "pierce/label:nth-of-type(4)"
+                ],
+                [
+                    "text/Compare lines"
+                ]
+            ],
+            "offsetY": 14.6041259765625,
+            "offsetX": 70
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare lines (MHWS, +15, +20 cm)"
+                ],
+                [
+                    "label:nth-of-type(4) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[4]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(4) > input"
+                ]
+            ],
+            "offsetY": 10.0728759765625,
+            "offsetX": 70
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(4)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[4]"
+                ],
+                [
+                    "pierce/label:nth-of-type(4)"
+                ],
+                [
+                    "text/Compare lines"
+                ]
+            ],
+            "offsetY": 13.6041259765625,
+            "offsetX": 71
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare lines (MHWS, +15, +20 cm)"
+                ],
+                [
+                    "label:nth-of-type(4) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[4]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(4) > input"
+                ]
+            ],
+            "offsetY": 9.0728759765625,
+            "offsetX": 71
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(5)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[5]"
+                ],
+                [
+                    "pierce/label:nth-of-type(5)"
+                ],
+                [
+                    "text/Flooding above"
+                ]
+            ],
+            "offsetY": 14.5416259765625,
+            "offsetX": 70
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Flooding above the line"
+                ],
+                [
+                    "label:nth-of-type(5) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[5]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(5) > input"
+                ]
+            ],
+            "offsetY": 10.0103759765625,
+            "offsetX": 70
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(4)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[4]"
+                ],
+                [
+                    "pierce/label:nth-of-type(4)"
+                ],
+                [
+                    "text/Compare lines"
+                ]
+            ],
+            "offsetY": 16.6041259765625,
+            "offsetX": 94
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare lines (MHWS, +15, +20 cm)"
+                ],
+                [
+                    "label:nth-of-type(4) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[4]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(4) > input"
+                ]
+            ],
+            "offsetY": 12.0728759765625,
+            "offsetX": 94
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(4)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[4]"
+                ],
+                [
+                    "pierce/label:nth-of-type(4)"
+                ],
+                [
+                    "text/Compare lines"
+                ]
+            ],
+            "offsetY": 16.6041259765625,
+            "offsetX": 94
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare lines (MHWS, +15, +20 cm)"
+                ],
+                [
+                    "label:nth-of-type(4) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[4]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(4) > input"
+                ]
+            ],
+            "offsetY": 12.0728759765625,
+            "offsetX": 94
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(5)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[5]"
+                ],
+                [
+                    "pierce/label:nth-of-type(5)"
+                ],
+                [
+                    "text/Flooding above"
+                ]
+            ],
+            "offsetY": 10.5416259765625,
+            "offsetX": 82
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Flooding above the line"
+                ],
+                [
+                    "label:nth-of-type(5) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[5]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(5) > input"
+                ]
+            ],
+            "offsetY": 6.0103759765625,
+            "offsetX": 82
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[3]"
+                ],
+                [
+                    "pierce/label:nth-of-type(3)"
+                ],
+                [
+                    "text/MHWS + 17.5 cm line"
+                ]
+            ],
+            "offsetY": 15.6666259765625,
+            "offsetX": 50
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/MHWS + 17.5 cm line"
+                ],
+                [
+                    "label:nth-of-type(3) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[3]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(3) > input"
+                ]
+            ],
+            "offsetY": 11.1353759765625,
+            "offsetX": 50
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(4)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[4]"
+                ],
+                [
+                    "pierce/label:nth-of-type(4)"
+                ],
+                [
+                    "text/Compare lines"
+                ]
+            ],
+            "offsetY": 10.6041259765625,
+            "offsetX": 62
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Compare lines (MHWS, +15, +20 cm)"
+                ],
+                [
+                    "label:nth-of-type(4) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[4]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(4) > input"
+                ]
+            ],
+            "offsetY": 6.0728759765625,
+            "offsetX": 62
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[2]"
+                ],
+                [
+                    "pierce/label:nth-of-type(2)"
+                ],
+                [
+                    "text/Coastal risk"
+                ]
+            ],
+            "offsetY": 0.7291259765625,
+            "offsetX": 66
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(2) > div > div:nth-of-type(1) > label:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[1]"
+                ],
+                [
+                    "pierce/div:nth-of-type(2) > div > div:nth-of-type(1) > label:nth-of-type(1)"
+                ],
+                [
+                    "text/District damage"
+                ]
+            ],
+            "offsetY": 16.791656494140625,
+            "offsetX": 68
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/District damage"
+                ],
+                [
+                    "label:nth-of-type(1) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[1]/label[1]/input"
+                ],
+                [
+                    "pierce/label:nth-of-type(1) > input"
+                ]
+            ],
+            "offsetY": 12.260406494140625,
+            "offsetX": 68
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Edit map depth categories"
+                ],
+                [
+                    "#right-panel-panel-impacts > div:nth-of-type(2) > div > div:nth-of-type(2) button"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[2]/div[1]/button"
+                ],
+                [
+                    "pierce/#right-panel-panel-impacts > div:nth-of-type(2) > div > div:nth-of-type(2) button"
+                ],
+                [
+                    "text/Edit map depth"
+                ]
+            ],
+            "offsetY": 7.39581298828125,
+            "offsetX": 152
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Color for Severe Flooding"
+                ],
+                [
+                    "#ite-color-cok-severe"
+                ],
+                [
+                    "xpath///*[@id=\"ite-color-cok-severe\"]"
+                ],
+                [
+                    "pierce/#ite-color-cok-severe"
+                ],
+                [
+                    "text/#00b4e5"
+                ]
+            ],
+            "offsetY": 14.2291259765625,
+            "offsetX": 28.14581298828125
+        },
+        {
+            "type": "change",
+            "value": "#030303",
+            "selectors": [
+                [
+                    "aria/Color for Severe Flooding"
+                ],
+                [
+                    "#ite-color-cok-severe"
+                ],
+                [
+                    "xpath///*[@id=\"ite-color-cok-severe\"]"
+                ],
+                [
+                    "pierce/#ite-color-cok-severe"
+                ],
+                [
+                    "text/#00b4e5"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.ite-footer"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div[3]/div[4]"
+                ],
+                [
+                    "pierce/div.ite-footer"
+                ]
+            ],
+            "offsetY": 1.4478759765625,
+            "offsetX": 444.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Save"
+                ],
+                [
+                    "button.ite-btn-save"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div[3]/div[2]/div[2]/button[6]"
+                ],
+                [
+                    "pierce/button.ite-btn-save"
+                ],
+                [
+                    "text/Save"
+                ]
+            ],
+            "offsetY": 10.145828247070312,
+            "offsetX": 38.364501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Color for Maximum Display Range"
+                ],
+                [
+                    "#ite-color-cok-maximum"
+                ],
+                [
+                    "xpath///*[@id=\"ite-color-cok-maximum\"]"
+                ],
+                [
+                    "pierce/#ite-color-cok-maximum"
+                ],
+                [
+                    "text/#c80000"
+                ]
+            ],
+            "offsetY": 11.4375,
+            "offsetX": 23.14581298828125
+        },
+        {
+            "type": "change",
+            "value": "#303030",
+            "selectors": [
+                [
+                    "aria/Color for Maximum Display Range"
+                ],
+                [
+                    "#ite-color-cok-maximum"
+                ],
+                [
+                    "xpath///*[@id=\"ite-color-cok-maximum\"]"
+                ],
+                [
+                    "pierce/#ite-color-cok-maximum"
+                ],
+                [
+                    "text/#c80000"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.ite-body"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div[3]/div[3]"
+                ],
+                [
+                    "pierce/div.ite-body"
+                ]
+            ],
+            "offsetY": 707.9270782470703,
+            "offsetX": 207.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Save"
+                ],
+                [
+                    "button.ite-btn-save"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div[3]/div[2]/div[2]/button[6]"
+                ],
+                [
+                    "pierce/button.ite-btn-save"
+                ],
+                [
+                    "text/Save"
+                ]
+            ],
+            "offsetY": 26.145828247070312,
+            "offsetX": 34.364501953125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.ite-header svg"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div[3]/div[1]/button/svg"
+                ],
+                [
+                    "pierce/div.ite-header svg"
+                ]
+            ],
+            "offsetY": 12.541666030883789,
+            "offsetX": 7.2603759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(3) > span.ft-day-label"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div/div[1]/div[5]/div[1]/div/button[3]/span[2]"
+                ],
+                [
+                    "pierce/button:nth-of-type(3) > span.ft-day-label"
+                ],
+                [
+                    "text/Mon 28 Sept"
+                ]
+            ],
+            "offsetY": 8.0416259765625,
+            "offsetX": 36.64581298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(4) > span.ft-day-label"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div/div[1]/div[5]/div[1]/div/button[4]/span[2]"
+                ],
+                [
+                    "pierce/button:nth-of-type(4) > span.ft-day-label"
+                ],
+                [
+                    "text/Tue 29 Sept"
+                ]
+            ],
+            "offsetY": 8.0416259765625,
+            "offsetX": 32.140625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Thu 1 Oct"
+                ],
+                [
+                    "button:nth-of-type(6)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div/div[1]/div[5]/div[1]/div/button[6]"
+                ],
+                [
+                    "pierce/button:nth-of-type(6)"
+                ]
+            ],
+            "offsetY": 5.0416259765625,
+            "offsetX": 29.015625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/48h Max"
+                ],
+                [
+                    "#right-panel-panel-impacts > div:nth-of-type(2) button:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[3]/div/div/button[2]"
+                ],
+                [
+                    "pierce/#right-panel-panel-impacts > div:nth-of-type(2) button:nth-of-type(2)"
+                ],
+                [
+                    "text/48h Max"
+                ]
+            ],
+            "offsetY": 23.25,
+            "offsetX": 47.7603759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Fri 2 Oct"
+                ],
+                [
+                    "button:nth-of-type(7)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div/div[1]/div[5]/div[1]/div/button[7]"
+                ],
+                [
+                    "pierce/button:nth-of-type(7)"
+                ]
+            ],
+            "offsetY": 9.0416259765625,
+            "offsetX": 8.9635009765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Fri 2 Oct"
+                ],
+                [
+                    "button:nth-of-type(7)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div/div[1]/div[5]/div[1]/div/button[7]"
+                ],
+                [
+                    "pierce/button:nth-of-type(7)"
+                ]
+            ],
+            "offsetY": 7.0416259765625,
+            "offsetX": 29.9635009765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(8) > span.ft-day-label"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div/div[1]/div[5]/div[1]/div/button[8]/span[2]"
+                ],
+                [
+                    "pierce/button:nth-of-type(8) > span.ft-day-label"
+                ],
+                [
+                    "text/Sat 3 Oct"
+                ]
+            ],
+            "offsetY": 1.0416259765625,
+            "offsetX": 26.86456298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(8) > span.ft-day-label"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div/div[1]/div[5]/div[1]/div/button[8]/span[2]"
+                ],
+                [
+                    "pierce/button:nth-of-type(8) > span.ft-day-label"
+                ],
+                [
+                    "text/Sat 3 Oct"
+                ]
+            ],
+            "offsetY": 8.0416259765625,
+            "offsetX": 28.86456298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(4) > span.ft-day-label"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div/div[1]/div[5]/div[1]/div/button[4]/span[2]"
+                ],
+                [
+                    "pierce/button:nth-of-type(4) > span.ft-day-label"
+                ],
+                [
+                    "text/Tue 29 Sept"
+                ]
+            ],
+            "offsetY": 3.0416259765625,
+            "offsetX": 18.140625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Forecast timeline"
+                ],
+                [
+                    "div.ft-root"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div/div/div[1]/div[5]"
+                ],
+                [
+                    "pierce/div.ft-root"
+                ]
+            ],
+            "offsetY": 59.70831298828125,
+            "offsetX": 721,
+            "duration": 471.1999999997206
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Custom Max"
+                ],
+                [
+                    "div.controls-panel button:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[3]/div/div[1]/button[3]"
+                ],
+                [
+                    "pierce/div.controls-panel button:nth-of-type(3)"
+                ],
+                [
+                    "text/Custom Max"
+                ]
+            ],
+            "offsetY": 13.25,
+            "offsetX": 80.84375
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.controls-panel div:nth-of-type(2) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[3]/div/div[2]/div/div[2]/input"
+                ],
+                [
+                    "pierce/div.controls-panel div:nth-of-type(2) > input"
+                ],
+                [
+                    "text/2026-10-03T00:00"
+                ]
+            ],
+            "offsetY": 11.1978759765625,
+            "offsetX": 160.46875
+        },
+        {
+            "type": "change",
+            "value": "2026-09-30T00:00",
+            "selectors": [
+                [
+                    "div.controls-panel div:nth-of-type(2) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[3]/div/div[2]/div/div[2]/input"
+                ],
+                [
+                    "pierce/div.controls-panel div:nth-of-type(2) > input"
+                ],
+                [
+                    "text/2026-10-03T00:00"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Inundation Window"
+                ],
+                [
+                    "#right-panel-panel-impacts > div:nth-of-type(2) div:nth-of-type(3) > h3"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[3]/h3"
+                ],
+                [
+                    "pierce/#right-panel-panel-impacts > div:nth-of-type(2) div:nth-of-type(3) > h3"
+                ],
+                [
+                    "text/Inundation Window"
+                ]
+            ],
+            "offsetY": 11.33331298828125,
+            "offsetX": 94
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Apply"
+                ],
+                [
+                    "#right-panel-panel-impacts > div:nth-of-type(2) > div div:nth-of-type(2) > button"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[3]/div/div[2]/button"
+                ],
+                [
+                    "pierce/#right-panel-panel-impacts > div:nth-of-type(2) > div div:nth-of-type(2) > button"
+                ]
+            ],
+            "offsetY": 22.6041259765625,
+            "offsetX": 32
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.controls-panel div:nth-of-type(2) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[3]/div/div[2]/div[1]/div[2]/input"
+                ],
+                [
+                    "pierce/div.controls-panel div:nth-of-type(2) > input"
+                ],
+                [
+                    "text/2026-09-30T00:00"
+                ]
+            ],
+            "offsetY": 13.1978759765625,
+            "offsetX": 165.46875
+        },
+        {
+            "type": "change",
+            "value": "2026-10-04T00:00",
+            "selectors": [
+                [
+                    "div.controls-panel div:nth-of-type(2) > input"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[3]/div/div[2]/div/div[2]/input"
+                ],
+                [
+                    "pierce/div.controls-panel div:nth-of-type(2) > input"
+                ],
+                [
+                    "text/2026-10-03T00:00"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "#right-panel-panel-impacts > div:nth-of-type(2) div:nth-of-type(3) > div > div:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[3]/div/div[2]"
+                ],
+                [
+                    "pierce/#right-panel-panel-impacts > div:nth-of-type(2) div:nth-of-type(3) > div > div:nth-of-type(2)"
+                ]
+            ],
+            "offsetY": 97.67706298828125,
+            "offsetX": 234
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Apply"
+                ],
+                [
+                    "#right-panel-panel-impacts > div:nth-of-type(2) > div div:nth-of-type(2) > button"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[3]/div/div[2]/button"
+                ],
+                [
+                    "pierce/#right-panel-panel-impacts > div:nth-of-type(2) > div div:nth-of-type(2) > button"
+                ]
+            ],
+            "offsetY": 20.53125,
+            "offsetX": 38
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Apply"
+                ],
+                [
+                    "#right-panel-panel-impacts > div:nth-of-type(2) > div div:nth-of-type(2) > button"
+                ],
+                [
+                    "xpath///*[@id=\"right-panel-panel-impacts\"]/div[2]/div/div[3]/div/div[2]/button"
+                ],
+                [
+                    "pierce/#right-panel-panel-impacts > div:nth-of-type(2) > div div:nth-of-type(2) > button"
+                ]
+            ],
+            "offsetY": 18.6041259765625,
+            "offsetX": 23
+        }
+    ]
+}

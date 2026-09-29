@@ -167,6 +167,27 @@ describe('routeOperationalRecommendation', () => {
     // departure" -- same reasoning as the hazard-0 case above.
     expect(text).not.toMatch(/^delay departure/i);
   });
+
+  // Regression: a route assessed at 41% coverage used to still print "consider
+  // delaying departure" with full authority -- a hazard reading from under
+  // MIN_COVERAGE isn't grounds for a route-wide instruction either way.
+  test('withholds a recommendation below MIN_COVERAGE even when the assessed slice is Warning', () => {
+    const text = routeOperationalRecommendation({
+      hazardAvailable: true, hazard: 2, coverage: { confidence: 'insufficient', ratio: 0.41 },
+    });
+    expect(text).toMatch(/assessment incomplete/i);
+    expect(text).toMatch(/41%/);
+    expect(text).toMatch(/warning-level conditions occur within the assessed portion/i);
+    expect(text).not.toMatch(/consider delaying/i);
+  });
+
+  test('withholds a Suitable rating below MIN_COVERAGE too -- absence of hazard isn\'t confirmed', () => {
+    const text = routeOperationalRecommendation({
+      hazardAvailable: true, hazard: 0, coverage: { confidence: 'insufficient', ratio: 0.3 },
+    });
+    expect(text).toMatch(/assessment incomplete/i);
+    expect(text).not.toMatch(/suitable/i);
+  });
 });
 
 // small_craft's real thresholds (src/lib/vesselThresholds.generated.json):

@@ -67,7 +67,9 @@ function drawLegend(doc, x, y) {
 // an all-"Unavailable" row -- same reasoning as the on-screen heatmap only
 // ever receiving rows useCookIslandsLandingAreaComparison already filtered
 // down to withData.length (see that hook's own header comment).
-export async function buildCookIslandsLandingAreaComparisonPdfDoc({ rows, omittedSites = [], vesselLabel, timeDisplayZone = 'Pacific/Rarotonga' }) {
+export async function buildCookIslandsLandingAreaComparisonPdfDoc({
+  rows, omittedSites = [], vesselLabel, timeDisplayZone = 'Pacific/Rarotonga', now = () => new Date(),
+}) {
   const sites = Array.isArray(rows) ? rows.filter((r) => r?.steps?.length) : [];
   if (sites.length === 0) {
     throw new Error('No landing area comparison data to export.');
@@ -93,7 +95,7 @@ export async function buildCookIslandsLandingAreaComparisonPdfDoc({ rows, omitte
   });
   doc.setLanguage('en');
 
-  const generatedAt = new Date();
+  const generatedAt = now();
   const basisLabel = statisticsBasisLabel(sites);
   drawHeaderBand(doc, {
     title: 'Cook Islands Landing Area Suitability Advisory Brief',

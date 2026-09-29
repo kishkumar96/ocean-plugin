@@ -93,7 +93,14 @@ describe('buildCookIslandsLandingAreaComparisonPdfDoc', () => {
 
   test('date columns stay within the 7-day window even though the underlying series runs longer (the same bug heatmapSteps.js was just fixed for)', async () => {
     const rows = [makeSite()]; // 229 hourly steps = ~9.5 days of underlying data
-    const { doc } = await buildCookIslandsLandingAreaComparisonPdfDoc({ rows, timeDisplayZone: 'UTC' });
+    // Regression: this used to assert `not.toMatch(/29 Sep/)` against the WHOLE
+    // rendered page, which also contains a "Generated <real now>" line -- so the
+    // test failed every time it happened to be run on the 29th, regardless of
+    // whether the heatmap columns (the thing actually under test) were correct.
+    // Fixing `now` removes that collision and makes this deterministic on any date.
+    const { doc } = await buildCookIslandsLandingAreaComparisonPdfDoc({
+      rows, timeDisplayZone: 'UTC', now: () => new Date('2026-09-20T00:00:00Z'),
+    });
     const text = doc.pages[0].join(' | ');
     // The series starts 19 Sept and runs to ~29 Sept; a correct 7-day window
     // must not show a column dated the 28th/29th.

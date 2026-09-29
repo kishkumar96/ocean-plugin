@@ -33,6 +33,7 @@
 import { VESSEL_CLASS_OPTIONS, classifySuitability, deriveSuitabilityDriver } from '../lib/CookIslandsSuitabilityOverlay';
 import { fetchCookIslandsRouteForecast, parseAsUtcWallClock } from './cookIslandsRouteForecastService';
 import { mapWithConcurrency, sleep } from '../utils/concurrency';
+import { MIN_COVERAGE, coverageConfidence } from '../reports/reportRules';
 
 export const MAX_SCENARIOS = 4;
 
@@ -258,12 +259,16 @@ function computeRankScore(decision) {
 // for most of its route samples. Otherwise "Suitable" can just mean "the few
 // samples that happened to be available were fine" while the rest are unknown,
 // which would beat a fully-covered Caution scenario on hazard class alone.
-export const MIN_RECOMMEND_COVERAGE = 0.8;
+// Re-exported (not a separate number) so every report -- route advisory,
+// scenario comparison, domain/landing bundles -- agrees on one coverage floor
+// (reportRules.MIN_COVERAGE): this used to be its own literal 0.8 here, which
+// could silently drift from reportRules' if either were tuned alone.
+export const MIN_RECOMMEND_COVERAGE = MIN_COVERAGE;
 
 export function hasSufficientCoverage(decision) {
   if (!decision || !(decision.totalSamples > 0)) return false;
   const available = decision.totalSamples - (decision.unavailableSamples ?? 0);
-  return available / decision.totalSamples >= MIN_RECOMMEND_COVERAGE;
+  return coverageConfidence(available, decision.totalSamples) !== 'insufficient';
 }
 
 // Decorates every scenario with its derived decision + rank score, and picks

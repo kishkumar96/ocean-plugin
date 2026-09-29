@@ -11,6 +11,19 @@
 
 export const HAZARD_WORDS = { 0: 'Suitable', 1: 'Caution', 2: 'Warning' };
 
+// Thrown by a report bundle builder when the report cannot be produced
+// truthfully at all (e.g. the primary map failed with no usable fallback) --
+// distinct from ReportAbortError (user cancelled) and from an ordinary fetch
+// failure, so the UI can show it as-is rather than a generic "export failed".
+// A report that reaches this point must never continue to the renderer: a
+// polished PDF with blank map panels is worse than no PDF.
+export class ReportExportBlockedError extends Error {
+  constructor(reason) {
+    super(reason);
+    this.name = 'ReportExportBlockedError';
+  }
+}
+
 // A time step is "elevated" once at least this share of assessed points is Warning.
 // Same cut-off the domain advisory has always used to escalate its badge.
 export const ELEVATED_WARNING_PERCENT = 20;

@@ -182,7 +182,17 @@ export async function fetchOperationalMap(vessel, timeIndex, bounds, { signal } 
   if (!res.ok) throw new Error(`operational-map ${vessel} t${timeIndex}: HTTP ${res.status}`);
   const appliedBounds = parseAppliedBoundsHeader(res.headers?.get?.('x-applied-bounds'));
   const dataUrl = await blobToDataUrl(await res.blob());
-  return { dataUrl, appliedBounds, statisticsBasis: res.headers?.get?.('x-statistics-basis') ?? null };
+  // x-classified-cells: how many on-mesh cells the render actually drew (0 means
+  // a genuinely empty map -- e.g. bounds landing entirely off-mesh). null on an
+  // older/unpatched deployment that doesn't send the header yet -- callers must
+  // treat that as "unknown", not "empty", so this stays additive until the
+  // backend ships it everywhere.
+  const classifiedCellsHeader = res.headers?.get?.('x-classified-cells');
+  const classifiedCells = classifiedCellsHeader != null && classifiedCellsHeader !== '' && Number.isFinite(Number(classifiedCellsHeader))
+    ? Number(classifiedCellsHeader) : null;
+  return {
+    dataUrl, appliedBounds, statisticsBasis: res.headers?.get?.('x-statistics-basis') ?? null, classifiedCells,
+  };
 }
 
 // Runs fn over items with at most `limit` in flight; results keep input order.

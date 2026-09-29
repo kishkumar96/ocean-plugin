@@ -113,7 +113,7 @@ function HeroCard({ icon: Icon, label, value, subtitle, accentColor }) {
 // came from the worst-damage block while buildings was the max across ALL
 // blocks (possibly a different window entirely), which silently mixed two
 // unrelated scenarios into one "summary".
-function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChange, onMhwsResult, onSelectAsset, timeDisplayZone = 'Pacific/Rarotonga' }) {
+function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChange, onMhwsResult, onSelectAsset, initialScenario = null, timeDisplayZone = 'Pacific/Rarotonga' }) {
   const result = data?.result;
   const blocks = useMemo(() => (Array.isArray(result?.blocks) ? result.blocks : []), [result]);
 
@@ -125,7 +125,13 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
   const userSelectedRef = useRef(false);
   useEffect(() => {
     if (userSelectedRef.current || blocks.length === 0) return;
-    setSelectedIndex(worstBlockIndex(blocks));
+    // Opened from the compact panel's "View detailed table" (or a shared
+    // link) naming the window it was showing; honour it (once) before
+    // falling back to the highest-impact window -- see ImpactTabPanel.
+    const sharedIndex = initialScenario ? blocks.findIndex((b) => b.scenario === initialScenario) : -1;
+    if (sharedIndex >= 0) userSelectedRef.current = true;
+    setSelectedIndex(sharedIndex >= 0 ? sharedIndex : worstBlockIndex(blocks));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blocks]);
 
   const activeIndex = selectedIndex >= 0 && selectedIndex < blocks.length ? selectedIndex : worstIndex;
