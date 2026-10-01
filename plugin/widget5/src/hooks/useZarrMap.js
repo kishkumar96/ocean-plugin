@@ -1037,11 +1037,13 @@ export function useZarrMap({
     routeProbeMarkersRef.current = [];
     if (!map || !routeProbe) { routeProbeWasActiveRef.current = false; return; }
 
+    // Labels sit BESIDE the marker, not under it: the per-leg distance labels are centred on a
+    // leg's midpoint, which on a two-leg crossing is almost exactly the route midpoint.
     const label = (text, color) => {
       const el = document.createElement('div');
       el.textContent = text;
       el.style.cssText = `
-        position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px);
+        position: absolute; left: calc(100% + 6px); top: 50%; transform: translateY(-50%);
         padding: 1px 6px; border-radius: 4px; white-space: nowrap; pointer-events: none;
         font: 700 10px system-ui, sans-serif; color: #f8fafc;
         background: rgba(15, 23, 42, 0.85); border: 1px solid ${color};
