@@ -308,8 +308,10 @@ function drawPage2(doc, bundle, pageNo, pageCount) {
     drawTimeAxis(doc, bundle, ribX, by + 9.5, ribW, t0, t1);
 
     const facts = [
-      ['Best window', an.best ? spanText(local, an.best.start.validTime, an.best.end.validTime) : 'None: no run without Caution or Warning points'],
-      ['Highest risk', an.highest && an.highest.warning > 0 ? `${pctText(an.highest.warning)}% Warning at ${local(an.highest.validTime)}` : 'No Warning-level points modelled'],
+      ['Best window', an.bestWithheld
+        ? `Not assessed: only ${pctText(an.coverage.ratio * 100)}% of outlook steps had a model value`
+        : (an.best ? spanText(local, an.best.start.validTime, an.best.end.validTime) : 'None: no run without Caution or Warning points')],
+      ['Highest risk', an.highest && an.highest.warning > 0 ? `${pctText(an.highest.warning)}% Warning at ${local(an.highest.validTime)}` : `No Warning-level points modelled${an.bestWithheld ? ' in the assessed steps' : ''}`],
       ['Recovery', an.recovery.length ? an.recovery.slice(0, 2).map((r) => spanText(local, r.from.validTime, r.to.validTime)).join('; ') : (an.elevated.length ? 'None within the assessed period' : 'No elevated period')],
       ['Unavailable', an.unavailable.length ? an.unavailable.slice(0, 2).map((g) => spanText(local, g.start.validTime, g.end.validTime)).join('; ') : 'None'],
     ];

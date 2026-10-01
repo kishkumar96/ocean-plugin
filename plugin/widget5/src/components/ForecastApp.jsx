@@ -37,6 +37,7 @@ import SuitabilityTasks, { ThresholdBasisBadge } from './suitability/Suitability
 import CollapsibleSection from './shared/CollapsibleSection';
 import ImpactMapKey from './ImpactMapKey';
 import CookIslandsSuitabilityReadinessCard from './suitability/CookIslandsSuitabilityReadinessCard';
+import CookIslandsHarbourWaveConditionsPanel from './harbour/CookIslandsHarbourWaveConditionsPanel';
 import { formatZoned } from '../utils/timeZoneFormat';
 
 
@@ -130,6 +131,7 @@ const ForecastApp = ({
   onShowLandingAreaComparison,
   onClearRoute,
   onUndoRoutePoint,
+  onLoadPresetRoute,
   scenarios = [],
   confirmedScenarioId = null,
   runningScenarioIds = [],
@@ -1085,6 +1087,7 @@ const ForecastApp = ({
                                   onRunRouteForecast={onRunRouteForecast}
                                   onClearRoute={onClearRoute}
                                   onUndoRoutePoint={onUndoRoutePoint}
+                                  onLoadPresetRoute={onLoadPresetRoute}
                                 />
                   </>
                 ),
@@ -1281,6 +1284,14 @@ const ForecastApp = ({
             Show coastal risk points
           </label>
         </ControlGroup>
+
+        <CollapsibleSection
+          title="Harbour Wave Conditions"
+          icon={<FancyIcon icon={Anchor} animationType="pulse" color="#38bdf8" />}
+          storageKey="harbour-wave-conditions-section"
+        >
+          <CookIslandsHarbourWaveConditionsPanel enabled timeDisplayZone={timeDisplayZone} />
+        </CollapsibleSection>
 
         {/* Desktop (>=1024px) shows impacts inline under the Inundation
             controls (see "Flood Impacts" above) whenever the inundation layer

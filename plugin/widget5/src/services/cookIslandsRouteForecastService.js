@@ -49,6 +49,25 @@ export function parseAsUtcWallClock(value) {
   return new Date(hasDesignator ? value : `${value}Z`);
 }
 
+// What the route departure picker should start on: the next whole hour from `now`,
+// clamped into the forecast window. Seeding it from the slider's initial position
+// (the window's FIRST timestamp, which for the Cook suitability layer is the start of
+// a 48 h hindcast) made every route begin in the past -- so every advisory opened with
+// "departure time has already passed". Returns the same zone-less UTC wall-clock
+// string (YYYY-MM-DDTHH:mm) the datetime-local input holds, or null when there is no
+// usable window (callers then fall back to the slider time).
+export function defaultDepartureTime({ now = new Date(), windowStart = null, windowEnd = null } = {}) {
+  const nowMs = new Date(now).getTime();
+  const startMs = windowStart ? new Date(windowStart).getTime() : NaN;
+  const endMs = windowEnd ? new Date(windowEnd).getTime() : NaN;
+  if (!Number.isFinite(nowMs) || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+  const HOUR = 3_600_000;
+  let target = Math.ceil(nowMs / HOUR) * HOUR;
+  if (target < startMs) target = startMs;
+  if (target > endMs) target = endMs;
+  return new Date(target).toISOString().slice(0, 16);
+}
+
 function normalizePoint(point) {
   if (Array.isArray(point)) {
     const lon = toNumber(point[0]);
@@ -113,12 +132,21 @@ function autoSampleSpacingNm(routeLengthNm) {
 
 // sampleSpacingNm: leave unset to auto-size from the route's own length (see
 // autoSampleSpacingNm above); pass a number to force a specific spacing.
+// startLabel/destinationLabel: free-text names for the route's two ends
+// (e.g. a preset crossing's "Pukapuka"/"Nassau") -- the backend just
+// sanitizes and echoes these back on the response (see main.py's
+// cok_suitability_route _label() helper) so normalizeRouteForecastResponse
+// and CookIslandsRouteAdvisoryPdf.js can identify which named route a result
+// describes. Omitted entirely (not sent as null/empty) for a manually-drawn
+// route, which has no such names.
 export function buildRouteForecastPayload({
   routePoints,
   vessel,
   departureTime,
   speedKt,
   sampleSpacingNm,
+  startLabel,
+  destinationLabel,
 }) {
   const validated = validateRouteForecastInput({ routePoints, departureTime, speedKt });
   const routeLengthNm = totalRouteLengthNm(validated.routePoints);
@@ -143,6 +171,8 @@ export function buildRouteForecastPayload({
     speed_kt: validated.speedKt,
     sample_spacing_nm: spacing,
     route: validated.routePoints.map((p) => [p.lon, p.lat]),
+    ...(typeof startLabel === 'string' && startLabel ? { start_label: startLabel } : {}),
+    ...(typeof destinationLabel === 'string' && destinationLabel ? { destination_label: destinationLabel } : {}),
   };
 }
 
@@ -223,6 +253,12 @@ export function normalizeRouteForecastResponse(payload, fallback = {}) {
     vessel: payload?.vessel ?? fallback.vessel ?? '',
     departure_time: payload?.departure_time ?? fallback.departureTime ?? null,
     speed_kt: toNumber(payload?.speed_kt) ?? fallback.speedKt ?? null,
+    // Named-route identity (e.g. a preset crossing's endpoints) -- see
+    // buildRouteForecastPayload's start_label/destination_label. Null for a
+    // manually-drawn route, which never sends these. snake_case to match
+    // CookIslandsRouteAdvisoryPdf.js's own `result?.start_label` fallback read.
+    start_label: typeof payload?.start_label === 'string' ? payload.start_label : (fallback.startLabel ?? null),
+    destination_label: typeof payload?.destination_label === 'string' ? payload.destination_label : (fallback.destinationLabel ?? null),
     summary: {
       distance_nm: toNumber(payload?.summary?.distance_nm),
       duration_hours: toNumber(payload?.summary?.duration_hours),
@@ -266,6 +302,8 @@ export async function fetchCookIslandsRouteForecast(request) {
     vessel: payload.vessel,
     departureTime: payload.departure_time,
     speedKt: payload.speed_kt,
+    startLabel: payload.start_label,
+    destinationLabel: payload.destination_label,
   });
 }
 

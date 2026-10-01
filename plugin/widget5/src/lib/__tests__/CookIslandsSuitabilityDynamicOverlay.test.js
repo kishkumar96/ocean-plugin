@@ -1,5 +1,14 @@
+// The real module blows up under jsdom (its top-level init reaches for
+// window.URL.createObjectURL, which jsdom doesn't implement) -- no other lib
+// file in this codebase imports maplibre-gl directly for exactly this
+// reason. addProtocol/removeProtocol are the only calls this class makes
+// into the module itself; everything else it does is plain grid math and
+// calls on the `map` object passed into the constructor.
+import * as maplibregl from 'maplibre-gl';
 import { CookIslandsSuitabilityDynamicOverlay } from '../CookIslandsSuitabilityDynamicOverlay';
 import { resolveOperatingEnvelope } from '../CookIslandsSuitabilityOverlay';
+
+jest.mock('maplibre-gl', () => ({ addProtocol: jest.fn(), removeProtocol: jest.fn() }));
 
 // 2x2 grid over lon 0..2, lat 0..2. Source rows run south->north, so:
 //   north row (idx 2,3): NW warning, NE caution
@@ -84,24 +93,60 @@ function fakeMap() {
   };
 }
 
-describe('CookIslandsSuitabilityDynamicOverlay visibility race', () => {
-  // Regression coverage for the late-overlay race: the controller can call
-  // setVisible(false) (switching back to Preset mode) while this overlay's
-  // very first grid fetch is still in flight, i.e. before LAYER_ID has ever
-  // been created. setVisible() used to be a no-op in that case (nothing to
-  // set the layout property ON yet), so the desired "hidden" state was lost
-  // -- once the stale fetch finally resolved and _repaint() -> _ensureMapSource()
-  // created the layer for the first time, MapLibre's default layout.visibility
-  // ('visible') won, silently showing the custom overlay over a map the user
-  // had already switched away from.
+describe('CookIslandsSuitabilityDynamicOverlay tile source (_refreshTiles)', () => {
+  // _refreshTiles() replaced _repaint()/_ensureMapSource(): instead of
+  // painting one whole-domain canvas, it re-tags a MapLibre custom-protocol
+  // raster source with the current envelope/timestep (via the tile URL's own
+  // query string, see _buildTileUrl) and lets MapLibre re-request whichever
+  // tiles are on screen. It still needs both a grid and an envelope loaded
+  // before it does anything, same as old _repaint() did.
+  test('does nothing until both a grid and an envelope are loaded', () => {
+    const map = fakeMap();
+    const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
+
+    overlay._refreshTiles();
+    expect(map.addSource).not.toHaveBeenCalled();
+
+    overlay._envelope = resolveOperatingEnvelope('small_craft');
+    overlay._refreshTiles();
+    expect(map.addSource).not.toHaveBeenCalled(); // still no grid
+  });
+
+  test('creates a raster source backed by this instance\'s own protocol scheme, bounded to the grid domain', () => {
+    const map = fakeMap();
+    const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
+    overlay._envelope = resolveOperatingEnvelope('small_craft');
+    overlay._grid = overlayWithGrid()._grid; // lon 0..2, lat 0..2
+
+    overlay._refreshTiles();
+
+    expect(map.addSource).toHaveBeenCalledWith('cok-suitability-dynamic-source', expect.objectContaining({
+      type: 'raster',
+      tiles: [expect.stringContaining(`${overlay._protocolScheme}://{z}/{x}/{y}`)],
+      tileSize: 256,
+      bounds: [0, 0, 2, 2],
+    }));
+  });
+
   test('a layer created after setVisible(false) comes up hidden, not MapLibre-default-visible', () => {
+    // Regression coverage for the late-overlay race: the controller can call
+    // setVisible(false) (switching back to Preset mode) while this overlay's
+    // very first grid fetch is still in flight, i.e. before the layer has
+    // ever been created. setVisible() used to be a no-op in that case
+    // (nothing to set the layout property ON yet), so the desired "hidden"
+    // state was lost once the stale fetch finally resolved and created the
+    // layer for the first time with MapLibre's default layout.visibility
+    // ('visible'), silently showing the custom overlay over a map the user
+    // had already switched away from.
     const map = fakeMap();
     const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
 
     overlay.setVisible(false); // simulates switching back to preset before the layer exists
     expect(map.setLayoutProperty).not.toHaveBeenCalled(); // nothing to set it on yet
 
-    overlay._ensureMapSource({ lonMin: -160, lonMax: -159, latMin: -22, latMax: -21 });
+    overlay._envelope = resolveOperatingEnvelope('small_craft');
+    overlay._grid = overlayWithGrid()._grid;
+    overlay._refreshTiles();
 
     expect(map.addLayer).toHaveBeenCalledWith(
       expect.objectContaining({ layout: { visibility: 'none' } }),
@@ -112,25 +157,13 @@ describe('CookIslandsSuitabilityDynamicOverlay visibility race', () => {
   test('a layer created without any setVisible() call defaults to visible, matching prior behavior', () => {
     const map = fakeMap();
     const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
+    overlay._envelope = resolveOperatingEnvelope('small_craft');
+    overlay._grid = overlayWithGrid()._grid;
 
-    overlay._ensureMapSource({ lonMin: -160, lonMax: -159, latMin: -22, latMax: -21 });
+    overlay._refreshTiles();
 
     expect(map.addLayer).toHaveBeenCalledWith(
       expect.objectContaining({ layout: { visibility: 'visible' } }),
-      undefined,
-    );
-  });
-
-  test('uses linear resampling so coarse custom cells do not render as hard rectangles', () => {
-    const map = fakeMap();
-    const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
-
-    overlay._ensureMapSource({ lonMin: -160, lonMax: -159, latMin: -22, latMax: -21 });
-
-    expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        paint: expect.objectContaining({ 'raster-resampling': 'linear' }),
-      }),
       undefined,
     );
   });
@@ -143,5 +176,52 @@ describe('CookIslandsSuitabilityDynamicOverlay visibility race', () => {
     overlay.setVisible(false);
 
     expect(map.setLayoutProperty).toHaveBeenCalledWith('cok-suitability-dynamic-layer', 'visibility', 'none');
+  });
+
+  test('setEnvelope on an already-created source re-tags it via setTiles rather than recreating it', () => {
+    const map = fakeMap();
+    const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
+    overlay._grid = overlayWithGrid()._grid;
+    overlay.setEnvelope(resolveOperatingEnvelope('small_craft'));
+    expect(map.addSource).toHaveBeenCalledTimes(1);
+
+    const fakeSource = { setTiles: jest.fn() };
+    map.getSource.mockReturnValue(fakeSource);
+    overlay.setEnvelope(resolveOperatingEnvelope('small_craft', { cautionWindKt: 4, maxWindKt: 5 }));
+
+    expect(map.addSource).toHaveBeenCalledTimes(1); // not recreated
+    expect(fakeSource.setTiles).toHaveBeenCalledWith([expect.stringContaining(overlay._protocolScheme)]);
+  });
+
+  test('reports suitable/caution/warning percentages computed from the native grid, not tile rendering', () => {
+    const map = fakeMap();
+    const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
+    overlay.onStatsChange = jest.fn();
+    overlay._grid = overlayWithGrid()._grid; // 1 warning, 1 caution, 1 suitable, 1 land cell
+    overlay._envelope = resolveOperatingEnvelope('small_craft');
+
+    overlay._refreshTiles();
+
+    expect(overlay.onStatsChange).toHaveBeenCalledWith(null, null, null, {
+      warning_percent: expect.closeTo(33.33, 1),
+      caution_percent: expect.closeTo(33.33, 1),
+      suitable_percent: expect.closeTo(33.33, 1),
+    });
+  });
+});
+
+describe('CookIslandsSuitabilityDynamicOverlay protocol lifecycle', () => {
+  test('registers a unique protocol scheme per instance and tears it down on destroy', () => {
+    const map = fakeMap();
+    const overlayA = new CookIslandsSuitabilityDynamicOverlay(map);
+    const overlayB = new CookIslandsSuitabilityDynamicOverlay(map);
+
+    expect(overlayA._protocolScheme).not.toBe(overlayB._protocolScheme);
+    expect(maplibregl.addProtocol).toHaveBeenCalledWith(overlayA._protocolScheme, expect.any(Function));
+    expect(maplibregl.addProtocol).toHaveBeenCalledWith(overlayB._protocolScheme, expect.any(Function));
+
+    overlayA.destroy();
+    expect(maplibregl.removeProtocol).toHaveBeenCalledWith(overlayA._protocolScheme);
+    expect(maplibregl.removeProtocol).not.toHaveBeenCalledWith(overlayB._protocolScheme);
   });
 });

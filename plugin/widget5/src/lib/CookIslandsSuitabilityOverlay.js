@@ -8,6 +8,7 @@
 import { SUITABILITY_DEBUG_TIMING, logSuitabilityFrameTiming } from './suitabilityDebugTiming';
 import { advisoryMarkerId, registerAdvisoryMarkerIcons } from './advisoryMarkerIcons';
 import VESSEL_THRESHOLDS from './vesselThresholds.generated.json';
+import { parseUtcTimestamp } from '../utils/backendTime';
 
 const SOURCE_ID        = 'cok-suitability-src';
 export const COK_SUITABILITY_CIRCLES_LAYER = 'cok-suitability-circles';
@@ -327,10 +328,11 @@ export class CookIslandsSuitabilityOverlay {
   }
 
   _buildTimeLabels(startStr, endStr, n) {
-    // numpy datetime64 strings look like "2026-08-18T00:00:00.000000000"
-    const clean = (s) => (s || '').replace(/\.0+$/, '').replace(' ', 'T');
-    const start = new Date(clean(startStr));
-    const end   = new Date(clean(endStr));
+    // numpy datetime64 strings look like "2026-08-18T00:00:00.000000000": UTC, but with no
+    // zone marker, which plain `new Date()` would read as the viewer's LOCAL time (see
+    // utils/backendTime.js).
+    const start = parseUtcTimestamp(startStr);
+    const end   = parseUtcTimestamp(endStr);
     if (isNaN(start) || n <= 0) return [];
     const stepMs = n > 1 ? (end - start) / (n - 1) : 3_600_000;
     return Array.from({ length: n }, (_, i) => {

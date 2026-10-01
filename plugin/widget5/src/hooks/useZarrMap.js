@@ -24,6 +24,7 @@ import {
   RISK_LABELS,
 } from '../services/riskDataService';
 import { disableTerrain, enableTerrain, hasTerrainDem } from '../lib/terrainMapLibre';
+import { resolveModelRunStart, modelRunAgeHours as modelRunAgeHoursFor, isModelRunStale } from '../utils/modelRunTiming';
 
 // maplibre-gl v6's own worker loader does `new Worker(new URL(`./${t}`, e))` with a runtime-
 // built template string -- webpack can't statically resolve that (the "Critical dependency"
@@ -268,6 +269,7 @@ export function useZarrMap({
   onRoutePointPick,
   routePoints = [],
   routeForecastResult = null,
+  routeProbe = null,
   impactAssetsGeojson = null,
   impactAssetsVisible = false,
   impactAssetsScenario = null,
@@ -309,6 +311,8 @@ export function useZarrMap({
   const impactDistrictHoverPopupRef = useRef(null);
   const routeWaypointMarkersRef = useRef([]);
   const routeLegLabelMarkersRef = useRef([]);
+  const routeProbeMarkersRef = useRef([]);
+  const routeProbeWasActiveRef = useRef(false);
 
   const [timeCount, setTimeCount] = useState(1);
   const [timeLabels, setTimeLabels] = useState([]);
@@ -1022,6 +1026,74 @@ export function useZarrMap({
       routeLegLabelMarkersRef.current.push(marker);
     }
   }, [routePoints, routeForecastResult]);
+
+  // ── route probe: what the midpoint wave chart points at ───────────────────
+  // A pulsing ring at the route midpoint while that chart is open, and a boat dot that follows
+  // the hovered time along the route (only while the time is inside the voyage). Plain DOM
+  // markers like the waypoint ones above; rebuilt on change (two tiny elements).
+  useEffect(() => {
+    const map = mapInstance.current;
+    routeProbeMarkersRef.current.forEach((marker) => marker.remove());
+    routeProbeMarkersRef.current = [];
+    if (!map || !routeProbe) { routeProbeWasActiveRef.current = false; return; }
+
+    const label = (text, color) => {
+      const el = document.createElement('div');
+      el.textContent = text;
+      el.style.cssText = `
+        position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px);
+        padding: 1px 6px; border-radius: 4px; white-space: nowrap; pointer-events: none;
+        font: 700 10px system-ui, sans-serif; color: #f8fafc;
+        background: rgba(15, 23, 42, 0.85); border: 1px solid ${color};
+      `;
+      return el;
+    };
+    const add = (point, el) => {
+      routeProbeMarkersRef.current.push(new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([point.lon, point.lat]).addTo(map));
+    };
+
+    const { midpoint, vessel } = routeProbe;
+    // The results sheet is laid over the bottom of the map, so the route (and with it the
+    // midpoint) can sit entirely underneath it. The first time the probe appears, fit the route
+    // into the part of the map the sheet leaves visible. Only on that transition: re-fitting on
+    // every hover would make the map jump around under the mouse.
+    if (!routeProbeWasActiveRef.current) {
+      const pts = routePoints.filter((p) => Number.isFinite(p?.lon) && Number.isFinite(p?.lat));
+      if (pts.length >= 2) {
+        const mapRect = map.getContainer().getBoundingClientRect();
+        const sheetTop = document.querySelector('.bottom-offcanvas')?.getBoundingClientRect?.().top;
+        const covered = Number.isFinite(sheetTop) ? Math.max(0, mapRect.bottom - sheetTop) : 0;
+        const lons = pts.map((p) => p.lon);
+        const lats = pts.map((p) => p.lat);
+        map.fitBounds(
+          [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+          { padding: { top: 50, left: 50, right: 50, bottom: covered + 40 }, animate: true, maxZoom: 14 },
+        );
+      }
+    }
+    routeProbeWasActiveRef.current = true;
+    if (midpoint && Number.isFinite(midpoint.lon) && Number.isFinite(midpoint.lat)) {
+      const el = document.createElement('div');
+      el.className = 'cok-route-probe-midpoint';
+      el.style.cssText = `
+        position: relative; width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box;
+        border: 3px solid #f472b6; background: rgba(244, 114, 182, 0.18);
+        box-shadow: 0 0 0 4px rgba(244, 114, 182, 0.25), 0 1px 6px rgba(0,0,0,0.5);
+      `;
+      el.appendChild(label('Midpoint', '#f472b6'));
+      add(midpoint, el);
+    }
+    if (vessel && Number.isFinite(vessel.lon) && Number.isFinite(vessel.lat)) {
+      const el = document.createElement('div');
+      el.className = 'cok-route-probe-vessel';
+      el.style.cssText = `
+        position: relative; width: 16px; height: 16px; border-radius: 50%; box-sizing: border-box;
+        border: 3px solid #38bdf8; background: #ffffff; box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.35), 0 1px 5px rgba(0,0,0,0.55);
+      `;
+      el.appendChild(label(vessel.label ? `Boat · ${vessel.label}` : 'Boat', '#38bdf8'));
+      add(vessel, el);
+    }
+  }, [routeProbe, routePoints]);
 
   // ── RiskScape impact assets (data / visibility / scenario filter) ────────
   // Three independent effects rather than one, matching how opacity/
@@ -1825,13 +1897,12 @@ export function useZarrMap({
   // timeLabels[0] as "now" the way every other layer's modelRunStart does
   // would make this layer's modelRunAgeHours >= 48h and therefore isStale
   // permanently true, even seconds after a fresh cycle publishes.
-  const COK_SUITABILITY_HINDCAST_HOURS = 48;
+  // (The offset itself, and why, live in utils/modelRunTiming.js: modelRunStart below is
+  // the real model run's start for every layer, so the age printed in the PDFs and the
+  // one behind the stale banner can never disagree.)
   const availableTimestamps = timeLabels.map(parseTimeLabel).filter(Boolean);
-  const modelRunStart = availableTimestamps[0] ?? null;
-  const modelRunHindcastHours = timeLabelsLayerId === 'cok-suitability' ? COK_SUITABILITY_HINDCAST_HOURS : 0;
-  const modelRunAgeHours = modelRunStart
-    ? (Date.now() - modelRunStart.getTime()) / 3_600_000 - modelRunHindcastHours
-    : null;
+  const modelRunStart = resolveModelRunStart(availableTimestamps[0], timeLabelsLayerId);
+  const modelRunAgeHours = modelRunAgeHoursFor(modelRunStart);
   const capTime = {
     loading,
     availableTimestamps,
@@ -1847,7 +1918,7 @@ export function useZarrMap({
     modelRunStart,
     modelRunAgeHours,
     // True when data is older than 30 h — indicates a missed pipeline run
-    isStale: modelRunAgeHours !== null && modelRunAgeHours > 30,
+    isStale: isModelRunStale(modelRunAgeHours),
   };
 
   const currentSliderDate = timeLabels[sliderIndex] ? parseTimeLabel(timeLabels[sliderIndex]) : null;

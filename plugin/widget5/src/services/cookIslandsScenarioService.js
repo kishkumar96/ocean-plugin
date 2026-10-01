@@ -34,6 +34,7 @@ import { VESSEL_CLASS_OPTIONS, classifySuitability, deriveSuitabilityDriver } fr
 import { fetchCookIslandsRouteForecast, parseAsUtcWallClock } from './cookIslandsRouteForecastService';
 import { mapWithConcurrency, sleep } from '../utils/concurrency';
 import { MIN_COVERAGE, coverageConfidence } from '../reports/reportRules';
+import { pickWorstSample } from '../domain/suitability/routeSeverity';
 
 export const MAX_SCENARIOS = 4;
 
@@ -140,18 +141,11 @@ export function deriveRouteDecision(routeForecastResult, vesselCode) {
   const totalSamples = samples.length;
   const availableSamples = totalSamples - unavailableSamples;
 
-  // Worst-hazard sample -- ties broken by earliest ETA (first point along the
-  // route where conditions reach that severity).
-  let worstSample = null;
-  for (const sample of samples) {
-    if (sample.hazard_class === null || sample.hazard_class === undefined) continue;
-    if (!worstSample
-      || sample.hazard_class > worstSample.hazard_class
-      || (sample.hazard_class === worstSample.hazard_class && new Date(sample.eta) < new Date(worstSample.eta))
-    ) {
-      worstSample = sample;
-    }
-  }
+  // Worst sample: highest hazard class, then furthest past its own thresholds
+  // (routeSeverity.js), then earliest. Earliest-in-class alone would name the
+  // departure point as the worst reading whenever the whole route shares a
+  // class, hiding the far more severe offshore sample.
+  const worstSample = pickWorstSample(samples, vesselCode);
 
   // Prefer a backend-provided driver field if one ever appears; derive from
   // the vessel operating envelope otherwise (see module header).

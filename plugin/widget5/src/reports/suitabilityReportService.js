@@ -38,6 +38,9 @@ function normalizeBounds(b) {
   return Object.values(out).every((v) => v !== null) ? out : null;
 }
 
+// True only when suitable, caution AND warning shares are all finite numbers.
+const allShares = (pct) => ['suitable', 'caution', 'warning'].every((k) => pct?.[k] !== null && pct?.[k] !== undefined && Number.isFinite(Number(pct[k])));
+
 // /cok/suitability/summary: run-level metadata (no per-timestep statistics).
 export async function fetchSuitabilityMeta({ signal } = {}) {
   const body = await getJson('/cok/suitability/summary', signal);
@@ -68,7 +71,9 @@ export function normalizeSummaryStep(body, { timeIndex, vessel }) {
   const eligible = num(body?.eligible_point_count);
   const total = num(body?.total_points);
   const classified = ['suitable', 'caution', 'warning'].reduce((s, k) => s + (num(counts[k]) ?? 0), 0);
-  const usable = (eligible ?? total ?? 0) > 0 && classified > 0;
+  // All three shares must be present: a step with `suitable` but no caution/warning would
+  // otherwise read as available with those shares silently treated as 0 (i.e. Suitable).
+  const usable = (eligible ?? total ?? 0) > 0 && classified > 0 && allShares(pct);
   return {
     timeIndex: num(body?.time_index) ?? timeIndex,
     validTime: body?.valid_time_utc || body?.valid_time ? new Date(body.valid_time_utc ?? body.valid_time).getTime() : null,
@@ -109,7 +114,7 @@ export async function fetchSummarySeries(bounds, { startIndex, endIndex, stride 
   const vessels = {};
   Object.entries(body?.vessels ?? {}).forEach(([code, steps]) => {
     vessels[code] = (Array.isArray(steps) ? steps : []).map((s) => {
-      const usable = (s.classified_points ?? 0) > 0 && s.percentages?.suitable != null;
+      const usable = (s.classified_points ?? 0) > 0 && allShares(s.percentages);
       return {
         timeIndex: num(s.time_index),
         validTime: s.valid_time ? new Date(s.valid_time).getTime() : null,

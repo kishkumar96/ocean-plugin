@@ -84,6 +84,14 @@ export class SfincsRasterOverlay {
     this._hazardToken  = 0;
     this._hazardKey    = null;
     this._hazardShown  = false;
+    // A block that 404s (e.g. the hazard endpoint not deployed for this cycle
+    // yet) stays not-found until the block/cycle itself changes -- otherwise
+    // any unrelated re-render that calls updateConfig() while _hazardBlock is
+    // still set (this._hazardKey/_hazardShown get cleared on failure, below)
+    // retries the exact same known-404 URL every time, hammering the endpoint
+    // on every incidental parent re-render (confirmed live: dozens of retries
+    // during a single color-picker drag elsewhere on the page).
+    this._hazardFailedKey = null;
     this.onHazardBlockStatus = null;
     this._categories   = config.inundationCategories ?? null;
     this._renderMode   = config.inundationRenderMode ?? 'continuous';
@@ -491,7 +499,7 @@ export class SfincsRasterOverlay {
     const coords = this._imageCoords();
     if (!hb || !coords) return;
     const url = this._buildHazardBlockUrl(hb);
-    if (this._hazardShown && this._hazardKey === url) return;
+    if ((this._hazardShown && this._hazardKey === url) || this._hazardFailedKey === url) return;
 
     this._cancelPendingLoad();
     const token = ++this._hazardToken;
@@ -510,12 +518,14 @@ export class SfincsRasterOverlay {
       this._inRangeMax = true;
       this._hazardShown = true;
       this._hazardKey = url;
+      this._hazardFailedKey = null;
       this.onHazardBlockStatus?.({ state: 'ok', cycleId: resp.headers.get('X-Hazard-Cycle') || hb.cycleId, block: hb.block });
     } catch (err) {
       if (err?.name === 'AbortError' || token !== this._hazardToken || this._destroyed) return;
       console.warn('[SfincsRasterOverlay] hazard block unavailable, using the time range instead', err);
       this._hazardShown = false;
       this._hazardKey = null;
+      this._hazardFailedKey = url;
       this.onHazardBlockStatus?.({ state: 'unavailable', cycleId: hb.cycleId, block: hb.block, reason: err?.message });
       this._applyTimeRangeOrFrame();
     }

@@ -185,7 +185,7 @@ function BottomOffCanvas({
   onTimeSelect, onRiskThresholdsSaved, onImpactWindowSelect, onImpactScenarioChange, impactInitialScenario = null, onMhwsResult, onSelectImpactAsset,
   scenarioCount = 0, onConfirmVesselSuggestion,
   departureSuggestionLoading, departureSuggestionProgress, departureSuggestionResult, departureSuggestionError,
-  onSuggestBetterDeparture, onApplyDepartureSuggestion, onSaveDepartureSuggestionAsScenario,
+  onSuggestBetterDeparture, onApplyDepartureSuggestion, onSaveDepartureSuggestionAsScenario, onRouteProbeChange,
 }) {
   const offcanvasRef = useRef(null);
   const isRiskMode = data?.mode === "risk";
@@ -686,6 +686,7 @@ function BottomOffCanvas({
           <CookIslandsRouteForecastPanel
             data={data}
             onRetry={data?.onRetry}
+            onRouteProbeChange={onRouteProbeChange}
             timeDisplayZone={timeDisplayZone}
             mapCustomEnvelope={mapCustomEnvelope}
             modelRunStart={modelRunStart}

@@ -18,6 +18,7 @@ import {
   customEnvelopeNoteText,
   buildCookIslandsRouteAdvisoryPdfDoc,
   routeEvidence,
+  nearbyIslandsForRouteSketch,
 } from '../CookIslandsRouteAdvisoryPdf';
 
 describe('formatNumber', () => {
@@ -190,6 +191,25 @@ describe('routeOperationalRecommendation', () => {
   });
 });
 
+// Real coordinates from config/islandConfig.js -- Rarotonga's centre is roughly
+// -21.24, -159.78; Penrhyn (Northern Group) is roughly -9.0, -158.0.
+describe('nearbyIslandsForRouteSketch', () => {
+  test('includes an island whose centre falls within the route bbox', () => {
+    const bbox = { lonMin: -160.5, lonMax: -159.0, latMin: -21.6, latMax: -20.9 };
+    const labels = nearbyIslandsForRouteSketch(bbox).map((i) => i.label);
+    expect(labels).toContain('Rarotonga');
+    // Regression: this used to always be empty (the sketch had no island data at
+    // all) -- a route box this size should pick up its one nearby named island,
+    // not the whole 15-island list regardless of where the route actually is.
+    expect(labels).not.toContain('Penrhyn');
+  });
+
+  test('a route through open ocean far from any named island returns none', () => {
+    const bbox = { lonMin: -170.2, lonMax: -170.0, latMin: -15.1, latMax: -14.9 };
+    expect(nearbyIslandsForRouteSketch(bbox)).toEqual([]);
+  });
+});
+
 // small_craft's real thresholds (src/lib/vesselThresholds.generated.json):
 // cautionWindKt 15, maxWindKt 20, cautionWaveHeightM 1.5, maxWaveHeightM 2.0.
 describe('computeExceedance', () => {
@@ -339,7 +359,9 @@ jest.mock('jspdf', () => {
 });
 
 describe('buildCookIslandsRouteAdvisoryPdfDoc pagination', () => {
-  const DISCLAIMER_SNIPPET = 'not navigation advice';
+  // Text unique to the shared footer line (page 1 also carries its own, larger notice box
+  // that says "not navigation advice"), so this still counts footers, not notices.
+  const DISCLAIMER_SNIPPET = 'SWAN wave model guidance';
 
   function makeSamples(count) {
     return Array.from({ length: count }, (_, i) => ({
@@ -520,5 +542,73 @@ describe('route report departure suggestion', () => {
     const text = doc.pages[0].join(' | ');
     expect(text).toMatch(/A later departure \(.*\) may find better modelled conditions/);
     expect(text).toMatch(/64% at the requested time, 9% then/);
+  });
+});
+
+describe('route advisory: critical point, midpoint conditions, legends, notice', () => {
+  const LIVE = [
+    { sample_index: 0, eta: '2026-09-30T00:00:00Z', distance_nm: 0, lat: -10.85, lon: -165.85, wind_speed_kt: 20.9, wave_height_m: 0.24, hazard_class: 2, available: true },
+    { sample_index: 1, eta: '2026-09-30T02:00:00Z', distance_nm: 25, lat: -11.2, lon: -165.6, wind_speed_kt: 22.4, wave_height_m: 3.19, hazard_class: 2, available: true },
+    { sample_index: 2, eta: '2026-09-30T04:00:00Z', distance_nm: 52, lat: -11.55, lon: -165.42, wind_speed_kt: 21.0, wave_height_m: 2.6, hazard_class: 2, available: true },
+  ];
+  const result = { departure_time: '2026-09-30T00:00:00Z', samples: LIVE, summary: { distance_nm: 52, duration_hours: 6.5, worst_hazard_class: 2, recommendation: 'Warning' } };
+  const mc = {
+    lat: -11.176, lon: -165.634, headingDeg: 151, etaIso: '2026-09-30T02:00:00Z', validTime: '2026-09-30T02:00:00Z', waveRunStart: '2026-09-30T00:00:00Z',
+    hsM: 3.0, tpS: 9.2, dirDeg: 125, dirPoint: 'SE', angleOffBowDeg: 26, angleText: 'Head seas',
+    windSea: { hsM: 2.9, tpS: 9.1, dirDeg: 126, dirPoint: 'SE' }, primarySwell: { hsM: 0.9, tpS: 11.4, dirDeg: 184, dirPoint: 'S' },
+  };
+  const page = async (extra, n = 0) => {
+    const { doc } = await buildCookIslandsRouteAdvisoryPdfDoc({ result, vessel: 'small_craft', speedKt: 8, ...extra });
+    return doc.pages[n].join(' | ');
+  };
+
+  test('the critical point panel reports the offshore 3.19 m sample, not the departure sample', async () => {
+    const text = await page({});
+    expect(text).toMatch(/Wave 3\.19 m/);
+    expect(text).toMatch(/25\.0 nm along route/);
+    expect(text).not.toMatch(/0\.0 nm along route/);
+  });
+
+  test('midpoint panel: height, period, direction, bow angle, swell and wind sea at the vessel ETA', async () => {
+    const text = await page({ midpointConditions: mc });
+    expect(text).toMatch(/MIDPOINT WAVE CONDITIONS/);
+    expect(text).toMatch(/Wave height 3\.00 m/);
+    expect(text).toMatch(/Peak period 9\.2 s/);
+    expect(text).toMatch(/waves from SE 125°/);
+    expect(text).toMatch(/Head seas \(26° off the bow\)/);
+    expect(text).toMatch(/Primary swell 0\.90 m at 11\.4 s from S/);
+    expect(text).toMatch(/Wind sea 2\.90 m at 9\.1 s from SE/);
+    expect(text).toMatch(/where waves come FROM|waves come FROM/);
+  });
+
+  test('midpoint conditions: null = stated as unavailable; undefined = nothing said', async () => {
+    expect(await page({ midpointConditions: null })).toMatch(/Midpoint wave conditions \(period, direction, swell\) were unavailable/);
+    const absent = await page({});
+    expect(absent).not.toMatch(/MIDPOINT WAVE CONDITIONS/);
+    expect(absent).not.toMatch(/were unavailable when this advisory/);
+  });
+
+  test('page 1 carries an explicit legend for markers and colours, and timeline end labels', async () => {
+    const text = await page({});
+    ['Departure', 'Destination', 'Critical point', 'Suitable', 'Caution', 'Warning', 'No data'].forEach((w) => expect(text).toContain(w));
+  });
+
+  test('page 1 has a readable notice stating it is modelled guidance and where thresholds come from', async () => {
+    const text = await page({});
+    expect(text).toMatch(/Modelled guidance only/);
+    expect(text).toMatch(/no approving authority, version or effective date is recorded/);
+  });
+
+  test('page 2 plots wave thresholds as well as wind ones, and records the wave feed run', async () => {
+    const text = await page({ midpointConditions: mc }, 1);
+    expect(text).toMatch(/Caution \/ Warning: wind \(left axis\)/);
+    expect(text).toMatch(/Caution \/ Warning: waves \(right axis\)/);
+    expect(text).toMatch(/Midpoint wave feed: run starts/);
+    expect(text).toMatch(/no approving authority/);
+  });
+
+  test('the recommended wording stays advisory (no forbidden instruction phrases)', async () => {
+    const all = `${await page({ midpointConditions: mc })} ${await page({ midpointConditions: mc }, 1)}`;
+    expect(all).not.toMatch(/safe to (depart|sail|go|proceed)|\bproceed\b|do not depart|\bavoid\b|all clear/i);
   });
 });

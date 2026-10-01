@@ -31,6 +31,8 @@
 import { VESSEL_OPERATING_ENVELOPE, VESSEL_CLASS_OPTIONS, deriveSuitabilityDriver } from '../lib/CookIslandsSuitabilityOverlay';
 import { tzLabel } from '../utils/timeZoneFormat';
 import { coverageConfidence } from '../reports/reportRules';
+import { pickWorstSample, thresholdsForHazard } from '../domain/suitability/routeSeverity';
+import { ISLAND_ZOOM_TARGETS } from '../config/islandConfig';
 
 // Shared visual theme (page furniture, palette, hazard colours, formatting) -- see pdfTheme.js.
 // Re-exported here because the scenario and landing reports historically imported these from
@@ -51,13 +53,47 @@ const WIND_LINE = [56, 189, 248];    // sky-400, distinct from both hazard color
 const WAVE_LINE = [167, 139, 250];   // violet-400
 const DRIVER_LABELS = { none: 'None', wind: 'Wind', waves: 'Waves', wind_and_waves: 'Wind & waves' };
 
-function projectLonLatToRect(lon, lat, bbox, rectX, rectY, rectW, rectH) {
-  const px = rectX + ((lon - bbox.lonMin) / (bbox.lonMax - bbox.lonMin)) * rectW;
-  const py = rectY + (1 - (lat - bbox.latMin) / (bbox.latMax - bbox.latMin)) * rectH;
-  return [px, py];
+// A route's lon/lat bounding box almost never matches the sketch box's own aspect
+// ratio -- independently stretching lon to fill the box width and lat to fill its
+// height (this function's previous behaviour) warps the route's true shape, so a
+// route that's mostly a straight line with one small jog gets that jog stretched
+// out into what reads as a dramatic zig-zag. This preserves true proportions
+// (also correcting for longitude degrees covering less true distance than
+// latitude degrees away from the equator, via cos(latitude)) and letterboxes the
+// result centred in the box, the way any real map projection would, instead of
+// distorting the geometry to fill every pixel.
+function computeRouteSketchProjection(bbox, rectX, rectY, rectW, rectH) {
+  const midLatRad = ((bbox.latMin + bbox.latMax) / 2) * (Math.PI / 180);
+  const lonScale = Math.cos(midLatRad) || 1;
+  const lonSpanEq = Math.max((bbox.lonMax - bbox.lonMin) * lonScale, 1e-9);
+  const latSpanEq = Math.max(bbox.latMax - bbox.latMin, 1e-9);
+  const scale = Math.min(rectW / lonSpanEq, rectH / latSpanEq);
+  const usedW = lonSpanEq * scale;
+  const usedH = latSpanEq * scale;
+  const offsetX = rectX + (rectW - usedW) / 2;
+  const offsetY = rectY + (rectH - usedH) / 2;
+  return (lon, lat) => [
+    offsetX + (lon - bbox.lonMin) * lonScale * scale,
+    offsetY + (bbox.latMax - lat) * scale,
+  ];
 }
 
-function drawRouteSketch(doc, x, y, w, h, samples) {
+// Named islands (islandConfig.js -- the same list the on-screen "Island Navigation"
+// jump-to menu uses) whose centre falls within the route's own plotted extent.
+// Gives the schematic sketch a geographic anchor or two ("near Rarotonga") without
+// needing real coastline/basemap data; a route through open ocean far from any
+// named island correctly shows none, rather than always forcing a nearest one.
+export function nearbyIslandsForRouteSketch(bbox) {
+  return ISLAND_ZOOM_TARGETS
+    .map((island) => ({
+      label: island.label,
+      lon: (island.bounds.southWest[1] + island.bounds.northEast[1]) / 2,
+      lat: (island.bounds.southWest[0] + island.bounds.northEast[0]) / 2,
+    }))
+    .filter((p) => p.lon >= bbox.lonMin && p.lon <= bbox.lonMax && p.lat >= bbox.latMin && p.lat <= bbox.latMax);
+}
+
+function drawRouteSketch(doc, x, y, w, h, samples, vesselCode = null) {
   rect(doc, x, y, w, h, [221, 239, 243], GRID_CLR, 0.3);
 
   const points = samples.filter((s) => Number.isFinite(s.lon) && Number.isFinite(s.lat));
@@ -77,7 +113,16 @@ function drawRouteSketch(doc, x, y, w, h, samples) {
   if (bbox.lonMax === bbox.lonMin) { bbox.lonMax += PAD; bbox.lonMin -= PAD; }
   if (bbox.latMax === bbox.latMin) { bbox.latMax += PAD; bbox.latMin -= PAD; }
 
-  const project = (lon, lat) => projectLonLatToRect(lon, lat, bbox, x, y, w, h);
+  const project = computeRouteSketchProjection(bbox, x, y, w, h);
+
+  const nearbyIslands = nearbyIslandsForRouteSketch(bbox);
+  nearbyIslands.forEach((island) => {
+    const [ix, iy] = project(island.lon, island.lat);
+    setFill(doc, [120, 134, 148]);
+    doc.circle(ix, iy, 0.6, 'F');
+    setFont(doc, TEXT_MD, 5.2);
+    doc.text(island.label, ix + 1.4, iy + 1.2);
+  });
 
   for (let i = 1; i < points.length; i++) {
     const [x0, y0] = project(points[i - 1].lon, points[i - 1].lat);
@@ -91,24 +136,57 @@ function drawRouteSketch(doc, x, y, w, h, samples) {
     doc.line(x0, y0, x1, y1);
   }
 
+  // Departure/destination use neutral navy markers with text labels, NOT green/red:
+  // those are the hazard colours the route line itself is drawn in, so a green
+  // origin on a Warning segment (or a red destination on a Suitable one) read as
+  // a hazard rating for the endpoint.
   const [ox, oy] = project(points[0].lon, points[0].lat);
   const [dx, dy] = project(points[points.length - 1].lon, points[points.length - 1].lat);
-  setFill(doc, [34, 197, 94]);
-  doc.circle(ox, oy, 1.5, 'F');
-  setFill(doc, [239, 68, 68]);
-  doc.circle(dx, dy, 1.5, 'F');
+  setFill(doc, HEADER_BG);
+  doc.circle(ox, oy, 1.6, 'F');
+  doc.rect(dx - 1.5, dy - 1.5, 3, 3, 'F');
+  setFont(doc, HEADER_BG, 6.2, 'bold');
+  doc.text('Departure', ox + 2.6, oy + 0.9);
+  doc.text('Destination', dx + 2.6, dy + 0.9);
 
   // Critical-point marker -- a distinct diamond (not reused circle/triangle
   // shapes, so it can't be mistaken for start/destination or the timeline
   // ribbon's own worst-sample marker elsewhere on the same page) at the
   // single worst available sample, if any.
-  const worst = getWorstRouteSample(points);
+  const worst = getWorstRouteSample(points, vesselCode);
   if (worst && worst !== points[0] && worst !== points[points.length - 1]) {
     const [wx, wy] = project(worst.lon, worst.lat);
     setFill(doc, TEXT_DK);
     doc.triangle(wx, wy - 1.8, wx + 1.8, wy, wx, wy + 1.8, 'F');
     doc.triangle(wx, wy - 1.8, wx - 1.8, wy, wx, wy + 1.8, 'F');
+    setFont(doc, TEXT_DK, 6.2, 'bold');
+    doc.text('Critical point', wx + 2.6, wy + 0.9);
   }
+}
+
+// Text width in mm; jsPDF measures it exactly, the ~1.2 mm/char fallback only keeps
+// layout math finite under the stub documents the unit tests use.
+const textWidth = (doc, str) => doc.getTextWidth?.(str) ?? String(str).length * 1.2;
+
+// Key for the sketch's symbols and line colours, so the page reads without
+// guessing: colour alone is not the only cue (markers carry labels too).
+export function drawRouteSketchLegend(doc, x, y, w) {
+  rect(doc, x, y, w, 8, [255, 255, 255], GRID_CLR, 0.25);
+  setFont(doc, TEXT_MD, 6.2);
+  let lx = x + 3;
+  const cy = y + 4.4;
+  setFill(doc, HEADER_BG);
+  doc.circle(lx + 1, cy - 0.8, 1.2, 'F'); doc.text('Departure', lx + 3.6, cy); lx += 20;
+  doc.rect(lx, cy - 2, 2.4, 2.4, 'F'); doc.text('Destination', lx + 3.6, cy); lx += 24;
+  doc.triangle(lx + 1.2, cy - 2.4, lx + 2.6, cy - 0.8, lx + 1.2, cy + 0.8, 'F');
+  doc.triangle(lx + 1.2, cy - 2.4, lx - 0.2, cy - 0.8, lx + 1.2, cy + 0.8, 'F');
+  doc.text('Critical point', lx + 4.4, cy); lx += 26;
+  [[0, 'Suitable'], [1, 'Caution'], [2, 'Warning']].forEach(([h, label]) => {
+    setDraw(doc, hazardColor(h)); doc.setLineWidth(1.1); doc.line(lx, cy - 0.8, lx + 6, cy - 0.8);
+    setFont(doc, TEXT_MD, 6.2); doc.text(label, lx + 7.6, cy); lx += 7.6 + textWidth(doc, label) + 4;
+  });
+  setDraw(doc, NO_DATA_GREY); doc.setLineWidth(1.1); doc.line(lx, cy - 0.8, lx + 6, cy - 0.8);
+  setFont(doc, TEXT_MD, 6.2); doc.text('No data', lx + 7.6, cy);
 }
 
 // ── route-specific analysis helpers (trimmed from widget1's exporter) ──────
@@ -117,13 +195,12 @@ export function routeAvailableSamples(samples = []) {
   return samples.filter((s) => s?.available !== false && Number.isFinite(s?.hazard_class));
 }
 
-export function getWorstRouteSample(samples = []) {
-  return routeAvailableSamples(samples).reduce((worst, sample) => {
-    if (!worst) return sample;
-    if (sample.hazard_class > worst.hazard_class) return sample;
-    if (sample.hazard_class === worst.hazard_class && new Date(sample.eta) < new Date(worst.eta)) return sample;
-    return worst;
-  }, null);
+// The single most severe sample: highest hazard class, then furthest past its
+// own thresholds (see domain/suitability/routeSeverity.js for why "earliest in
+// the class" was wrong), then earliest. Pass the vessel class so severity can
+// be measured; without it the tie-break falls back to earliest-first.
+export function getWorstRouteSample(samples = [], vesselCode = null) {
+  return pickWorstSample(routeAvailableSamples(samples), vesselCode);
 }
 
 // Start/end of the single worst contiguous hazard run along the route (by
@@ -205,16 +282,19 @@ export function computeExceedance(vesselCode, sample) {
   if (!driver || driver === 'none') return null;
 
   const hazard = Number(sample.hazard_class);
-  const windThreshold = hazard >= 2 ? envelope.maxWindKt : envelope.cautionWindKt;
-  const waveThreshold = hazard >= 2 ? envelope.maxWaveHeightM : envelope.cautionWaveHeightM;
+  const { windKt: windThreshold, waveM: waveThreshold } = thresholdsForHazard(envelope, hazard);
   const windExceed = windKt - windThreshold;
   const waveExceed = waveM - waveThreshold;
 
   if (driver === 'wind') return { driver, amount: windExceed, unit: 'kt' };
   if (driver === 'waves') return { driver, amount: waveExceed, unit: 'm' };
   // wind_and_waves: the panel shows one headline "+X" figure, so report
-  // whichever parameter is exceeding its own threshold by more.
-  return windExceed >= waveExceed ? { driver, amount: windExceed, unit: 'kt' } : { driver, amount: waveExceed, unit: 'm' };
+  // whichever parameter is exceeding its own threshold by more -- compared as
+  // a fraction of each threshold. The raw differences are kt vs m and must
+  // never be compared to each other (0.9 kt is not "less" than 0.8 m).
+  return windExceed / windThreshold >= waveExceed / waveThreshold
+    ? { driver, amount: windExceed, unit: 'kt' }
+    : { driver, amount: waveExceed, unit: 'm' };
 }
 
 // Curated table rows: pins the first, last, and worst-hazard sample (so
@@ -227,10 +307,10 @@ export function computeExceedance(vesselCode, sample) {
 // actually be unwieldy. Never returns MORE than maxRows (a Set dedupes any
 // stride index that lands on an already-pinned one), so callers can rely
 // on that as a hard upper bound, not just a target.
-export function selectRouteTableRows(samples = [], maxRows = 14) {
+export function selectRouteTableRows(samples = [], maxRows = 14, vesselCode = null) {
   if (samples.length <= maxRows) return samples;
 
-  const worst = getWorstRouteSample(samples);
+  const worst = getWorstRouteSample(samples, vesselCode);
   const worstIdx = worst ? samples.indexOf(worst) : -1;
   const pinned = new Set([0, samples.length - 1]);
   if (worstIdx >= 0) pinned.add(worstIdx);
@@ -298,6 +378,20 @@ export function customEnvelopeNoteText(envelope) {
     + 'This route was classified against the preset thresholds above, so map colours may differ from this advisory.';
 }
 
+// Where the thresholds come from, stated as fact: the preset envelope is generated from
+// the pipeline's vessel_suitability_rules.yaml (see the VESSEL_META comment in
+// CookIslandsSuitabilityOverlay.js). What is NOT known is stated too, rather than
+// implied: no approving authority, version or effective date is recorded for them.
+export function thresholdProvenanceText(vesselCode) {
+  const label = VESSEL_OPERATING_ENVELOPE[vesselCode]?.label ?? vesselCode;
+  return `Preset thresholds for ${label}, generated from the forecast pipeline's vessel_suitability_rules. These are advisory defaults: `
+    + 'no approving authority, version or effective date is recorded for them.';
+}
+
+export const ROUTE_NOTICE = 'Modelled guidance only. This advisory rates wind and waves along the route against preset vessel thresholds. '
+  + 'It is not a forecast of what you will experience at sea and it is not navigation advice; conditions can differ locally and change quickly. '
+  + 'Check official marine warnings and use local knowledge and seamanship.';
+
 export function routeThresholdText(vesselCode) {
   const rule = VESSEL_OPERATING_ENVELOPE[vesselCode];
   if (!rule) return 'Thresholds unavailable for this vessel class.';
@@ -353,6 +447,44 @@ export function drawCriticalPointPanel(doc, x, y, w, h, { worstSample, exceedanc
   }
 }
 
+// Sea state at the route midpoint at the time the vessel is actually there: height,
+// period, direction, how the sea meets the bow, and the wind-sea / primary-swell split.
+// Data comes from the wave model feed (buildMidpointConditions), a separate feed from
+// the route ratings, and the panel says so.
+export function drawMidpointConditionsPanel(doc, x, y, w, h, mc, timeDisplayZone) {
+  rect(doc, x, y, w, h, [255, 255, 255], GRID_CLR, 0.4);
+  setFont(doc, HEADER_BG, 8, 'bold');
+  doc.text('MIDPOINT WAVE CONDITIONS — AT VESSEL ETA', x + 4, y + 6);
+
+  const n = (v, d) => (Number.isFinite(v) ? v.toFixed(d) : '—');
+  const from = (pt, deg) => (Number.isFinite(deg) ? `${pt} ${Math.round(deg)}°` : '—');
+  setFont(doc, TEXT_DK, 7.5);
+  doc.text(
+    doc.splitTextToSize(`${formatEta(mc.etaIso, timeDisplayZone)} ${tzLabel(timeDisplayZone)} · ${mc.lat.toFixed(3)}, ${mc.lon.toFixed(3)} · route heading ${Math.round(mc.headingDeg)}°`, w - 8),
+    x + 4, y + 11.5,
+  );
+  setFont(doc, TEXT_DK, 7.5, 'bold');
+  const angleText = Number.isFinite(mc.angleOffBowDeg) ? ` — ${mc.angleText} (${Math.round(mc.angleOffBowDeg)}° off the bow)` : '';
+  doc.text(
+    doc.splitTextToSize(`Wave height ${n(mc.hsM, 2)} m · Peak period ${n(mc.tpS, 1)} s · waves from ${from(mc.dirPoint, mc.dirDeg)}${angleText}`, w - 8),
+    x + 4, y + 16.5,
+  );
+  setFont(doc, TEXT_MD, 7);
+  doc.text(
+    doc.splitTextToSize(
+      `Primary swell ${n(mc.primarySwell.hsM, 2)} m at ${n(mc.primarySwell.tpS, 1)} s from ${from(mc.primarySwell.dirPoint, mc.primarySwell.dirDeg)}`
+      + ` · Wind sea ${n(mc.windSea.hsM, 2)} m at ${n(mc.windSea.tpS, 1)} s from ${from(mc.windSea.dirPoint, mc.windSea.dirDeg)}`,
+      w - 8,
+    ),
+    x + 4, y + 21.2,
+  );
+  setFont(doc, TEXT_MD, 6.3, 'italic');
+  doc.text(
+    doc.splitTextToSize('Directions are where waves come FROM, degrees true. From the wave model feed, which is separate from the route ratings, so values can differ slightly.', w - 8),
+    x + 4, y + h - 5,
+  );
+}
+
 // Time-proportional hazard ribbon: one rect per interval between
 // consecutive available samples, its width proportional to the elapsed
 // time between them (not fixed-width per-sample markers) -- so a long gap
@@ -362,7 +494,7 @@ export function drawCriticalPointPanel(doc, x, y, w, h, { worstSample, exceedanc
 // stretching the segment on either side of it over the missing stretch.
 // A small triangle marks the worst sample's time position underneath the
 // ribbon.
-export function drawHazardTimelineRibbon(doc, x, y, w, h, samples) {
+export function drawHazardTimelineRibbon(doc, x, y, w, h, samples, vesselCode = null, timeDisplayZone = null) {
   const withTimes = samples.filter((s) => s?.eta && Number.isFinite(new Date(s.eta).getTime()));
   if (withTimes.length < 2) {
     rect(doc, x, y, w, h, [235, 236, 238]);
@@ -384,11 +516,27 @@ export function drawHazardTimelineRibbon(doc, x, y, w, h, samples) {
     rect(doc, segX0, y, Math.max(segX1 - segX0, 0.15), h, available ? hazardColor(sample.hazard_class) : NO_DATA_GREY);
   }
 
-  const worst = getWorstRouteSample(withTimes);
+  const worst = getWorstRouteSample(withTimes, vesselCode);
   if (worst) {
     const wx = xAt(new Date(worst.eta).getTime());
     setFill(doc, TEXT_DK);
     doc.triangle(wx - 1.3, y - 1.6, wx + 1.3, y - 1.6, wx, y + 0.3, 'F');
+  }
+
+  // Time labels at both ends (the ribbon was otherwise unlabelled) and a key, so the
+  // hazard colours are not the only information.
+  if (timeDisplayZone) {
+    setFont(doc, TEXT_MD, 6);
+    doc.text(formatEta(withTimes[0].eta, timeDisplayZone), x, y + h + 3.4);
+    doc.text(formatEta(withTimes[withTimes.length - 1].eta, timeDisplayZone), x + w, y + h + 3.4, { align: 'right' });
+    let lx = x + w * 0.3;
+    [[0, 'Suitable'], [1, 'Caution'], [2, 'Warning']].forEach(([hz, label]) => {
+      rect(doc, lx, y + h + 1.6, 2.6, 2.2, hazardColor(hz));
+      setFont(doc, TEXT_MD, 6); doc.text(label, lx + 3.6, y + h + 3.4);
+      lx += 3.6 + textWidth(doc, label) + 3.5;
+    });
+    rect(doc, lx, y + h + 1.6, 2.6, 2.2, NO_DATA_GREY);
+    setFont(doc, TEXT_MD, 6); doc.text('No data', lx + 3.6, y + h + 3.4);
   }
 }
 
@@ -461,6 +609,15 @@ export function drawWindWaveChart(doc, x, y, w, h, samples, vesselCode, timeDisp
     doc.line(chartLeft, windY(envelope.cautionWindKt), chartRight, windY(envelope.cautionWindKt));
     setDraw(doc, hazardColor(2));
     doc.line(chartLeft, windY(envelope.maxWindKt), chartRight, windY(envelope.maxWindKt));
+    // Wave thresholds on the WAVE axis, dotted (wind ones are dashed) so the two
+    // kinds of line stay distinguishable. Previously only wind thresholds were
+    // drawn, which left a wave-driven Warning with no visible line to cross.
+    doc.setLineDashPattern([0.3, 1.2], 0);
+    doc.setLineWidth(0.5);
+    setDraw(doc, hazardColor(1));
+    doc.line(chartLeft, waveY(envelope.cautionWaveHeightM), chartRight, waveY(envelope.cautionWaveHeightM));
+    setDraw(doc, hazardColor(2));
+    doc.line(chartLeft, waveY(envelope.maxWaveHeightM), chartRight, waveY(envelope.maxWaveHeightM));
     doc.setLineDashPattern([], 0);
   }
 
@@ -478,7 +635,8 @@ export function drawWindWaveChart(doc, x, y, w, h, samples, vesselCode, timeDisp
   doc.text('— Wave (m, right)', x + 3, legendY + 4.5);
   if (envelope) {
     setFont(doc, TEXT_MD, 6, 'normal');
-    doc.text('- - Caution / Warning thresholds (wind axis)', x + w / 2, legendY + 2.2);
+    doc.text('- - -  Caution / Warning: wind (left axis)', x + w / 2, legendY);
+    doc.text('· · ·  Caution / Warning: waves (right axis)', x + w / 2, legendY + 4.5);
   }
 }
 
@@ -522,7 +680,7 @@ export function routeEvidence({ samples = [], departureTime = null, modelRunStar
 
 export async function buildCookIslandsRouteAdvisoryPdfDoc({
   result, vessel, speedKt, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null, modelRunStart = null,
-  vesselSuggestion = null, departureSuggestion = null, superseded = false, startLabel: startLabelParam = null, destinationLabel: destinationLabelParam = null,
+  vesselSuggestion = null, departureSuggestion = null, superseded = false, midpointConditions, startLabel: startLabelParam = null, destinationLabel: destinationLabelParam = null,
 }) {
   const startLabel = startLabelParam ?? result?.start_label ?? null;
   const destinationLabel = destinationLabelParam ?? result?.destination_label ?? null;
@@ -548,7 +706,7 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
   const samples = Array.isArray(result.samples) ? result.samples : [];
   const summary = result.summary ?? {};
   const vesselLabel = VESSEL_CLASS_OPTIONS.find((v) => v.value === vessel)?.label ?? vessel;
-  const worstSample = getWorstRouteSample(samples);
+  const worstSample = getWorstRouteSample(samples, vessel);
   const worstRun = findWorstRun(samples);
   const hazardAvailable = Number.isFinite(summary.worst_hazard_class);
   const hazard = summary.worst_hazard_class;
@@ -641,8 +799,20 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
   setFont(doc, TEXT_DK, 8, 'bold');
   doc.text('Hazard timeline', 8, y);
   y += 3;
-  drawHazardTimelineRibbon(doc, 8, y, leftColW, 6, samples);
-  y += 6 + 5;
+  drawHazardTimelineRibbon(doc, 8, y, leftColW, 6, samples, vessel, timeDisplayZone);
+  y += 6 + 9;
+
+  // Midpoint sea state at the vessel's ETA. undefined = caller didn't ask for it
+  // (older callers); null = asked for and unavailable -- stated, not silently dropped.
+  if (midpointConditions) {
+    const mpH = 31;
+    drawMidpointConditionsPanel(doc, 8, y, leftColW, mpH, midpointConditions, timeDisplayZone);
+    y += mpH + 4;
+  } else if (midpointConditions === null) {
+    setFont(doc, TEXT_MD, 7, 'italic');
+    doc.text('Midpoint wave conditions (period, direction, swell) were unavailable when this advisory was generated.', 8, y + 2);
+    y += 7;
+  }
 
   if (vesselSuggestion) {
     setFont(doc, TEXT_MD, 7, 'italic');
@@ -676,8 +846,21 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
   setFont(doc, TEXT_MD, 6.5, 'italic');
   doc.text('Not to scale. No coastline, bathymetry, or navigational detail — plan and route in a proper charting tool.', rightColX, ry);
   ry += 4;
-  const sketchH = pageH - ry - 14;
-  drawRouteSketch(doc, rightColX, ry, rightColW, sketchH, samples);
+  // Important-notice box across the foot of page 1, at a readable size (the shared
+  // footer line is 5.8 pt, too small for the one statement a reader must not miss).
+  const noticeSize = 7.2;
+  setFont(doc, TEXT_DK, noticeSize, 'bold');
+  const noticeLines = doc.splitTextToSize(`${ROUTE_NOTICE} ${thresholdProvenanceText(vessel)}`, pageW - 16 - 6);
+  const noticeH = noticeLines.length * (noticeSize * 0.3528 * 1.22) + 4.6; // pt -> mm, ~1.22 leading
+  const noticeY = pageH - 12 - noticeH - 1.5;
+  rect(doc, 8, noticeY, pageW - 16, noticeH, [255, 244, 214], [230, 180, 60], 0.3);
+  setFont(doc, TEXT_DK, noticeSize, 'bold');
+  doc.text(noticeLines, 11, noticeY + 4.4);
+
+  const legendH = 8;
+  const sketchH = Math.max(40, noticeY - 3 - legendH - 2 - ry);
+  drawRouteSketch(doc, rightColX, ry, rightColW, sketchH, samples, vessel);
+  drawRouteSketchLegend(doc, rightColX, ry + sketchH + 2, rightColW);
 
   drawFooter(doc);
 
@@ -695,7 +878,7 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
   const chartColW = pageW - chartColX - 8;
 
   // Left: curated sample table.
-  const tableRows = selectRouteTableRows(samples, 16);
+  const tableRows = selectRouteTableRows(samples, 16, vessel);
   setFont(doc, TEXT_DK, 8, 'bold');
   doc.text('Route samples', 8, p2Top);
   let ty = p2Top + 4;
@@ -719,7 +902,11 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
   cy += 5;
   setFont(doc, TEXT_MD, 7.5);
   doc.text(routeThresholdText(vessel), chartColX, cy);
-  cy += 6;
+  cy += 4.5;
+  setFont(doc, TEXT_MD, 6.8, 'italic');
+  const provLines = doc.splitTextToSize(thresholdProvenanceText(vessel), chartColW);
+  doc.text(provLines, chartColX, cy);
+  cy += provLines.length * 3.3 + 3;
   const customNote = customEnvelopeNoteText(mapCustomEnvelope);
   if (customNote) {
     setFont(doc, hazardText(1), 7.5, 'bold');
@@ -746,6 +933,10 @@ export async function buildCookIslandsRouteAdvisoryPdfDoc({
     : 'Model run: unavailable';
   doc.text(`${modelRunText} · Source: SWAN wave model forecast (Cook Islands) via /cok/suitability/route`, chartColX, cy);
   cy += 6;
+  if (midpointConditions?.waveRunStart) {
+    doc.text(`Midpoint wave feed: run starts ${formatEta(midpointConditions.waveRunStart, timeDisplayZone)} ${tzLabel(timeDisplayZone)} via /wave/ugrid/timeseries`, chartColX, cy);
+    cy += 6;
+  }
   if (superseded) {
     setFont(doc, hazardText(1), 7.5, 'bold');
     const supLines = doc.splitTextToSize(

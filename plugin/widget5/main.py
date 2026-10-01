@@ -7410,6 +7410,89 @@ def cok_suitability_tile(vessel: str, time_index: int, z: int, x: int, y: int):
     )
 
 
+@app.get("/cok/suitability/mask/{z}/{x}/{y}.png")
+def cok_suitability_mask(z: int, x: int, y: int):
+    """Land/ocean alpha mask for one map tile, at the same per-pixel
+    precision as cok_suitability_tile's own coastline (the live face_tree +
+    _is_marine mesh-triangulation check) -- opaque where marine, fully
+    transparent over land or outside the model domain.
+
+    Exists so the custom-envelope overlay (frontend: a canvas redrawn from
+    /cok/suitability/grid, which is intentionally coarse -- see that
+    endpoint's docstring) can be clipped (e.g. a `destination-in` canvas
+    composite) to the same precise coastline the preset vessel tiles already
+    have, instead of painting whole ~2km grid cells over the coastline. This
+    does NOT make the custom-envelope colours themselves any less coarse --
+    that trade-off is unchanged -- it only stops them spilling onto land.
+
+    Unlike cok_suitability_tile, this has no vessel/time_index dimension:
+    the coastline doesn't move between forecasts, so one PNG per (z, x, y)
+    serves every vessel and timestep for as long as the mesh (state.signature)
+    is unchanged -- far fewer unique tiles than the hazard tiles' cache ever
+    needs, and safe to pre-warm.
+    """
+    state = require_cok_suit_state()
+    tile_size = 256
+    cache_key = ("mask_v1", state.signature, z, x, y)
+    cached_tile = disk_tile_cache_get("cok_suitability_mask", cache_key)
+    if cached_tile is not None:
+        return png_bytes_response(
+            cached_tile,
+            headers={"Cache-Control": "public, max-age=300", "X-Tile-Cache": "HIT"},
+        )
+
+    lon_min_tile, lat_min_tile, lon_max_tile, lat_max_tile = tile_to_lonlat_bounds(x, y, z)
+    if (
+        lon_max_tile < state.lon_min
+        or lon_min_tile > state.lon_max
+        or lat_max_tile < state.lat_min
+        or lat_min_tile > state.lat_max
+    ):
+        return transparent_png_response(tile_size)
+
+    n = 2.0 ** z
+    px = np.arange(tile_size)
+    py = np.arange(tile_size)
+    lon_vals = (x + (px + 0.5) / tile_size) / n * 360.0 - 180.0
+    y_world = y + (py + 0.5) / tile_size
+    lat_vals = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * y_world / n))))
+    lon_grid_tile, lat_grid_tile = np.meshgrid(lon_vals, lat_vals)
+
+    lon_in = (lon_grid_tile >= float(state.raster_lons[0])) & (lon_grid_tile <= float(state.raster_lons[-1]))
+    lat_in = (lat_grid_tile >= float(state.raster_lats[0])) & (lat_grid_tile <= float(state.raster_lats[-1]))
+    in_domain = lon_in & lat_in
+
+    # Same live per-pixel check as cok_suitability_tile -- see that
+    # endpoint's own comment for why the precomputed/coarse mask isn't
+    # reused here either.
+    tile_lon_flat = lon_grid_tile.ravel()
+    tile_lat_flat = lat_grid_tile.ravel()
+    tile_points = np.column_stack([tile_lon_flat, tile_lat_flat])
+    tile_point_dist, tile_point_idx = state.face_tree.query(tile_points, workers=KDTREE_QUERY_WORKERS)
+    tile_valid = _is_marine(
+        state.mesh_trifinder,
+        tile_point_dist, state.face_spacing[tile_point_idx],
+        tile_lon_flat, tile_lat_flat,
+        COK_SUITABILITY_LAND_MASK_K, COK_SUITABILITY_LAND_MASK_ABSOLUTE_CAP_KM,
+    ).reshape(tile_size, tile_size)
+    in_domain = in_domain & tile_valid
+
+    rgba = np.zeros((tile_size, tile_size, 4), dtype=np.uint8)
+    rgba[in_domain] = (255, 255, 255, 255)
+
+    img = Image.fromarray(rgba, mode="RGBA")
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    png_bytes = buffer.getvalue()
+
+    disk_tile_cache_put("cok_suitability_mask", cache_key, png_bytes)
+
+    return png_bytes_response(
+        png_bytes,
+        headers={"Cache-Control": "public, max-age=300", "X-Tile-Cache": "MISS"},
+    )
+
+
 @app.get("/cok/suitability/grid/{time_index}")
 def cok_suitability_grid(time_index: int):
     """Raw wind/wave/valid raster for a single timestep, quantized int16 +

@@ -17,7 +17,7 @@ import {
   saveCustomEnvelopeProfiles,
   updateCustomEnvelopeForVessel,
 } from '../domain/suitability/customEnvelopeProfiles';
-import { fetchCookIslandsRouteForecast, parseAsUtcWallClock } from '../services/cookIslandsRouteForecastService';
+import { fetchCookIslandsRouteForecast, parseAsUtcWallClock, defaultDepartureTime } from '../services/cookIslandsRouteForecastService';
 import {
   MAX_SCENARIOS,
   createScenario,
@@ -32,6 +32,7 @@ import { fetchCookIslandsImpactLatest, fetchCookIslandsImpactAssets, fetchCookIs
 import { exportCookIslandsScenarioComparisonPdf } from '../utils/CookIslandsScenarioComparisonPdf';
 import { findNearestIndex } from '../components/InundationWindowControl';
 import { findIslandZoomTarget } from '../config/islandConfig';
+import { COOK_ISLANDS_PRESET_ROUTES, presetRouteBounds, shouldConfirmRouteReplacement } from '../config/cookIslandsPresetRoutes';
 import { createAppShareUrl, readAppShareState } from '../domain/share/appStateSnapshot';
 
 const widgetContainerStyle = {
@@ -158,6 +159,8 @@ function CookIslandsForecast() {
   // CookIslandsRouteControls.jsx's own header comment for why.
   const [routeDepartureTime, setRouteDepartureTime] = useState(sharedState?.route?.departureTime ?? '');
   const [routeForecastResult, setRouteForecastResult] = useState(null);
+  // What the midpoint wave chart is pointing at, drawn on the map: {midpoint:{lon,lat}, vessel:{lon,lat,label}|null}.
+  const [routeProbe, setRouteProbe] = useState(null);
   // Snapshot of exactly what routeForecastResult was actually run against
   // (routePoints/vessel/speedKt/departureTime/modelRunStartAtRun) -- kept
   // separate from routeForecastResult itself (the raw backend response
@@ -170,6 +173,15 @@ function CookIslandsForecast() {
   const [routeForecastResultInputs, setRouteForecastResultInputs] = useState(null);
   const [routeForecastLoading, setRouteForecastLoading] = useState(false);
   const [routeForecastError, setRouteForecastError] = useState('');
+  // Named-route identity, set only by loading a preset crossing (see
+  // handleLoadPresetRoute below) -- carried into the route-forecast request
+  // (start_label/destination_label) so results and PDFs can say "Pukapuka to
+  // Nassau" instead of being generic. Cleared by any hand-edit of the route
+  // (handleRoutePointPick/handleUndoRoutePoint/handleClearRoute), since at
+  // that point the route no longer IS the named crossing.
+  const [activePresetRouteId, setActivePresetRouteId] = useState(null);
+  const [routeStartLabel, setRouteStartLabel] = useState(null);
+  const [routeDestinationLabel, setRouteDestinationLabel] = useState(null);
 
   // Scenario comparison: saved snapshots of route/vessel/speed/departure,
   // each independently run against /cok/suitability/route and kept
@@ -206,19 +218,31 @@ function CookIslandsForecast() {
     clearRouteSuggestions();
   }, [routePoints, vesselClass, routeSpeedKt, routeDepartureTime, clearRouteSuggestions]);
 
+  // Clears the loaded-preset identity: once the user hand-edits a route
+  // (adds, undoes, or clears a point), it is no longer exactly the named
+  // crossing a preset loaded, so the result/PDF must stop claiming it is.
+  const clearActivePresetIdentity = useCallback(() => {
+    setActivePresetRouteId(null);
+    setRouteStartLabel(null);
+    setRouteDestinationLabel(null);
+  }, []);
+
   const handleRoutePointPick = useCallback((lng, lat) => {
     setRoutePoints((prev) => [...prev, { lon: lng, lat }]);
-  }, []);
+    clearActivePresetIdentity();
+  }, [clearActivePresetIdentity]);
 
   const handleUndoRoutePoint = useCallback(() => {
     setRoutePoints((prev) => prev.slice(0, -1));
-  }, []);
+    clearActivePresetIdentity();
+  }, [clearActivePresetIdentity]);
 
   const handleClearRoute = useCallback(() => {
     setRoutePoints([]);
     setRouteForecastResult(null);
     setRouteForecastError('');
-  }, []);
+    clearActivePresetIdentity();
+  }, [clearActivePresetIdentity]);
 
   // ── canvas visibility ────────────────────────────────────────────────────
   const [showBottomCanvas, setShowBottomCanvas] = useState(false);
@@ -328,6 +352,7 @@ function CookIslandsForecast() {
     onRoutePointPick: handleRoutePointPick,
     routePoints,
     routeForecastResult,
+    routeProbe,
     impactAssetsGeojson: impactAssets.geojson,
     impactAssetsVisible: impactSurfaceVisible,
     impactAssetsScenario: impactSelectedScenario,
@@ -342,6 +367,38 @@ function CookIslandsForecast() {
     initialMapView: sharedState?.map ?? null,
     initialBasemapId: activeBasemapId,
   });
+
+  // Pre-fills "Plan route" with one of the standing inter-island crossings
+  // (see cookIslandsPresetRoutes.js) instead of the user drawing it
+  // point-by-point. Guards against silently discarding hand-drawn work
+  // (shouldConfirmRouteReplacement), frames the map on the loaded route
+  // (fitBounds -- route points alone don't move the camera), and closes a
+  // stale route-forecast result sheet rather than leaving it on screen
+  // marked stale. Still needs the user's own "Run forecast" click: firing
+  // that off automatically here would run against routePoints/vesselClass
+  // this same render's setState calls haven't actually applied yet (state
+  // updates are async), not the values just set.
+  const handleLoadPresetRoute = useCallback((routeId) => {
+    const preset = COOK_ISLANDS_PRESET_ROUTES.find((r) => r.id === routeId);
+    if (!preset) return;
+    if (shouldConfirmRouteReplacement({ existingPointCount: routePoints.length, activePresetRouteId })) {
+      const proceed = window.confirm(`Replace your current route with the ${preset.label} preset?`);
+      if (!proceed) return;
+    }
+    setRoutePoints(preset.points.map((p) => ({ ...p })));
+    setVesselClass(preset.vessel);
+    setRouteSpeedKt(preset.defaultSpeedKt);
+    setActivePresetRouteId(preset.id);
+    setRouteStartLabel(preset.start);
+    setRouteDestinationLabel(preset.destination);
+    setRoutePickMode(false);
+    setRouteForecastResult(null);
+    setRouteForecastError('');
+    if (showBottomCanvas && bottomCanvasData?.mode === 'route-forecast') {
+      setShowBottomCanvas(false);
+    }
+    fitBounds?.(presetRouteBounds(preset), { padding: 60 });
+  }, [routePoints.length, activePresetRouteId, showBottomCanvas, bottomCanvasData, fitBounds]);
 
   // Whether the currently-shown route result/PDF still describes the live
   // plan -- see routeForecastResultInputs' own comment. Recomputed on every
@@ -410,13 +467,17 @@ function CookIslandsForecast() {
     [capTime.availableTimestamps]
   );
 
-  // Seed the departure picker from the current slider time the first time
-  // a forecast window becomes available, rather than leaving it blank.
+  // Seed the departure picker the first time a forecast window is available, rather than
+  // leaving it blank: the next whole hour from now (clamped to the window) -- NOT the
+  // slider's initial time, which is the window's first timestamp and so in the past.
+  // Falls back to the slider time when there is no usable window. Only ever seeds an
+  // empty picker; a time the user (or a preset/suggestion) chose is left alone.
   useEffect(() => {
-    if (!routeDepartureTime && currentSliderDate) {
-      setRouteDepartureTime(currentSliderDate.toISOString().slice(0, 16));
-    }
-  }, [currentSliderDate, routeDepartureTime]);
+    if (routeDepartureTime) return;
+    const seeded = defaultDepartureTime({ windowStart: forecastStartTime, windowEnd: forecastEndTime })
+      ?? (currentSliderDate ? currentSliderDate.toISOString().slice(0, 16) : null);
+    if (seeded) setRouteDepartureTime(seeded);
+  }, [currentSliderDate, routeDepartureTime, forecastStartTime, forecastEndTime]);
 
   const handleRunRouteForecast = useCallback(async () => {
     let departureTime = routeDepartureTime || currentSliderDate?.toISOString?.();
@@ -441,6 +502,8 @@ function CookIslandsForecast() {
         vessel: vesselClass,
         departureTime,
         speedKt: routeSpeedKt,
+        startLabel: routeStartLabel,
+        destinationLabel: routeDestinationLabel,
       });
       setRouteForecastResult(result);
       setRouteForecastResultInputs({
@@ -455,7 +518,7 @@ function CookIslandsForecast() {
       setRouteForecastLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routePoints, vesselClass, routeSpeedKt, routeDepartureTime, currentSliderDate, forecastEndTime, forecastStartTime, capTime.modelRunStart]);
+  }, [routePoints, vesselClass, routeSpeedKt, routeDepartureTime, currentSliderDate, forecastEndTime, forecastStartTime, capTime.modelRunStart, routeStartLabel, routeDestinationLabel]);
 
   // ── Scenario comparison ──────────────────────────────────────────────────
   const handleSaveCurrentAsScenario = useCallback(() => {
@@ -1091,6 +1154,7 @@ function CookIslandsForecast() {
         onShowLandingAreaComparison={handleShowLandingAreaComparison}
         onClearRoute={handleClearRoute}
         onUndoRoutePoint={handleUndoRoutePoint}
+        onLoadPresetRoute={handleLoadPresetRoute}
         scenarios={scenarios}
         confirmedScenarioId={confirmedScenarioId}
         runningScenarioIds={runningScenarioIds}
@@ -1142,6 +1206,7 @@ function CookIslandsForecast() {
         onSuggestBetterDeparture={handleSuggestBetterDeparture}
         onApplyDepartureSuggestion={handleApplyDepartureSuggestion}
         onSaveDepartureSuggestionAsScenario={handleSaveDepartureSuggestionAsScenario}
+        onRouteProbeChange={setRouteProbe}
       />
       <BottomBuoyOffCanvas
         show={showBuoyCanvas}

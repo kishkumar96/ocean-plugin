@@ -27,6 +27,7 @@ beforeEach(() => {
 const EXPECTED_CONSOLE_WARN_PATTERNS = [
   /^Route has \d+ points; truncated to \d+, keeping the destination\.$/,
   /^Landing-area comparison: (timeseries|fallback timeseries) unavailable for .+:$/,
+  /^Harbour wave conditions: timeseries unavailable for .+:$/,
 ];
 
 let consoleErrorSpy;

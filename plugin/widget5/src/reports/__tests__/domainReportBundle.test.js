@@ -178,7 +178,9 @@ describe('optional backend provenance fields', () => {
 
 describe('bulk outlook series', () => {
   const base = { vessel: 'small_craft', timeIndex: 100, bounds: B, scope: 'viewport', horizonHours: 72, now: () => new Date('2026-09-24T02:00:00Z') };
-  const bulkSteps = (v) => [100, 106, 112, 118].map((i) => ({ ...stepFor(i, v, B), suitable: 70, caution: 20, warning: 10 }));
+  // The requested grid for timeIndex 100 + 72 h at a 6 h stride: 13 slots.
+  const GRID = Array.from({ length: 13 }, (_, k) => 100 + k * 6);
+  const bulkSteps = (v, idxs = GRID) => idxs.map((i) => ({ ...stepFor(i, v, B), suitable: 70, caution: 20, warning: 10 }));
   const codes = ['traditional_craft', 'very_small_motorised_craft', 'small_craft', 'larger_vessels'];
 
   test('uses ONE bulk request instead of vessels x steps single requests', async () => {
@@ -186,7 +188,8 @@ describe('bulk outlook series', () => {
     const fetchSeries = jest.fn(async () => ({ vessels: Object.fromEntries(codes.map((c) => [c, bulkSteps(c)])) }));
     const b = await buildDomainReportBundle(base, deps({ fetchStep, fetchSeries }));
     expect(fetchSeries).toHaveBeenCalledTimes(1);
-    expect(b.timeSeries.byVessel.small_craft).toHaveLength(4);
+    expect(b.timeSeries.byVessel.small_craft).toHaveLength(13);
+    expect(b.timeSeries.analysis.small_craft.coverage.ratio).toBe(1);
     // single-step calls remain only for the current time (4 vessels) + contrast + daily panels, not the outlook grid
     expect(fetchStep.mock.calls.length).toBeLessThan(25);
   });
@@ -202,6 +205,76 @@ describe('bulk outlook series', () => {
     const fetchSeries = jest.fn(async () => ({ vessels: { small_craft: bulkSteps('small_craft') } }));
     const b = await buildDomainReportBundle(base, deps({ fetchSeries }));
     expect(b.timeSeries.byVessel.traditional_craft.length).toBeGreaterThan(0);
+  });
+});
+
+describe('bulk outlook: fails closed on incomplete or foreign data', () => {
+  const base = { vessel: 'small_craft', timeIndex: 100, bounds: B, scope: 'viewport', horizonHours: 72, now: () => new Date('2026-09-24T02:00:00Z') };
+  const GRID = Array.from({ length: 13 }, (_, k) => 100 + k * 6);
+  const codes = ['traditional_craft', 'very_small_motorised_craft', 'small_craft', 'larger_vessels'];
+  const mk = (v, idxs, over = {}) => idxs.map((i) => ({ ...stepFor(i, v, B), suitable: 70, caution: 20, warning: 10, ...over }));
+  const seriesOf = (idxs, over) => async () => ({ vessels: Object.fromEntries(codes.map((c) => [c, mk(c, idxs, over)])) });
+
+  test('a truncated bulk response keeps the requested grid: omitted timestamps are gaps, never dropped', async () => {
+    const b = await buildDomainReportBundle(base, deps({ fetchSeries: seriesOf(GRID.slice(0, 4)) }));
+    const s = b.timeSeries.byVessel.small_craft;
+    expect(s.map((x) => x.timeIndex)).toEqual(GRID);
+    expect(s.filter((x) => x.available)).toHaveLength(4);
+    expect(s.filter((x) => !x.available)).toHaveLength(9);
+    expect(b.timeSeries.analysis.small_craft.coverage).toEqual(expect.objectContaining({ total: 13, available: 4 }));
+    expect(b.warnings.join(' ')).toMatch(/9 outlook time step\(s\).*Unavailable/);
+  });
+
+  test('low coverage withholds the best window instead of reporting a window (or "none")', async () => {
+    const b = await buildDomainReportBundle(base, deps({ fetchSeries: seriesOf(GRID.slice(0, 4), { caution: 0, warning: 0, suitable: 100 }) }));
+    const an = b.timeSeries.analysis.small_craft;
+    expect(an.bestWithheld).toBe(true);
+    expect(an.best).toBeNull();
+  });
+
+  test('adequate coverage (>= 80%) still produces a best window', async () => {
+    const b = await buildDomainReportBundle(base, deps({ fetchSeries: seriesOf(GRID, { caution: 0, warning: 0, suitable: 100 }) }));
+    const an = b.timeSeries.analysis.small_craft;
+    expect(an.bestWithheld).toBe(false);
+    expect(an.best.steps).toBe(13);
+  });
+
+  test('a bulk step missing its caution/warning shares is unavailable, not Suitable with zeros', async () => {
+    const { fetchSummarySeries } = jest.requireActual('../suitabilityReportService');
+    const originalFetch = global.fetch;
+    const body = {
+      statistics_basis: 'points_in_bounds', requested_bounds: { lon_min: B.west, lat_min: B.south, lon_max: B.east, lat_max: B.north }, applied_bounds: { lon_min: B.west, lat_min: B.south, lon_max: B.east, lat_max: B.north },
+      vessels: { small_craft: [
+        { time_index: 100, valid_time: '2026-09-24T00:00:00Z', classified_points: 50, counts: {}, percentages: { suitable: 100 } },
+        { time_index: 106, valid_time: '2026-09-24T06:00:00Z', classified_points: 50, counts: {}, percentages: { suitable: 70, caution: 20, warning: 10 } },
+      ] },
+    };
+    global.fetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(body) }));
+    try {
+      const out = await fetchSummarySeries(B, { startIndex: 100, endIndex: 106, stride: 6 });
+      expect(out.vessels.small_craft[0].available).toBe(false);
+      expect(out.vessels.small_craft[0].caution).toBeNull();
+      expect(out.vessels.small_craft[1].available).toBe(true);
+    } finally { global.fetch = originalFetch; }
+  });
+
+  test('an outlook that describes a different area from the headline is omitted, with the reason stated', async () => {
+    // headline: viewport (matching bounds); outlook: whole domain (endpoint ignored the viewport).
+    const foreign = async () => ({ vessels: Object.fromEntries(codes.map((c) => [c, GRID.map((i) => ({ ...stepFor(i, c, null), suitable: 70, caution: 20, warning: 10 }))])) });
+    const b = await buildDomainReportBundle(base, deps({ fetchSeries: foreign }));
+    expect(b.timeSeries.byVessel.small_craft.every((x) => !x.available)).toBe(true);
+    expect(b.warnings.join(' ')).toMatch(/outlook was omitted: its statistics describe a different area/);
+  });
+
+  test('an outlook on the same basis as the headline is kept even when that basis is a fallback', async () => {
+    const domainStep = (i, v) => ({ ...stepFor(i, v, null), suitable: 70, caution: 20, warning: 10 });
+    const b = await buildDomainReportBundle(base, deps({
+      fetchStep: async (i, v) => domainStep(i, v),
+      fetchSeries: async () => ({ vessels: Object.fromEntries(codes.map((c) => [c, GRID.map((i) => domainStep(i, c))])) }),
+    }));
+    expect(b.scope.mismatch).toBe(true); // headline already flagged as whole-domain
+    expect(b.timeSeries.byVessel.small_craft.every((x) => x.available)).toBe(true);
+    expect(b.warnings.join(' ')).not.toMatch(/outlook was omitted/);
   });
 });
 

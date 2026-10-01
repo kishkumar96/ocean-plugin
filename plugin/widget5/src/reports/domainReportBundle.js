@@ -12,7 +12,7 @@
 import {
   fetchSuitabilityMeta, fetchVesselStep, fetchBestContrast, fetchOperationalMap, fetchSummarySeries, fetchDomainBoundary, mapWithLimit, ReportAbortError,
 } from './suitabilityReportService';
-import { parseRunId, zonedWallTimeToUtc, ReportExportBlockedError } from './reportRules';
+import { parseRunId, zonedWallTimeToUtc, ReportExportBlockedError, boundsClose, coverageConfidence } from './reportRules';
 import {
   bestWindow, highestRiskStep, elevatedRuns, recoveryWindows, unavailableRuns, coverageOf,
 } from './seriesAnalysis';
@@ -21,7 +21,6 @@ import { VESSEL_CLASS_OPTIONS } from '../lib/CookIslandsSuitabilityOverlay';
 const VESSEL_CODES = VESSEL_CLASS_OPTIONS.map((v) => v.value);
 const SERIES_STRIDE_HOURS = 6;
 const DAILY_MATCH_TOLERANCE_MS = 3 * 3600e3;
-const BOUNDS_EPS = 1e-4;
 const FETCH_LIMIT = 8;
 
 export const HORIZON_OPTIONS = [
@@ -40,9 +39,6 @@ export const LIMITATIONS = [
   'Currents, tides, visibility and local hazards are not included in the suitability classification.',
   'Missing or unassessed times are shown as Unavailable and are never treated as Suitable.',
 ];
-
-const boundsClose = (a, b) => !!a && !!b
-  && ['west', 'south', 'east', 'north'].every((k) => Math.abs(a[k] - b[k]) <= BOUNDS_EPS);
 
 // Decides whether the statistics returned really describe the requested scope.
 export function validateScope({ requested, requestedBounds }, steps) {
@@ -154,17 +150,42 @@ export async function buildDomainReportBundle({
       bulk = null;
     }
     if (bulk) {
-      VESSEL_CODES.forEach((v) => { byVessel[v] = bulk.vessels[v]; });
+      // Align onto the REQUESTED time grid. Taking the response's own steps as-is would let
+      // omitted timestamps vanish from the coverage denominator and let "best window" bridge
+      // them; every requested index without a returned step is an explicit gap instead.
+      VESSEL_CODES.forEach((v) => {
+        const byIndex = new Map(bulk.vessels[v].map((step) => [step.timeIndex, step]));
+        byVessel[v] = idxs.map((i) => byIndex.get(i) ?? gap(i));
+      });
       tick('Outlook');
     } else {
       const jobs = idxs.flatMap((i) => VESSEL_CODES.map((v) => ({ i, v })));
       const results = await mapWithLimit(jobs, FETCH_LIMIT, ({ i, v }) => swallow(() => d.fetchStep(i, v, reqBounds, stepOpts)), { signal, onEach: () => tick('Outlook') });
       jobs.forEach(({ i, v }, k) => { byVessel[v].push(results[k] || gap(i)); });
     }
+    // The outlook must describe the same area as the headline figures. Scope was only ever
+    // validated on the current-time steps, so an endpoint that ignored the viewport bounds
+    // for the series could have the trend describe a different area than the report states.
+    const outlookReturned = VESSEL_CODES.flatMap((v) => byVessel[v]).filter((st) => st && st.available !== false);
+    if (outlookReturned.length) {
+      const outlookScope = validateScope({ requested, requestedBounds: reqBounds }, outlookReturned);
+      if (outlookScope.effective !== scopeInfo.effective) {
+        warnings.push(`The outlook was omitted: its statistics describe a different area (${outlookScope.effective === 'domain' ? 'the whole forecast domain' : outlookScope.effective}) from the headline figures (${scopeInfo.effective === 'domain' ? 'the whole forecast domain' : scopeInfo.effective}). Outlook time steps are shown as Unavailable.`);
+        VESSEL_CODES.forEach((v) => { byVessel[v] = idxs.map((i) => gap(i)); });
+      }
+    }
     const analysis = {};
     VESSEL_CODES.forEach((v) => {
       const s = byVessel[v];
-      analysis[v] = { best: bestWindow(s), highest: highestRiskStep(s), elevated: elevatedRuns(s), recovery: recoveryWindows(s), unavailable: unavailableRuns(s), coverage: coverageOf(s) };
+      const coverage = coverageOf(s);
+      // Same 80% bar the route advisory applies before it recommends anything: a "best
+      // window" drawn from a mostly-missing series is not a finding, and "no window" would
+      // be a false claim about the sea. Withheld, and said so.
+      const bestWithheld = coverageConfidence(coverage.available, coverage.total) === 'insufficient';
+      analysis[v] = {
+        best: bestWithheld ? null : bestWindow(s), bestWithheld,
+        highest: highestRiskStep(s), elevated: elevatedRuns(s), recovery: recoveryWindows(s), unavailable: unavailableRuns(s), coverage,
+      };
     });
     timeSeries = { strideHours: (strideSteps * stepMs) / 3600e3, byVessel, analysis, startIndex: timeIndex, endIndex: endIdx };
     const gaps = analysis[vessel]?.unavailable ?? [];
@@ -216,7 +237,13 @@ export async function buildDomainReportBundle({
     const contrast = await swallow(() => d.fetchContrast(reqBounds ?? null, { startIndex: timeIndex, endIndex: timeSeries.endIndex, signal }));
     tick('Vessel contrast');
     if (contrast && Number.isFinite(contrast.timeIndex)) {
-      const panelSteps = await Promise.all(VESSEL_CODES.map((v) => swallow(() => d.fetchStep(contrast.timeIndex, v, reqBounds, stepOpts))));
+      let panelSteps = await Promise.all(VESSEL_CODES.map((v) => swallow(() => d.fetchStep(contrast.timeIndex, v, reqBounds, stepOpts))));
+      // Same scope guard as the headline and outlook: a comparison panel describing a
+      // different area is dropped, not shown next to figures for another one.
+      if (panelSteps.some(Boolean) && validateScope({ requested, requestedBounds: reqBounds }, panelSteps).effective !== scopeInfo.effective) {
+        limitations.push('The vessel comparison statistics were omitted because they describe a different area from the headline figures.');
+        panelSteps = VESSEL_CODES.map(() => null);
+      }
       const panelMaps = await Promise.all(VESSEL_CODES.map((v) => fetchCheckedMap(v, contrast.timeIndex)));
       tick('Vessel maps');
       maps.contrast = { ...contrast, panels: VESSEL_CODES.map((v, i) => ({ vessel: v, step: panelSteps[i], map: panelMaps[i] })) };

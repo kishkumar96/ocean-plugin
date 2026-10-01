@@ -63,6 +63,33 @@ describe('SfincsRasterOverlay hazard block', () => {
     console.warn.mockRestore();
   });
 
+  // Regression: confirmed live -- once a hazard block 404s, this._hazardShown/
+  // _hazardKey get cleared (see the catch branch), so the existing "does not
+  // refetch an unchanged block" guard (this._hazardShown && this._hazardKey ===
+  // url) never applies to a failed block -- any unrelated re-render that calls
+  // updateConfig() while hazardBlock is still set (e.g. a color picker drag
+  // elsewhere on the page re-triggering the owning effect) retried the exact
+  // same known-404 URL every single time, hammering the endpoint.
+  test('does not repeatedly refetch a block that 404d, on later unrelated updateConfig calls', async () => {
+    const { overlay } = setup();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    global.fetch = jest.fn(async () => ({ ok: false, status: 404, headers: { get: () => null } }));
+    const hazardBlock = { cycleId: '2026092900', block: 1 };
+    overlay.updateConfig({ hazardBlock });
+    await flush();
+    overlay.updateConfig({ hazardBlock });
+    await flush();
+    overlay.updateConfig({ hazardBlock });
+    await flush();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    // A genuinely different block (new cycle) must still be attempted fresh.
+    overlay.updateConfig({ hazardBlock: { cycleId: '2026093000', block: 1 } });
+    await flush();
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    console.warn.mockRestore();
+  });
+
   test('going back to no hazard block restores the time range and clears the status', async () => {
     const { overlay, source } = setup();
     global.fetch = jest.fn(async () => okResponse());

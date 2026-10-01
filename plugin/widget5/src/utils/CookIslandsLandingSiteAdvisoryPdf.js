@@ -166,9 +166,14 @@ function page2(doc, b, pages) {
       setFont(doc, TEXT_MD, 6.4); doc.text(`${Math.round(r.steps * b.timeline.stepHours)} h`, x + 4, y + 17 + k * 9);
     });
   };
-  list(0, 'BEST OPERATING WINDOWS (MODELLED SUITABLE)', b.windows.suitable, 'No period without Caution or Warning conditions in this forecast.', hazardText(0));
-  list(1, 'CAUTION PERIODS', b.windows.caution, 'No Caution-level periods modelled.', hazardText(1));
-  list(2, 'WARNING PERIODS', b.windows.warning, 'No Warning-level periods modelled.', hazardText(2));
+  const covPct = pctText(b.timeline.coverage.ratio * 100);
+  const lowCov = ` Only ${covPct}% of steps had a model value, so this is not a finding for the whole period.`;
+  list(0, 'BEST OPERATING WINDOWS (MODELLED SUITABLE)', b.windows.suitable,
+    b.windows.suitableWithheld
+      ? `Not assessed: only ${covPct}% of forecast steps had a model value, too few to name an operating window.`
+      : 'No period without Caution or Warning conditions in this forecast.', hazardText(0));
+  list(1, 'CAUTION PERIODS', b.windows.caution, `No Caution-level periods modelled.${b.windows.suitableWithheld ? lowCov : ''}`, hazardText(1));
+  list(2, 'WARNING PERIODS', b.windows.warning, `No Warning-level periods modelled.${b.windows.suitableWithheld ? lowCov : ''}`, hazardText(2));
 
   // method + limitations
   const y2 = y + wh + 5;

@@ -1,0 +1,244 @@
+// cookIslandsHarbourLimits.js
+// Editable barge-unloading limits for the Harbour Wave Conditions panel.
+//
+// There are deliberately NO built-in numbers. Cook Islands Government
+// (Matt Blacka) has not yet said what wave height / period / wind stops barge
+// unloading, and the vessel-suitability classes (which the backend's
+// vessel='all' resolves to the strictest of -- traditional craft, caution at
+// 0.5 m / 10 kt) are the wrong yardstick for a barge. Until someone sets
+// limits, the panel shows raw numbers and no verdict.
+//
+// Shape: { default: Limits, harbours: { [riskPointId]: Limits } }
+// Limits: { caution: {hsM, tpS, windKt}, stop: {hsM, tpS, windKt} } -- each
+// value a number or null (null = "no limit on this variable"). A harbour
+// entry REPLACES the default wholesale for that harbour (simpler to reason
+// about than per-field merging: what you see in its row is what applies).
+// tpS is a MAXIMUM period: long-period swell is what surges harbours and
+// works moored vessels even when Hs looks modest.
+
+import { COOK_ISLANDS_HARBOUR_POINTS } from './cookIslandsHarbourPoints';
+
+export const LIMIT_VARIABLES = [
+  { key: 'hsM', label: 'Wave height', unit: 'm', step: 0.1 },
+  { key: 'tpS', label: 'Peak period', unit: 's', step: 0.5 },
+  { key: 'windKt', label: 'Wind', unit: 'kt', step: 1 },
+];
+
+export const LIMITS_STORAGE_KEY = 'cok-harbour-unloading-limits-v1';
+
+export function emptyLimits() {
+  return {
+    caution: { hsM: null, tpS: null, windKt: null },
+    stop: { hsM: null, tpS: null, windKt: null },
+  };
+}
+
+export function emptyLimitsConfig() {
+  return { default: emptyLimits(), harbours: {} };
+}
+
+function cleanNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function cleanLimits(raw) {
+  const out = emptyLimits();
+  ['caution', 'stop'].forEach((level) => {
+    LIMIT_VARIABLES.forEach(({ key }) => { out[level][key] = cleanNumber(raw?.[level]?.[key]); });
+  });
+  return out;
+}
+
+// Accepts anything (parsed localStorage, an imported file) and returns a
+// well-formed config; unknown harbours' ids are kept as strings, junk is
+// dropped. Never throws.
+export function normalizeLimitsConfig(raw) {
+  const config = emptyLimitsConfig();
+  if (!raw || typeof raw !== 'object') return config;
+  config.default = cleanLimits(raw.default);
+  Object.entries(raw.harbours ?? {}).forEach(([id, limits]) => {
+    if (limits && typeof limits === 'object') config.harbours[String(id)] = cleanLimits(limits);
+  });
+  return config;
+}
+
+export function hasAnyLimit(limits) {
+  return ['caution', 'stop'].some((level) => LIMIT_VARIABLES.some(({ key }) => limits?.[level]?.[key] !== null && limits?.[level]?.[key] !== undefined));
+}
+
+export function limitsForHarbour(config, riskPointId) {
+  return config.harbours[String(riskPointId)] ?? config.default;
+}
+
+// Result of judging one set of conditions against limits:
+//   0 / 1 / 2    within limits / caution / stop
+//   INCOMPLETE   at least one variable that HAS a limit has no value, and no
+//                known exceedance settles it -- we can't say it's safe
+//   null         no limit applies at all (nothing to judge against)
+// Fail-safe rule: a missing decision variable never reads as OK. A known
+// STOP still wins (a proven exceedance doesn't need the other variables);
+// anything short of that with a gap is INCOMPLETE, never OK or Caution --
+// the missing variable could be the one that says Stop.
+export const INCOMPLETE = 'incomplete';
+
+export function evaluateConditions({ hsM, tpS, windKt }, limits) {
+  const values = { hsM, tpS, windKt };
+  let limited = 0;
+  let missing = 0;
+  let worst = 0;
+  LIMIT_VARIABLES.forEach(({ key }) => {
+    const stop = limits?.stop?.[key];
+    const caution = limits?.caution?.[key];
+    const hasStop = stop !== null && stop !== undefined;
+    const hasCaution = caution !== null && caution !== undefined;
+    if (!hasStop && !hasCaution) return;
+    limited += 1;
+    const value = values[key];
+    if (!Number.isFinite(value)) { missing += 1; return; }
+    if (hasStop && value >= stop) worst = Math.max(worst, 2);
+    else if (hasCaution && value >= caution) worst = Math.max(worst, 1);
+  });
+  if (!limited) return null;
+  if (worst === 2) return 2;
+  return missing ? INCOMPLETE : worst;
+}
+
+// Combine verdicts over several time steps: Stop if any step is Stop;
+// otherwise Incomplete if any step is Incomplete; otherwise the worst of the
+// rest. null only when no step had anything to judge.
+export function worstVerdict(verdicts) {
+  const real = verdicts.filter((v) => v !== null && v !== undefined);
+  if (!real.length) return null;
+  if (real.includes(2)) return 2;
+  if (real.includes(INCOMPLETE)) return INCOMPLETE;
+  return Math.max(...real);
+}
+
+// Variables whose Stop limit is not above their Caution limit (would make the
+// Caution band empty/inverted). Returned as LIMIT_VARIABLES entries.
+export function limitOrderIssues(limits) {
+  return LIMIT_VARIABLES.filter(({ key }) => {
+    const c = limits?.caution?.[key];
+    const st = limits?.stop?.[key];
+    return c !== null && c !== undefined && st !== null && st !== undefined && st <= c;
+  });
+}
+
+export const UNLOADING_LABELS = { 0: 'OK', 1: 'Caution', 2: 'Stop' };
+
+// The LOCAL DRAFT (this browser only). null = no draft has been started.
+// Approved limits are never stored here -- they come from the published file
+// (see resolveActiveLimits).
+export function loadDraftLimits() {
+  try {
+    const raw = window.localStorage.getItem(LIMITS_STORAGE_KEY);
+    return raw ? normalizeLimitsConfig(JSON.parse(raw)) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+export function saveDraftLimits(config) {
+  try {
+    if (config === null) window.localStorage.removeItem(LIMITS_STORAGE_KEY);
+    else window.localStorage.setItem(LIMITS_STORAGE_KEY, JSON.stringify(config));
+  } catch (err) {
+    // Private window / blocked storage: the draft still applies this session.
+  }
+}
+
+export function serializeLimitsConfig(config) {
+  return JSON.stringify({ version: 1, ...config }, null, 2);
+}
+
+// ---- published (approved) limits: validation + resolution ------------------
+
+function validDate(value) {
+  return typeof value === 'string' && Number.isFinite(new Date(value).getTime());
+}
+
+// Validates the published file. Returns { ok, problems, published } where
+// `published` is null unless ok. An unapproved ("not_set") but well-formed
+// file is ok with status 'not_set' and simply applies no limits. A file that
+// claims approval but is malformed is REJECTED (ok:false) so the UI says so
+// instead of silently applying something half-governed.
+export function normalizePublishedLimits(raw) {
+  const problems = [];
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, problems: ['not a JSON object'], published: null };
+  }
+  if (raw.schema !== 1) problems.push('unsupported schema');
+  if (!['not_set', 'provisional', 'approved'].includes(raw.status)) problems.push('status must be "not_set", "provisional" or "approved"');
+  const config = normalizeLimitsConfig(raw);
+  const knownIds = new Set(COOK_ISLANDS_HARBOUR_POINTS.map((p) => String(p.riskPointId)));
+  Object.keys(raw.harbours ?? {}).forEach((id) => { if (!knownIds.has(String(id))) problems.push(`unknown harbour id ${id}`); });
+  [['default', config.default], ...Object.entries(config.harbours)].forEach(([name, limits]) => {
+    limitOrderIssues(limits).forEach((v) => problems.push(`${name}: stop must be above caution for ${v.label.toLowerCase()}`));
+  });
+  if (raw.status === 'approved') {
+    if (!raw.approvedBy || typeof raw.approvedBy !== 'string') problems.push('approvedBy is required');
+    if (!validDate(raw.approvedOn)) problems.push('approvedOn must be a date');
+    if (!validDate(raw.effectiveFrom)) problems.push('effectiveFrom must be a date');
+    if (!Number.isInteger(raw.version) || raw.version < 1) problems.push('version must be an integer >= 1');
+    if (!hasAnyLimit(config.default) && !Object.values(config.harbours).some(hasAnyLimit)) problems.push('approved but no limits set');
+  }
+  if (raw.status === 'provisional' && !hasAnyLimit(config.default) && !Object.values(config.harbours).some(hasAnyLimit)) {
+    problems.push('provisional but no limits set');
+  }
+  if (problems.length) return { ok: false, problems, published: null };
+  return {
+    ok: true,
+    problems: [],
+    published: {
+      status: raw.status,
+      version: raw.version ?? 0,
+      approvedBy: raw.approvedBy ?? null,
+      approvedOn: raw.approvedOn ?? null,
+      effectiveFrom: raw.effectiveFrom ?? null,
+      notes: typeof raw.notes === 'string' ? raw.notes : '',
+      config,
+      history: Array.isArray(raw.history) ? raw.history : [],
+    },
+  };
+}
+
+// Which limits apply right now, and on what authority:
+//   'draft'       local, unapproved -- verdicts must be labelled as such
+//   'provisional' published PLACEHOLDER values, not confirmed by the
+//                 authority -- usable so the product works out of the box,
+//                 but labelled provisional everywhere (screen and PDF)
+//   'approved'    published, approved and already effective
+//   'pending'  approved but not yet effective (applies nothing)
+//   'none'     nothing applies (not set, unavailable or invalid)
+// A local draft takes precedence over approved limits so a forecaster can
+// trial changes, but basis 'draft' follows it everywhere it is shown.
+export function resolveActiveLimits({ published, draft, now = new Date() }) {
+  if (draft && (hasAnyLimit(draft.default) || Object.values(draft.harbours).some(hasAnyLimit))) {
+    return { basis: 'draft', config: draft, meta: null };
+  }
+  if (published?.status === 'provisional') {
+    return { basis: 'provisional', config: published.config, meta: published };
+  }
+  if (published?.status === 'approved') {
+    const effective = new Date(published.effectiveFrom).getTime() <= new Date(now).getTime();
+    return effective
+      ? { basis: 'approved', config: published.config, meta: published }
+      : { basis: 'pending', config: emptyLimitsConfig(), meta: published };
+  }
+  return { basis: 'none', config: emptyLimitsConfig(), meta: published ?? null };
+}
+
+// A proposal for approval: the current limits plus enough context for the
+// approving authority to act on it. Importable back into the editor.
+export function buildLimitsProposal(config, { basedOnVersion = 0, now = new Date() } = {}) {
+  return JSON.stringify({
+    schema: 1,
+    status: 'draft',
+    basedOnVersion,
+    proposedOn: new Date(now).toISOString(),
+    notes: 'Proposal only -- not approved. To publish, see HARBOUR_LIMITS.md.',
+    ...config,
+  }, null, 2);
+}

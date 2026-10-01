@@ -5,6 +5,8 @@ import { ROUTE_HAZARD_LABELS } from '../../services/cookIslandsRouteForecastServ
 import { MAX_SCENARIOS, suggestBetterVessel } from '../../services/cookIslandsScenarioService';
 import { formatZoned, tzLabel } from '../../utils/timeZoneFormat';
 import { exportCookIslandsRouteAdvisoryPdf } from '../../utils/CookIslandsRouteAdvisoryPdf';
+import { routeMidpoint, etaAtMidpoint, fetchWaveTimeseries, buildMidpointConditions, vesselPositionAt } from '../../services/cookIslandsWaveTimeseriesService';
+import CookIslandsWaveTimeseriesChart from '../wave/CookIslandsWaveTimeseriesChart';
 
 const TEXT_MUTED = 'rgba(203, 213, 225, 0.72)';
 
@@ -19,7 +21,7 @@ function fmtNumber(value, digits = 1, suffix = '') {
 // CookIslandsScenarioComparisonPanel (in ForecastApp.jsx) the same way
 // widget1's do.
 function CookIslandsRouteForecastPanel({
-  data, onRetry, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null, modelRunStart = null,
+  data, onRetry, onRouteProbeChange, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null, modelRunStart = null,
   stale = false, superseded = false,
   scenarioCount = 0, onConfirmVesselSuggestion,
   departureSuggestionLoading, departureSuggestionProgress, departureSuggestionResult, departureSuggestionError,
@@ -27,12 +29,19 @@ function CookIslandsRouteForecastPanel({
 }) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
+  const [showMidpointWaves, setShowMidpointWaves] = useState(false);
+  const [hoverTimeMs, setHoverTimeMs] = useState(null);
   const [confirmingVessel, setConfirmingVessel] = useState(false);
   const [confirmedScenarioName, setConfirmedScenarioName] = useState('');
   const confirmedClearTimerRef = useRef(null);
   const result = data?.result;
   const summary = result?.summary;
   const samples = useMemo(() => (Array.isArray(result?.samples) ? result.samples : []), [result]);
+  // Half-way along the route by distance, with the heading of the leg it sits
+  // on -- where the crossing is furthest from shelter, and so the most useful
+  // single point for a safe-passage wave timeseries.
+  const midpoint = useMemo(() => routeMidpoint(samples), [samples]);
+  const midpointEta = useMemo(() => etaAtMidpoint(samples), [samples]);
   const vesselLabel = VESSEL_CLASS_OPTIONS.find((v) => v.value === data?.vessel)?.label ?? data?.vessel;
   // worst_hazard_class is only null when every sample was unavailable (out
   // of the model domain) -- defaulting it to 0 would paint that state with
@@ -63,6 +72,25 @@ function CookIslandsRouteForecastPanel({
   }, [vesselSuggestion, confirmingVessel, onConfirmVesselSuggestion]);
 
   useEffect(() => () => clearTimeout(confirmedClearTimerRef.current), []);
+
+  // Show on the map what the midpoint chart is about: the midpoint itself while the chart is open,
+  // and -- while hovering a time on it -- where the boat would be along the route then (only inside
+  // the voyage). Cleared when the chart closes and when this panel goes away.
+  const hoveredVessel = useMemo(
+    () => (hoverTimeMs !== null ? vesselPositionAt(samples, hoverTimeMs) : null),
+    [samples, hoverTimeMs],
+  );
+  useEffect(() => {
+    if (!onRouteProbeChange) return;
+    if (!showMidpointWaves || !midpoint) { onRouteProbeChange(null); return; }
+    onRouteProbeChange({
+      midpoint: { lon: midpoint.lon, lat: midpoint.lat },
+      vessel: hoveredVessel
+        ? { lon: hoveredVessel.lon, lat: hoveredVessel.lat, label: formatZoned(new Date(hoverTimeMs), timeDisplayZone, { year: undefined, month: undefined, day: undefined }) }
+        : null,
+    });
+  }, [onRouteProbeChange, showMidpointWaves, midpoint, hoveredVessel, hoverTimeMs, timeDisplayZone]);
+  useEffect(() => () => onRouteProbeChange?.(null), [onRouteProbeChange]);
 
   function fmtTime(value) {
     if (!value) return '—';
@@ -120,8 +148,20 @@ function CookIslandsRouteForecastPanel({
     setExporting(true);
     setExportError('');
     try {
+      // Midpoint sea state at the vessel's ETA, from the wave feed. null (not
+      // undefined) on any failure, so the PDF says it was unavailable instead of
+      // silently lacking it.
+      let midpointConditions = null;
+      if (midpoint && midpointEta) {
+        try {
+          const ts = await fetchWaveTimeseries(midpoint.lon, midpoint.lat);
+          midpointConditions = buildMidpointConditions({ midpoint, rows: ts.rows, etaIso: midpointEta });
+        } catch (err) {
+          midpointConditions = null;
+        }
+      }
       await exportCookIslandsRouteAdvisoryPdf({
-        result, vessel: data?.vessel, speedKt: data?.speedKt, timeDisplayZone, mapCustomEnvelope, modelRunStart,
+        result, vessel: data?.vessel, speedKt: data?.speedKt, timeDisplayZone, mapCustomEnvelope, modelRunStart, midpointConditions,
       });
     } catch (err) {
       console.error('[CookIslandsRouteForecastPanel] PDF export failed:', err);
@@ -151,6 +191,11 @@ function CookIslandsRouteForecastPanel({
         }}>
           <TriangleAlert size={15} style={{ flexShrink: 0 }} />
           A newer forecast run is available — this result is still for the plan shown, but from an earlier model run.
+        </div>
+      )}
+      {result?.start_label && result?.destination_label && (
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#f8fafc', marginBottom: '0.5rem' }}>
+          {result.start_label} → {result.destination_label}
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.6rem', marginBottom: '0.8rem' }}>
@@ -289,6 +334,43 @@ function CookIslandsRouteForecastPanel({
       {samples.length === 0 && (
         <div style={{ color: '#fbbf24', fontSize: 12, marginBottom: '0.7rem' }}>
           No route samples were returned. The route may be entirely outside the model domain.
+        </div>
+      )}
+
+      {midpoint && (
+        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '0.6rem 0.75rem', marginBottom: '0.8rem', fontSize: 12 }}>
+          <button
+            type="button"
+            aria-expanded={showMidpointWaves}
+            onClick={() => setShowMidpointWaves((v) => !v)}
+            style={{ all: 'unset', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            {showMidpointWaves ? '▾' : '▸'} Wave forecast at route midpoint
+            <span style={{ fontWeight: 400, color: TEXT_MUTED }}>
+              ({midpoint.lat.toFixed(3)}, {midpoint.lon.toFixed(3)} · heading {Math.round(midpoint.headingDeg)}°)
+            </span>
+          </button>
+          {showMidpointWaves && (
+            <div style={{ marginTop: 8 }}>
+              <CookIslandsWaveTimeseriesChart
+                site={{
+                  name: result.start_label && result.destination_label ? `${result.start_label} to ${result.destination_label} midpoint` : 'Route midpoint',
+                  lon: midpoint.lon, lat: midpoint.lat, headingDeg: midpoint.headingDeg,
+                }}
+                timeDisplayZone={timeDisplayZone}
+                departureTime={result.departure_time}
+                passageTime={midpointEta}
+                onHoverTime={setHoverTimeMs}
+              />
+              {hoverTimeMs !== null && (
+                <div style={{ fontSize: 11, color: TEXT_MUTED, marginTop: 4 }}>
+                  {hoveredVessel
+                    ? `On the map: the boat would be ${fmtNumber(hoveredVessel.distanceNm, 1)} nm along the route at ${formatZoned(new Date(hoverTimeMs), timeDisplayZone)}.`
+                    : `On the map: the boat is not under way at ${formatZoned(new Date(hoverTimeMs), timeDisplayZone)} (voyage ${formatZoned(new Date(samples[0]?.eta), timeDisplayZone, { year: undefined })} to ${formatZoned(new Date(samples[samples.length - 1]?.eta), timeDisplayZone, { year: undefined })}).`}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

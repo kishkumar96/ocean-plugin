@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Play, RotateCcw, Route, Trash2, Undo2 } from 'lucide-react';
 import { fromZonedInputValue, toZonedInputValue, tzLabel } from '../../utils/timeZoneFormat';
 import { parseAsUtcWallClock } from '../../services/cookIslandsRouteForecastService';
+import { COOK_ISLANDS_PRESET_ROUTES } from '../../config/cookIslandsPresetRoutes';
 
 // Mirrors cookIslandsRouteForecastService.js's 404 message -- retrying
 // can't fix "this backend doesn't have the endpoint yet."
@@ -26,6 +27,7 @@ function CookIslandsRouteControls({
   onRunRouteForecast,
   onClearRoute,
   onUndoRoutePoint,
+  onLoadPresetRoute,
 }) {
   const pointCount = routePoints?.length ?? 0;
 
@@ -88,6 +90,32 @@ function CookIslandsRouteControls({
 
   return (
     <div className="map-display-option">
+      {onLoadPresetRoute && (
+        <div style={{ marginBottom: '0.5rem' }}>
+          <div className="map-display-option__hint" style={{ marginBottom: '0.3rem' }}>Preset crossings</div>
+          <div
+            role="group"
+            aria-label="Load a preset inter-island crossing"
+            style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}
+          >
+            {COOK_ISLANDS_PRESET_ROUTES.map((route) => (
+              <button
+                key={route.id}
+                type="button"
+                className="map-display-option__btn"
+                onClick={() => onLoadPresetRoute(route.id)}
+                title={`Load the ${route.label} crossing and its typical vessel`}
+              >
+                {route.label}
+              </button>
+            ))}
+          </div>
+          <div className="map-display-option__hint" style={{ marginTop: '0.3rem' }}>
+            Vessel and speed are starting assumptions — edit below if you know better values.
+          </div>
+        </div>
+      )}
+
       <div className="map-display-option__segmented" role="group" aria-label="Route drawing actions">
         <button
           type="button"

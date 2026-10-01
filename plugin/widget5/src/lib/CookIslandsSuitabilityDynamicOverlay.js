@@ -10,10 +10,25 @@
 // Simpler than widget1's NiueSuitabilityDynamicOverlay.js in one respect:
 // no legacy float32 grid fallback (this endpoint only ever speaks the
 // quantized int16 format, so there's no older deployment to stay compatible
-// with). setTimeIndex() is the only method that touches the network (one
-// fetch per timestep, cached, plus a one-frame-ahead background prefetch --
-// see _prefetchNext()); setEnvelope() repaints a canvas already held in
-// memory.
+// with). setTimeIndex() is the only method that touches the network for the
+// classification data (one fetch per timestep, cached, plus a one-frame-
+// ahead background prefetch -- see _prefetchNext()); setEnvelope() re-tags
+// the already-cached grid with a new tile URL and asks MapLibre to reload
+// whatever tiles are on screen -- no data re-fetch, see _refreshTiles().
+//
+// Rendering: a MapLibre custom tile protocol (addProtocol), not a single
+// whole-domain canvas. An earlier version painted one big canvas (the coarse
+// grid's own resolution x a fixed upscale factor) and cut precise coastlines
+// into it via bounding boxes around named islands. That worked, but could
+// never match the preset tiles pixel-for-pixel: resolution was capped by the
+// upscale factor regardless of zoom, and it needed a curated island list
+// instead of covering the whole domain. Rendering per-tile the same way the
+// preset layer does removes both limits: each requested {z}/{x}/{y} is
+// classified at that tile's own resolution (so it sharpens with zoom exactly
+// like the preset layer), and masked with the SAME {z}/{x}/{y} mask tile
+// (/cok/suitability/mask/..., see main.py) -- identical geometry, no
+// coordinate transform between the two, so the coastline can't drift out of
+// alignment the way a separately-projected island cutout could.
 //
 // The summary fetch (/cok/suitability/summary, time metadata) is deferred
 // until the first real setTimeIndex() call rather than firing from the
@@ -23,13 +38,34 @@
 // cost a summary + grid-0 request on every suitability layer mount
 // regardless of which mode the user ends up in.
 
+import * as maplibregl from 'maplibre-gl';
 import { classifyAgainstOperatingEnvelope } from './CookIslandsSuitabilityOverlay';
 import { SUITABILITY_DEBUG_TIMING, logSuitabilityFrameTiming } from './suitabilityDebugTiming';
+import { parseUtcTimestamp } from '../utils/backendTime';
 
 const SOURCE_ID = 'cok-suitability-dynamic-source';
 const LAYER_ID = 'cok-suitability-dynamic-layer';
+const TILE_SIZE = 256;
 
 const KM_PER_DEGREE_LAT = 111.32;
+
+// A fresh scheme per overlay instance (module-load-time counter -- this
+// class isn't a singleton, and maplibregl.addProtocol/removeProtocol are
+// global to the library, not per-map) so two overlay instances (or a
+// destroy()+recreate cycle) can never collide on the same registration.
+let protocolCounter = 0;
+
+// Inverse slippy-tile math -- matches the backend's tile_to_lonlat_bounds
+// exactly (both implement the same standard Web Mercator tiling), which is
+// what makes a classification tile and its mask tile land in exact register
+// with no coordinate transform needed between them.
+function tileXYToLonLatBounds(x, y, z) {
+  const n = 2 ** z;
+  const lonMin = (x / n) * 360 - 180;
+  const lonMax = ((x + 1) / n) * 360 - 180;
+  const toLat = (yTile) => (180 / Math.PI) * Math.atan(Math.sinh(Math.PI * (1 - (2 * yTile) / n)));
+  return { lonMin, lonMax, latMin: toLat(y + 1), latMax: toLat(y) };
+}
 
 const HAZARD_RGB = {
   0: [42, 157, 143],   // #2A9D8F Suitable
@@ -41,6 +77,46 @@ const HAZARD_RGB = {
 // it faint lets the satellite basemap remain readable while the two hazard
 // classes retain the strong visual emphasis used by the preset overlay.
 const HAZARD_ALPHA = { 0: 0.18, 1: 0.82, 2: 0.9 };
+
+// Bilinearly sample the continuous wind/wave fields at (lon, lat) from a
+// decoded /cok/suitability/grid response, then let the caller classify --
+// matching the preset tiles' own bilinear-sample-then-classify order (see
+// backend bilinear_sample_raster + cok_suitability_tile) rather than
+// classifying each coarse cell first and blending the resulting colours,
+// which produces "muddy" intermediate legend colours positioned wherever
+// two sparse samples happen to sit, not where the interpolated field
+// actually crosses a threshold. Missing/land corners are dropped from the
+// weighted average (renormalized over whichever corners ARE valid) --
+// coastline precision is the mask tile's job now, not this grid's coarse
+// per-cell validity.
+function sampleGrid(grid, lon, lat) {
+  const { width, height, bounds, wind, wave, valid } = grid;
+  const colFrac = ((lon - bounds.lonMin) / (bounds.lonMax - bounds.lonMin)) * width - 0.5;
+  const rowFrac = ((bounds.latMax - lat) / (bounds.latMax - bounds.latMin)) * height - 0.5;
+  const nx0 = Math.max(0, Math.min(width - 1, Math.floor(colFrac)));
+  const nx1 = Math.min(width - 1, nx0 + 1);
+  const wx = Math.max(0, Math.min(1, colFrac - nx0));
+  const ny0 = Math.max(0, Math.min(height - 1, Math.floor(rowFrac)));
+  const ny1 = Math.min(height - 1, ny0 + 1);
+  const wy = Math.max(0, Math.min(1, rowFrac - ny0));
+  // Grid rows run south->north (backend builds lats via np.arange from
+  // lat.min()); rowFrac above is already north-based (0 at latMax), so no
+  // separate flip is needed here -- ny0/ny1 index the array directly.
+  const sy0 = height - 1 - ny0;
+  const sy1 = height - 1 - ny1;
+
+  let wSum = 0; let windAcc = 0; let waveAcc = 0;
+  const i00 = sy0 * width + nx0; const w00 = (1 - wx) * (1 - wy);
+  const i10 = sy0 * width + nx1; const w10 = wx * (1 - wy);
+  const i01 = sy1 * width + nx0; const w01 = (1 - wx) * wy;
+  const i11 = sy1 * width + nx1; const w11 = wx * wy;
+  if (valid[i00]) { wSum += w00; windAcc += wind[i00] * w00; waveAcc += wave[i00] * w00; }
+  if (valid[i10]) { wSum += w10; windAcc += wind[i10] * w10; waveAcc += wave[i10] * w10; }
+  if (valid[i01]) { wSum += w01; windAcc += wind[i01] * w01; waveAcc += wave[i01] * w01; }
+  if (valid[i11]) { wSum += w11; windAcc += wind[i11] * w11; waveAcc += wave[i11] * w11; }
+  if (wSum <= 0) return null;
+  return { windKt: windAcc / wSum, waveM: waveAcc / wSum };
+}
 
 export class CookIslandsSuitabilityDynamicOverlay {
   constructor(map) {
@@ -54,28 +130,22 @@ export class CookIslandsSuitabilityDynamicOverlay {
     this._grid = null;
     this._envelope = null;
     this._opacity = 0.85;
-    this._canvas = document.createElement('canvas');
-    this._ctx = null;
-    this._imageData = null;
     // Desired visibility, tracked independently of whether LAYER_ID exists
     // yet. setVisible() below used to be a no-op until the layer was first
-    // created (by _ensureMapSource(), from the first repaint) -- if the
-    // controller switched back to preset mode while that first custom-mode
-    // grid fetch was still in flight, the fetch would later resolve and
-    // _ensureMapSource() would create the layer with no layout.visibility
+    // created (by _refreshTiles(), from the first ready envelope+grid) -- if
+    // the controller switched back to preset mode while that first
+    // custom-mode grid fetch was still in flight, the fetch would later
+    // resolve and the layer would come up with no layout.visibility
     // (MapLibre defaults to visible), silently showing the custom overlay
     // over a map the user had already switched away from. Recorded here and
-    // applied in _ensureMapSource() so a layer created late still comes up
-    // in whatever visibility state was most recently requested.
+    // applied when the layer is created so a layer created late still comes
+    // up in whatever visibility state was most recently requested.
     this._visible = true;
     // Aborts whichever grid fetch a new setTimeIndex() call supersedes, so a
     // slow, no-longer-wanted request doesn't keep competing for bandwidth
     // with the one actually being waited on now (rapid scrubbing otherwise
     // stacks up fetches faster than they resolve).
     this._activeFetchController = null;
-    // requestAnimationFrame handle for a pending _repaint(), see
-    // _scheduleRepaint().
-    this._repaintFrame = null;
     // Memoized summary fetch -- see _ensureSummary(). Not started until the
     // first real setTimeIndex() call.
     this._summaryLoaded = false;
@@ -88,6 +158,21 @@ export class CookIslandsSuitabilityDynamicOverlay {
     this._prefetchIndex = null;
     this._prefetchController = null;
     this._prefetchPromise = null;
+
+    // Mask tiles never change (the coastline doesn't move), so they're
+    // cached for the life of this overlay instance regardless of
+    // envelope/timestep -- keyed by "z/x/y". null in the cache means "asked,
+    // got nothing usable" (fetch failure or a tile the mask endpoint can't
+    // produce), which is treated as "no extra masking available" rather
+    // than retried every time the same tile is requested again.
+    this._maskCache = new Map();
+    this._maskFetchPromises = new Map();
+
+    // addProtocol/removeProtocol are global to the maplibregl module, not
+    // scoped to `map` -- a unique scheme per instance means a second overlay
+    // (or a destroy()+recreate) can never collide on the registration.
+    this._protocolScheme = `cok-custom-envelope-${protocolCounter++}`;
+    maplibregl.addProtocol(this._protocolScheme, this._handleTileRequest.bind(this));
 
     this.onLoadingChange = null;
     this.onTimeChange = null;
@@ -123,9 +208,10 @@ export class CookIslandsSuitabilityDynamicOverlay {
   }
 
   _buildTimeLabels(startStr, endStr, n) {
-    const clean = (s) => (s || '').replace(/\.0+$/, '').replace(' ', 'T');
-    const start = new Date(clean(startStr));
-    const end = new Date(clean(endStr));
+    // Backend timestamps are UTC with no zone marker -- never `new Date()` them directly
+    // (utils/backendTime.js).
+    const start = parseUtcTimestamp(startStr);
+    const end = parseUtcTimestamp(endStr);
     if (isNaN(start) || n <= 0) return [];
     const stepMs = n > 1 ? (end - start) / (n - 1) : 3_600_000;
     return Array.from({ length: n }, (_, i) => {
@@ -151,7 +237,7 @@ export class CookIslandsSuitabilityDynamicOverlay {
     if (this._gridCache.has(timeIndex)) {
       this._grid = this._gridCache.get(timeIndex);
       const repaintStart = SUITABILITY_DEBUG_TIMING ? performance.now() : 0;
-      if (this._envelope) this._repaint();
+      if (this._envelope) this._refreshTiles();
       if (SUITABILITY_DEBUG_TIMING) {
         logSuitabilityFrameTiming({
           timeIndex, cacheHit: true, fetchMs: 0, downloadDecodeMs: 0,
@@ -178,7 +264,7 @@ export class CookIslandsSuitabilityDynamicOverlay {
         if (this._destroyed || requestId !== this._requestId) return;
         this._cacheGrid(timeIndex, grid);
         this._grid = grid;
-        if (this._envelope) this._repaint();
+        if (this._envelope) this._refreshTiles();
         this._setLoading(false);
         this._prefetchNext(timeIndex);
         return;
@@ -209,7 +295,7 @@ export class CookIslandsSuitabilityDynamicOverlay {
       this._cacheGrid(timeIndex, grid);
       this._grid = grid;
       const repaintStart = SUITABILITY_DEBUG_TIMING ? performance.now() : 0;
-      if (this._envelope) this._repaint();
+      if (this._envelope) this._refreshTiles();
       if (SUITABILITY_DEBUG_TIMING) {
         logSuitabilityFrameTiming({
           timeIndex, cacheHit: false,
@@ -237,6 +323,9 @@ export class CookIslandsSuitabilityDynamicOverlay {
     this._gridCache.set(idx, grid);
     // Bound memory: current + a few recent/prefetched frames is enough,
     // this isn't meant to hold a whole forecast's worth of decoded grids.
+    // A tile request already in flight for an evicted time_index (see
+    // _handleTileRequest) just renders as unavailable -- MapLibre will
+    // re-request it if that timestep becomes current again.
     if (this._gridCache.size > 5) {
       const oldestKey = this._gridCache.keys().next().value;
       this._gridCache.delete(oldestKey);
@@ -339,15 +428,15 @@ export class CookIslandsSuitabilityDynamicOverlay {
 
   setEnvelope(envelope) {
     this._envelope = envelope;
-    if (this._grid) this._scheduleRepaint();
+    if (this._grid) this._refreshTiles();
   }
 
   // The grid cell under a map position, classified against the envelope in
-  // force. Uses the same pixel mapping _repaint()/_ensureMapSource() draw with
-  // (canvas spans lonMin..lonMax x latMax..latMin, row 0 north), so the hazard
-  // returned is always the colour visibly under the cursor. Null when there is
-  // no grid/envelope yet, the position is outside the grid, or the cell is
-  // land/no-data (painted transparent).
+  // force. Deliberately nearest-cell (not the bilinear sampling the tile
+  // protocol below uses for display) -- this reports what the underlying
+  // model actually measured at the nearest sample point, for the hover
+  // readout, not a smoothed estimate. Null when there is no grid/envelope
+  // yet, the position is outside the grid, or the cell is land/no-data.
   getPointAt(lng, lat) {
     const grid = this._grid;
     const envelope = this._envelope;
@@ -373,74 +462,37 @@ export class CookIslandsSuitabilityDynamicOverlay {
     return { hazardClass, windKt, waveM, validTime, cellSizeKm, envelope: { ...envelope } };
   }
 
-  // Range inputs can emit many changes inside one display frame. Painting
-  // the full grid for every intermediate event stalls the main thread;
-  // coalescing keeps only the latest envelope for each browser frame.
-  _scheduleRepaint() {
-    if (this._repaintFrame !== null) return;
-    if (typeof requestAnimationFrame !== 'function') {
-      this._repaint();
-      return;
-    }
-    this._repaintFrame = requestAnimationFrame(() => {
-      this._repaintFrame = null;
-      if (!this._destroyed) this._repaint();
-    });
-  }
-
   setOpacity(opacity) {
     this._opacity = opacity;
     if (this._map?.getLayer(LAYER_ID)) {
       this._map.setPaintProperty(LAYER_ID, 'raster-opacity', opacity);
     }
+    // Baked into each tile's own alpha too (see _handleTileRequest), so
+    // already-rendered/cached tiles need a real reload, not just the paint
+    // property, to pick up a new value.
+    if (this._grid && this._envelope) this._refreshTiles();
   }
 
-  _ensureCanvasSize() {
-    const { width, height } = this._grid;
-    if (!this._ctx) this._ctx = this._canvas.getContext('2d', { willReadFrequently: false });
-    if (this._canvas.width !== width || this._canvas.height !== height) {
-      this._canvas.width = width;
-      this._canvas.height = height;
-      this._imageData = this._ctx.createImageData(width, height);
-    }
-  }
-
-  _repaint() {
+  // Recomputes stats from the grid's own native cells (one vote per actual
+  // sample -- unaffected by whatever resolution any given on-screen tile
+  // happens to render at) and re-tags the tile source with the current
+  // envelope/timestep so MapLibre reloads whatever tiles are on screen.
+  // Never touches the network itself: the grid is already cached, and each
+  // reloaded tile is computed synchronously-async from that cache plus
+  // already-cached (or freshly fetched, once) mask tiles.
+  _refreshTiles() {
     if (!this._grid || !this._envelope) return;
-    this._ensureCanvasSize();
     const { width, height, wind, wave, valid, bounds } = this._grid;
-    const pixels = this._imageData.data;
+
     let suitableCount = 0, cautionCount = 0, warningCount = 0;
-
-    for (let y = 0; y < height; y++) {
-      // Grid rows run south->north (backend builds lats via np.arange from
-      // lat.min()), but canvas row 0 is the top (north) -- flip once here.
-      const sourceY = height - 1 - y;
-      for (let x = 0; x < width; x++) {
-        const sourceIndex = sourceY * width + x;
-        const pixelIndex = (y * width + x) * 4;
-
-        if (!valid[sourceIndex]) {
-          pixels[pixelIndex + 3] = 0;
-          continue;
-        }
-        const hazardClass = classifyAgainstOperatingEnvelope(this._envelope, wind[sourceIndex], wave[sourceIndex]);
-        if (hazardClass === null) {
-          pixels[pixelIndex + 3] = 0;
-          continue;
-        }
-        const [r, g, b] = HAZARD_RGB[hazardClass];
-        if (hazardClass === 2) warningCount++;
-        else if (hazardClass === 1) cautionCount++;
-        else suitableCount++;
-
-        pixels[pixelIndex] = r;
-        pixels[pixelIndex + 1] = g;
-        pixels[pixelIndex + 2] = b;
-        pixels[pixelIndex + 3] = Math.round(this._opacity * HAZARD_ALPHA[hazardClass] * 255);
-      }
+    for (let i = 0; i < width * height; i++) {
+      if (!valid[i]) continue;
+      const hazardClass = classifyAgainstOperatingEnvelope(this._envelope, wind[i], wave[i]);
+      if (hazardClass === null) continue;
+      if (hazardClass === 2) warningCount++;
+      else if (hazardClass === 1) cautionCount++;
+      else suitableCount++;
     }
-
     const validCount = suitableCount + cautionCount + warningCount;
     this.onStatsChange?.(null, null, null, validCount > 0 ? {
       warning_percent: (warningCount / validCount) * 100,
@@ -448,43 +500,135 @@ export class CookIslandsSuitabilityDynamicOverlay {
       suitable_percent: (suitableCount / validCount) * 100,
     } : null);
 
-    this._ctx.putImageData(this._imageData, 0, 0);
-    this._ensureMapSource(bounds);
-    this._map.triggerRepaint();
-  }
-
-  _ensureMapSource(bounds) {
-    const coordinates = [
-      [bounds.lonMin, bounds.latMax],
-      [bounds.lonMax, bounds.latMax],
-      [bounds.lonMax, bounds.latMin],
-      [bounds.lonMin, bounds.latMin],
-    ];
-
+    const tileUrl = this._buildTileUrl();
     const existing = this._map.getSource(SOURCE_ID);
     if (existing) {
-      existing.setCoordinates(coordinates);
-      // animate:false CanvasSources only re-upload their GPU texture on
-      // creation or while "playing" (see MapLibre's canvas_source.ts) -- a
-      // play()/pause() pair forces exactly one refresh per repaint instead
-      // of paying for animate:true's continuous re-upload on every pan/zoom.
-      existing.play?.();
-      existing.pause?.();
+      existing.setTiles([tileUrl]);
       return;
     }
 
-    this._map.addSource(SOURCE_ID, { type: 'canvas', canvas: this._canvas, coordinates, animate: false });
+    this._map.addSource(SOURCE_ID, {
+      type: 'raster',
+      tiles: [tileUrl],
+      tileSize: TILE_SIZE,
+      // Restricts requests to tiles overlapping the product's own domain --
+      // MapLibre won't even ask the protocol handler for tiles entirely
+      // outside this, unlike the old whole-canvas approach which had no
+      // opinion on zoomed-out/out-of-domain requests because there weren't
+      // per-tile requests to begin with.
+      bounds: [bounds.lonMin, bounds.latMin, bounds.lonMax, bounds.latMax],
+    });
     const beforeId = this._map.getLayer('risk-circles') ? 'risk-circles' : undefined;
     this._map.addLayer({
       id: LAYER_ID,
       type: 'raster',
       source: SOURCE_ID,
       layout: { visibility: this._visible ? 'visible' : 'none' },
-      // The custom grid is intentionally coarser than the preset tile layer.
-      // Linear resampling avoids exposing each source cell as a hard-edged
-      // rectangle when MapLibre scales it to the map viewport.
       paint: { 'raster-opacity': this._opacity, 'raster-resampling': 'linear' },
     }, beforeId);
+  }
+
+  // Encodes timestep + envelope into the tile URL template itself (not read
+  // from `this` inside the protocol handler) so every tile request is fully
+  // self-describing: an in-flight request dispatched under an older
+  // template still renders correctly for what it actually asked for, even
+  // if setEnvelope()/setTimeIndex() have since moved on. This also means
+  // switching back to a previously-used threshold set or timestep is an
+  // instant MapLibre-internal cache hit, not a recompute.
+  _buildTileUrl() {
+    const e = this._envelope;
+    const q = new URLSearchParams({
+      ti: String(this._timeIndex),
+      wc: String(e.cautionWindKt), ww: String(e.maxWindKt),
+      cc: String(e.cautionWaveHeightM), cw: String(e.maxWaveHeightM),
+      op: String(this._opacity),
+    });
+    return `${this._protocolScheme}://{z}/{x}/{y}?${q}`;
+  }
+
+  // MapLibre custom-protocol handler (see maplibregl.addProtocol) -- called
+  // once per tile MapLibre actually needs on screen, with {z}/{x}/{y}
+  // already substituted into the URL. Fully determined by the URL's own
+  // query params (see _buildTileUrl) plus this._gridCache, not by whatever
+  // this._grid/this._envelope currently are.
+  async _handleTileRequest(requestParameters, abortController) {
+    const url = requestParameters.url;
+    const rest = url.slice(this._protocolScheme.length + 3); // strip "scheme://"
+    const [pathPart, queryPart] = rest.split('?');
+    const [z, x, y] = pathPart.split('/').map(Number);
+    const params = new URLSearchParams(queryPart || '');
+    const timeIndex = Number(params.get('ti'));
+    const envelope = {
+      cautionWindKt: Number(params.get('wc')), maxWindKt: Number(params.get('ww')),
+      cautionWaveHeightM: Number(params.get('cc')), maxWaveHeightM: Number(params.get('cw')),
+    };
+    const opacity = Number(params.get('op'));
+
+    const grid = this._gridCache.get(timeIndex);
+    const canvas = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
+    const ctx = canvas.getContext('2d');
+    if (!grid) return { data: await createImageBitmap(canvas) }; // evicted/not-yet-cached -- blank, MapLibre will re-request if this timestep comes back
+
+    const tileBounds = tileXYToLonLatBounds(x, y, z);
+    const imageData = ctx.createImageData(TILE_SIZE, TILE_SIZE);
+    const pixels = imageData.data;
+    for (let py = 0; py < TILE_SIZE; py++) {
+      const lat = tileBounds.latMax - ((py + 0.5) / TILE_SIZE) * (tileBounds.latMax - tileBounds.latMin);
+      for (let px = 0; px < TILE_SIZE; px++) {
+        const lon = tileBounds.lonMin + ((px + 0.5) / TILE_SIZE) * (tileBounds.lonMax - tileBounds.lonMin);
+        const pixelIndex = (py * TILE_SIZE + px) * 4;
+        const sample = sampleGrid(grid, lon, lat);
+        if (!sample) { pixels[pixelIndex + 3] = 0; continue; }
+        const hazardClass = classifyAgainstOperatingEnvelope(envelope, sample.windKt, sample.waveM);
+        if (hazardClass === null) { pixels[pixelIndex + 3] = 0; continue; }
+        const [r, g, b] = HAZARD_RGB[hazardClass];
+        pixels[pixelIndex] = r;
+        pixels[pixelIndex + 1] = g;
+        pixels[pixelIndex + 2] = b;
+        pixels[pixelIndex + 3] = Math.round(opacity * HAZARD_ALPHA[hazardClass] * 255);
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    // Same {z}/{x}/{y} as this classification tile -- exact pixel register,
+    // no bounding-box/reprojection math, so the coastline is precisely
+    // where the preset layer's own per-pixel _is_marine check puts it. A
+    // failed/unavailable mask tile (see _getMaskTile) just leaves this
+    // classification tile un-clipped rather than blocking it.
+    const mask = await this._getMaskTile(z, x, y, abortController.signal);
+    if (mask) {
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.drawImage(mask, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    return { data: await createImageBitmap(canvas) };
+  }
+
+  async _getMaskTile(z, x, y, signal) {
+    const key = `${z}/${x}/${y}`;
+    if (this._maskCache.has(key)) return this._maskCache.get(key);
+    if (this._maskFetchPromises.has(key)) return this._maskFetchPromises.get(key);
+
+    const promise = (async () => {
+      try {
+        const resp = await fetch(`/cok/suitability/mask/${z}/${x}/${y}.png`, { signal });
+        if (!resp.ok) { this._maskCache.set(key, null); return null; }
+        const bitmap = await createImageBitmap(await resp.blob());
+        if (!this._destroyed) this._maskCache.set(key, bitmap);
+        return bitmap;
+      } catch {
+        // Network failure or this specific tile request's own AbortController
+        // firing (e.g. panned away before it resolved) -- not cached as null,
+        // so a genuinely-still-needed tile gets a fresh attempt next time,
+        // unlike a real 404/500 from the endpoint itself (cached above).
+        return null;
+      } finally {
+        this._maskFetchPromises.delete(key);
+      }
+    })();
+    this._maskFetchPromises.set(key, promise);
+    return promise;
   }
 
   _setLoading(val) {
@@ -508,13 +652,11 @@ export class CookIslandsSuitabilityDynamicOverlay {
 
   destroy() {
     this._destroyed = true;
-    if (this._repaintFrame !== null && typeof cancelAnimationFrame === 'function') {
-      cancelAnimationFrame(this._repaintFrame);
-      this._repaintFrame = null;
-    }
     this._activeFetchController?.abort();
     this._prefetchController?.abort();
     this._gridCache.clear();
+    this._maskCache.clear();
+    maplibregl.removeProtocol(this._protocolScheme);
     const map = this._map;
     this._map = null;
     if (!map) return;

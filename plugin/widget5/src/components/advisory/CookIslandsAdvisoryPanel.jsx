@@ -14,6 +14,64 @@ function vesselLabel(code) {
   return VESSEL_CLASS_OPTIONS.find((v) => v.value === code)?.label ?? code;
 }
 
+// map.getCanvas().toDataURL() -- confirmed live to sometimes return a fully blank
+// (uniform, no real pixels) image even though the map is visibly showing real
+// content: reproduced for the plain Wave Height raster layer too, not just the
+// vessel-suitability canvas-source overlay, so this isn't specific to one layer
+// type. Decodes via a real <canvas>/Image (browser-only; there's no canvas
+// polyfill in this project's Jest env, matching pdfTheme.js's loadVesselSvgIcon,
+// so this stays untested the same way that is) and samples a small grid rather
+// than trusting the capture blindly.
+function isUniformImageDataUrl(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const size = 32;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, size, size);
+        const { data } = ctx.getImageData(0, 0, size, size);
+        const [r0, g0, b0, a0] = data;
+        for (let i = 4; i < data.length; i += 4) {
+          if (Math.abs(data[i] - r0) > 2 || Math.abs(data[i + 1] - g0) > 2
+            || Math.abs(data[i + 2] - b0) > 2 || Math.abs(data[i + 3] - a0) > 2) {
+            resolve(false);
+            return;
+          }
+        }
+        resolve(true);
+      } catch {
+        resolve(false); // can't verify (e.g. tainted canvas) -- don't block on an uncertain check
+      }
+    };
+    img.onerror = () => resolve(false);
+    img.src = dataUrl;
+  });
+}
+
+// A blank capture is sometimes just a paint-timing race between the map's last
+// render and the synchronous toDataURL() call made the instant the user clicks
+// Generate -- one requestAnimationFrame round-trip is enough for that class of
+// race to resolve. If it's still blank after, this genuinely isn't a usable
+// fallback: return null so the caller proceeds with no fallback rather than a
+// silently-blank one (see domainReportBundle.js's ReportExportBlockedError --
+// an honest error beats a polished PDF with an empty map frame).
+async function captureVerifiedMapScreenshot(map) {
+  if (!map) return null;
+  const capture = () => { try { return map.getCanvas().toDataURL('image/png'); } catch { return null; } };
+  let dataUrl = capture();
+  if (!dataUrl) return null;
+  if (await isUniformImageDataUrl(dataUrl)) {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    dataUrl = capture();
+    if (!dataUrl || await isUniformImageDataUrl(dataUrl)) return null;
+  }
+  return dataUrl;
+}
+
 // Single consolidated place to find every PDF advisory this app can
 // generate -- ported in spirit from widget1's "Generate Advisory Brief"
 // button/modal (one obvious place to go for a PDF), but as a panel with
@@ -139,8 +197,7 @@ function CookIslandsAdvisoryPanel({
   };
   const handleGenerateDomainPdf = useCallback(async ({ kind, vessel, scope, horizonHours }, { signal, onProgress }) => {
     const map = mapInstance?.current;
-    let fallbackMapDataUrl = null;
-    try { fallbackMapDataUrl = map ? map.getCanvas().toDataURL('image/png') : null; } catch { fallbackMapDataUrl = null; }
+    const fallbackMapDataUrl = await captureVerifiedMapScreenshot(map);
     const exporter = kind === 'poster' ? exportCookIslandsCommsPosterPdf : exportCookIslandsDomainAdvisoryPdf;
     await exporter({
       vessel, scope, horizonHours, timeIndex: suitabilityTimeIndex, bounds: currentViewBounds(),

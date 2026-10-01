@@ -1,11 +1,9 @@
-import {
-  validateRouteForecastInput,
+import { validateRouteForecastInput,
   buildRouteForecastPayload,
   normalizeRouteForecastResponse,
   fetchCookIslandsRouteForecast,
   parseAsUtcWallClock,
-  haversineNm,
-} from '../cookIslandsRouteForecastService';
+  haversineNm, defaultDepartureTime } from '../cookIslandsRouteForecastService';
 
 describe('parseAsUtcWallClock', () => {
   test('treats a designator-less datetime-local value as UTC', () => {
@@ -145,6 +143,30 @@ describe('buildRouteForecastPayload', () => {
       sampleSpacingNm: 0.5, // forced too fine for a ~2,200 nm route
     })).toThrow(/too long/i);
   });
+
+  test('includes start_label/destination_label when given (a named preset crossing)', () => {
+    const payload = buildRouteForecastPayload({
+      routePoints: [{ lon: -159.78, lat: -21.21 }, { lon: -160.0, lat: -21.05 }],
+      vessel: 'small_craft',
+      departureTime: '2026-08-31T06:00',
+      speedKt: 8,
+      startLabel: 'Pukapuka',
+      destinationLabel: 'Nassau',
+    });
+    expect(payload.start_label).toBe('Pukapuka');
+    expect(payload.destination_label).toBe('Nassau');
+  });
+
+  test('omits start_label/destination_label entirely for a manually-drawn route (no names)', () => {
+    const payload = buildRouteForecastPayload({
+      routePoints: [{ lon: -159.78, lat: -21.21 }, { lon: -160.0, lat: -21.05 }],
+      vessel: 'small_craft',
+      departureTime: '2026-08-31T06:00',
+      speedKt: 8,
+    });
+    expect(payload).not.toHaveProperty('start_label');
+    expect(payload).not.toHaveProperty('destination_label');
+  });
 });
 
 describe('normalizeRouteForecastResponse', () => {
@@ -227,6 +249,19 @@ describe('normalizeRouteForecastResponse', () => {
     expect(result.samples).toHaveLength(1);
     expect(result.samples[0].sample_index).toBe(1);
   });
+
+  test('passes through start_label/destination_label from the backend', () => {
+    const raw = { samples: [], segments: [], start_label: 'Pukapuka', destination_label: 'Nassau' };
+    const result = normalizeRouteForecastResponse(raw);
+    expect(result.start_label).toBe('Pukapuka');
+    expect(result.destination_label).toBe('Nassau');
+  });
+
+  test('start_label/destination_label are null, not undefined, when the backend has none (manual route)', () => {
+    const result = normalizeRouteForecastResponse({ samples: [], segments: [] });
+    expect(result.start_label).toBeNull();
+    expect(result.destination_label).toBeNull();
+  });
 });
 
 describe('fetchCookIslandsRouteForecast', () => {
@@ -280,6 +315,35 @@ describe('fetchCookIslandsRouteForecast', () => {
     })).rejects.toThrow("'speed_kt' must be > 0");
   });
 
+  test('sends start_label/destination_label and normalizes them back from the response', async () => {
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        vessel: 'small_craft',
+        start_label: 'Pukapuka',
+        destination_label: 'Nassau',
+        summary: { worst_hazard_class: 0, recommendation: 'Suitable' },
+        samples: [{ sample_index: 0, lon: 1, lat: 1, hazard_class: 0, available: true }],
+        segments: [],
+      }),
+    }));
+
+    const result = await fetchCookIslandsRouteForecast({
+      routePoints: [{ lon: 1, lat: 1 }, { lon: 2, lat: 2 }],
+      vessel: 'small_craft',
+      departureTime: '2026-08-31T06:00',
+      speedKt: 8,
+      startLabel: 'Pukapuka',
+      destinationLabel: 'Nassau',
+    });
+
+    const sentBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(sentBody.start_label).toBe('Pukapuka');
+    expect(sentBody.destination_label).toBe('Nassau');
+    expect(result.start_label).toBe('Pukapuka');
+    expect(result.destination_label).toBe('Nassau');
+  });
+
   test('rejects locally (no network call) when the input itself is invalid', async () => {
     global.fetch = jest.fn();
     await expect(fetchCookIslandsRouteForecast({
@@ -302,5 +366,33 @@ describe('haversineNm', () => {
     const nm = haversineNm({ lon: -159.7833, lat: -21.2039 }, { lon: -159.775, lat: -21.2078 });
     expect(nm).toBeGreaterThan(0.3);
     expect(nm).toBeLessThan(1.0);
+  });
+});
+
+describe('defaultDepartureTime', () => {
+  const START = '2026-09-28T06:00:00Z'; // forecast window starts in the hindcast
+  const END = '2026-10-07T18:00:00Z';
+
+  test('is the next whole hour from now, not the window start (which is in the past)', () => {
+    expect(defaultDepartureTime({ now: new Date('2026-09-30T23:20:00Z'), windowStart: START, windowEnd: END })).toBe('2026-10-01T00:00');
+    expect(defaultDepartureTime({ now: new Date('2026-09-30T23:00:00Z'), windowStart: START, windowEnd: END })).toBe('2026-09-30T23:00');
+  });
+
+  test('clamps into the forecast window at both ends', () => {
+    expect(defaultDepartureTime({ now: new Date('2026-09-20T10:10:00Z'), windowStart: START, windowEnd: END })).toBe('2026-09-28T06:00');
+    expect(defaultDepartureTime({ now: new Date('2026-10-20T10:10:00Z'), windowStart: START, windowEnd: END })).toBe('2026-10-07T18:00');
+  });
+
+  test('returns the zone-less UTC string the datetime-local input holds (round-trips through parseAsUtcWallClock)', () => {
+    const v = defaultDepartureTime({ now: new Date('2026-09-30T23:20:00Z'), windowStart: START, windowEnd: END });
+    expect(v).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    expect(parseAsUtcWallClock(v).toISOString()).toBe('2026-10-01T00:00:00.000Z');
+  });
+
+  test('null when there is no usable window (caller falls back to the slider time)', () => {
+    expect(defaultDepartureTime({ windowStart: null, windowEnd: END })).toBeNull();
+    expect(defaultDepartureTime({ windowStart: START, windowEnd: null })).toBeNull();
+    expect(defaultDepartureTime({ windowStart: END, windowEnd: START })).toBeNull();
+    expect(defaultDepartureTime({ now: 'garbage', windowStart: START, windowEnd: END })).toBeNull();
   });
 });

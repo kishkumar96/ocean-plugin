@@ -40,6 +40,13 @@ export function coverageConfidence(available, total) {
   return ratio >= MIN_COVERAGE ? 'reduced' : 'insufficient';
 }
 
+// Two {west,south,east,north} boxes are "the same extent" if every edge agrees to within this
+// many degrees (~10 m). Shared so every report that checks an applied extent against the
+// requested one uses the same tolerance.
+export const BOUNDS_EPS = 1e-4;
+export const boundsClose = (a, b) => !!a && !!b
+  && ['west', 'south', 'east', 'north'].every((k) => Math.abs(a[k] - b[k]) <= BOUNDS_EPS);
+
 export const SOURCE_TEXT = 'SWAN wave model forecast (Cook Islands), Pacific Community (SPC)';
 export const DISCLAIMER_SHORT = 'Model guidance, not navigation advice. Confirm with official marine warnings and local seamanship.';
 

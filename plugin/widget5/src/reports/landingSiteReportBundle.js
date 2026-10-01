@@ -4,7 +4,7 @@
 // hook; the model run comes from the suitability metadata. Nothing is drawn or
 // fetched here.
 import { findRuns, coverageOf } from './seriesAnalysis';
-import { parseRunId, MIN_COVERAGE } from './reportRules';
+import { parseRunId, MIN_COVERAGE, coverageConfidence, boundsClose } from './reportRules';
 import { VESSEL_OPERATING_ENVELOPE, deriveSuitabilityDriver } from '../lib/CookIslandsSuitabilityOverlay';
 import { selectHeatmapSteps } from '../utils/heatmapSteps';
 import { fetchSuitabilityMeta, fetchOperationalMap, fetchDomainBoundary } from './suitabilityReportService';
@@ -63,14 +63,22 @@ export function buildLandingSiteReportBundle({
   if (cov.ratio < MIN_COVERAGE) warnings.push(`Only ${cov.available} of ${cov.total} forecast steps at this site could be assessed (${Math.round(cov.ratio * 100)}%); treat gaps as Unavailable, not as Suitable.`);
   if (!site.point_count && site.statistics_basis === 'area_500m') warnings.push('The service did not report how many model points were aggregated at this site.');
   if (site.statistics_basis && site.statistics_basis !== 'area_500m') warnings.push(METHOD_LABELS[site.statistics_basis] ?? 'A fallback aggregation method was used for this site.');
-  if (!meta?.runId) warnings.push('The model run time was not reported by the service.');
+  // The run time can come from the run id OR the service's own model_run_time; the report
+  // only claims "not reported" when neither yields one.
+  const runTime = parseRunId(meta?.runId) ?? (meta?.modelRunTime instanceof Date && Number.isFinite(meta.modelRunTime.getTime()) ? meta.modelRunTime : null);
+  if (!runTime) warnings.push('The model run time was not reported by the service.');
   if (mapError) warnings.push(`The site map could not be produced (${mapError}); the report shows statistics only.`);
 
   const driver = current.hazardClass > 0 && current.wind !== null && current.wave !== null
     ? deriveSuitabilityDriver(vesselCode, current.wind, current.wave) : (current.hazardClass === 0 ? 'none' : null);
 
   const longest = (runs) => [...runs].sort((a, b) => b.steps - a.steps).slice(0, 3);
-  const suitableWindows = longest(runsOfClass(series, 0));
+  // Below the shared coverage bar an operating window is not a finding (same rule the route
+  // advisory applies before recommending anything): with most steps missing, "the longest
+  // clear stretch" is just the longest stretch that happened to have data, and "none" would
+  // be a claim about the sea that the data cannot support. Withheld, and flagged.
+  const coverageInsufficient = coverageConfidence(cov.available, cov.total) === 'insufficient';
+  const suitableWindows = coverageInsufficient ? [] : longest(runsOfClass(series, 0));
   const heatmapSteps = selectHeatmapSteps(
     (rows.find((r) => r.steps?.length)?.steps ?? site.steps).filter((s) => new Date(s.valid_time ?? s.time).getTime() >= validMs - 30 * 60e3),
     SITE_WINDOW_HOURS,
@@ -79,7 +87,6 @@ export function buildLandingSiteReportBundle({
     id: r.id, name: r.name ?? r.label, type: r.type ?? null, basis: r.statistics_basis ?? 'area_500m',
     pointCount: Number.isFinite(r.point_count) ? r.point_count : null, steps: r.steps, isSelected: r.id === site.id,
   }));
-  const runTime = parseRunId(meta?.runId);
   const bases = new Set(heatmapRows.map((r) => r.basis));
 
   return {
@@ -95,6 +102,7 @@ export function buildLandingSiteReportBundle({
     current: { ...current, driver, label: current.hazardClass === null ? 'Unavailable' : ['Suitable', 'Caution', 'Warning'][Math.min(current.hazardClass, 2)] },
     timeline: { series, stepHours: series.length > 1 ? (series[1].validTime - series[0].validTime) / H : 1, coverage: cov },
     windows: {
+      suitableWithheld: coverageInsufficient,
       suitable: suitableWindows,
       caution: longest(runsOfClass(series, 1)),
       warning: longest(runsOfClass(series, 2)),
@@ -126,7 +134,17 @@ export async function buildLandingSiteReport(params, { signal } = {}, deps = {})
   let mapDataUrl = null;
   let mapError = null;
   if (Number.isFinite(timeIndex)) {
-    try { mapDataUrl = (await fetchMap(vesselCode, timeIndex, mapBounds, { signal }))?.dataUrl ?? null; } catch (e) { if (e?.name === 'AbortError' || e?.name === 'ReportAbortError') throw e; mapDataUrl = null; mapError = e?.message || String(e); }
+    try {
+      const map = await fetchMap(vesselCode, timeIndex, mapBounds, { signal });
+      mapDataUrl = map?.dataUrl ?? null;
+      // The renderer places the site marker and assessment radius using the REQUESTED bounds, so
+      // a map the service drew at a different extent would put them in the wrong place. Dropped,
+      // exactly as the domain report drops such a map.
+      if (mapDataUrl && map.appliedBounds && !boundsClose(map.appliedBounds, mapBounds)) {
+        mapDataUrl = null;
+        mapError = 'the service drew a different extent from the one requested';
+      }
+    } catch (e) { if (e?.name === 'AbortError' || e?.name === 'ReportAbortError') throw e; mapDataUrl = null; mapError = e?.message || String(e); }
     if (!mapDataUrl && !mapError) mapError = 'the service returned no image';
   }
   let domainBoundary = null;

@@ -1,6 +1,12 @@
+// CookIslandsSuitabilityDynamicOverlay imports maplibre-gl for its custom
+// tile protocol (addProtocol/removeProtocol); the real module's top-level
+// init reaches for window.URL.createObjectURL, which jsdom doesn't
+// implement. These tests never touch a real map, so a bare mock is enough.
 import { CookIslandsSuitabilityController } from '../CookIslandsSuitabilityController';
 import { CookIslandsSuitabilityDynamicOverlay } from '../CookIslandsSuitabilityDynamicOverlay';
-import { CookIslandsSuitabilityOverlay } from '../CookIslandsSuitabilityOverlay';
+import { CookIslandsSuitabilityOverlay, resolveOperatingEnvelope } from '../CookIslandsSuitabilityOverlay';
+
+jest.mock('maplibre-gl', () => ({ addProtocol: jest.fn(), removeProtocol: jest.fn() }));
 
 // Constructing a real controller pulls in CookIslandsSuitabilityOverlay's
 // live /cok/suitability/summary + points + advice fetches, which are their
@@ -190,10 +196,10 @@ describe('CookIslandsSuitabilityController constructor seeding', () => {
 // Exercises the real network path (setTimeIndex/_ensureSummary/_fetchGrid/
 // _prefetchNext all run for real against the mocked fetch) rather than
 // mocking setTimeIndex out entirely -- that's what's needed to actually
-// prove request *counts and ordering*, not just "was called". _repaint()
-// is stubbed out since it drives MapLibre/canvas calls fakeMap() doesn't
-// implement (map.triggerRepaint, a 2D canvas context) and is irrelevant to
-// what's being verified here.
+// prove request *counts and ordering*, not just "was called". Unlike the old
+// whole-domain canvas repaint, _refreshTiles() only touches
+// addSource/getSource/addLayer/getLayer -- all already implemented by
+// fakeMap() -- so it runs for real here too, no stub needed.
 describe('CookIslandsSuitabilityController custom-mode network contract', () => {
   afterEach(() => {
     jest.restoreAllMocks();
@@ -202,7 +208,6 @@ describe('CookIslandsSuitabilityController custom-mode network contract', () => 
 
   test('entering custom mode fetches the summary once and the initial grid once, prefetches the next grid, and never repeats the summary fetch on later time changes', async () => {
     mockFetchForSummaryPointsAndGrid();
-    jest.spyOn(CookIslandsSuitabilityDynamicOverlay.prototype, '_repaint').mockImplementation(() => {});
     // The controller always constructs the fixed/preset overlay too, and it
     // independently fetches this same /summary endpoint for its own,
     // unrelated reasons (see CookIslandsSuitabilityOverlay.js) -- stub that
@@ -492,15 +497,25 @@ describe('suitability raster stacking', () => {
     });
   });
 
-  test('custom canvas raster renders below coastal risk markers', () => {
+  test('custom tile-protocol raster renders below coastal risk markers', () => {
     const map = fakeMap();
     map.getLayer.mockImplementation((id) => id === 'risk-circles');
     const overlay = Object.create(CookIslandsSuitabilityDynamicOverlay.prototype);
     overlay._map = map;
-    overlay._canvas = document.createElement('canvas');
     overlay._opacity = 0.85;
+    overlay._visible = true;
+    overlay._timeIndex = 0;
+    overlay._protocolScheme = 'cok-custom-envelope-test';
+    overlay._envelope = resolveOperatingEnvelope('small_craft');
+    overlay._grid = {
+      width: 2, height: 2,
+      bounds: { lonMin: -160, lonMax: -159, latMin: -22, latMax: -21 },
+      wind: Float32Array.from([5, 30, 25, 16]),
+      wave: Float32Array.from([0.5, 9, 0.5, 0.5]),
+      valid: Uint8Array.from([1, 0, 1, 1]),
+    };
 
-    overlay._ensureMapSource({ lonMin: -160, lonMax: -159, latMin: -22, latMax: -21 });
+    overlay._refreshTiles();
 
     expect(map.addLayer).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'cok-suitability-dynamic-layer', type: 'raster' }),
