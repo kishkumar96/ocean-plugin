@@ -341,4 +341,39 @@ describe('unloading limits', () => {
       expect(screen.getAllByText('Incomplete').length).toBeGreaterThan(0);
     });
   });
+
+  describe('why a verdict is what it is, on screen', () => {
+    const load = async () => {
+      render(<CookIslandsHarbourWaveConditionsPanel enabled />);
+      await waitFor(() => expect(screen.queryByText(/Loading harbour wave conditions/)).not.toBeInTheDocument());
+    };
+
+    test('the expanded harbour states the controlling variable, its peak against the limit, and when', async () => {
+      global.fetch = mockFetch(timeseriesResponse(1.2, 14, 0), approved(1)); // Hs 1.2 m and rising; stop at 1 m
+      await load();
+      await screen.findByText(/version 2, approved by/);
+      fireEvent.click(screen.getByRole('button', { name: /Avatiu Harbour/ }));
+      const lines = await screen.findAllByText(/Wave height peaks [\d.]+ m \(stop 1\.0 m\)/, { selector: 'div' });
+      expect(lines).toHaveLength(2); // one for "Now", one for "Next 24 h"
+      expect(screen.getByText('Now:', { exact: false })).toBeInTheDocument();
+      expect(screen.getByText('Next 24 h:', { exact: false })).toBeInTheDocument();
+    });
+
+    test('nothing to explain when conditions are within limits', async () => {
+      global.fetch = mockFetch(timeseriesResponse(0.3, 5, 0), approved(3));
+      await load();
+      await screen.findByText(/version 2, approved by/);
+      fireEvent.click(screen.getByRole('button', { name: /Avatiu Harbour/ }));
+      expect(screen.queryByText(/peaks/)).not.toBeInTheDocument();
+    });
+
+    test('a location with no step near the clock says why it is unavailable (tooltip) instead of showing a stale value', async () => {
+      Date.now.mockReturnValue(Date.UTC(2026, 8, 29, 6) + 6 * 24 * 3600e3); // a week past the fixture's 24 steps
+      global.fetch = mockFetch(timeseriesResponse(1.2, 14, 0));
+      await load();
+      const cells = screen.getAllByText('Unavailable');
+      expect(cells.length).toBe(16);
+      expect(cells[0]).toHaveAttribute('title', expect.stringMatching(/no step within 90 min of now/));
+    });
+  });
 });

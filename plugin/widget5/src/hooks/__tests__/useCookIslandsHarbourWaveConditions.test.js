@@ -1,5 +1,5 @@
 import { renderHook, waitFor } from '@testing-library/react';
-import { useCookIslandsHarbourWaveConditions } from '../useCookIslandsHarbourWaveConditions';
+import { useCookIslandsHarbourWaveConditions, MAX_NOW_GAP_MS } from '../useCookIslandsHarbourWaveConditions';
 import { COOK_ISLANDS_HARBOUR_POINTS } from '../../config/cookIslandsHarbourPoints';
 
 function mockFetchSequence(handlers) {
@@ -127,6 +127,77 @@ describe('useCookIslandsHarbourWaveConditions', () => {
     expect(avatiu.waveHeightM).toBeCloseTo(1 + 10 * 0.1);
     expect(avatiu.outlookSteps).toHaveLength(24);
     expect(avatiu.outlookMaxWaveHeightM).toBeCloseTo(1 + 33 * 0.1); // index 10..33
+  });
+
+  describe('"now" must be near the wall clock', () => {
+    const run = async (nowMs) => {
+      Date.now.mockReturnValue(nowMs);
+      mockFetchSequence([['/cok/suitability/point/timeseries', () => Promise.resolve(timeseriesResponse({ stepCount: 24 }))]]);
+      const { result } = renderHook(() => useCookIslandsHarbourWaveConditions(true));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      return result.current.rows.find((r) => r.name === 'Avatiu Harbour');
+    };
+    const H = 3600e3;
+
+    test('a step within 90 min is "now"', async () => {
+      const row = await run(NOW_AT_STEP_0 + 3 * H + 20 * 60e3); // nearest step is the 03:00 one, 20 min away
+      expect(row.available).toBe(true);
+      expect(row.validTime).toBe(new Date(NOW_AT_STEP_0 + 3 * H).toISOString());
+    });
+
+    test('exactly 90 min away is still accepted; one minute beyond is not', async () => {
+      // fixture steps are hourly, so a clock 30 min after the LAST step (23 h) is within range...
+      expect((await run(NOW_AT_STEP_0 + 23 * H + 30 * 60e3)).available).toBe(true);
+      // ...but 90 min + 1 s past the last step is not
+      const row = await run(NOW_AT_STEP_0 + 23 * H + MAX_NOW_GAP_MS + 1000);
+      expect(row.available).toBe(false);
+    });
+
+    test('an expired feed (clock days past the last step) is unavailable, not its last step presented as "now"', async () => {
+      const row = await run(NOW_AT_STEP_0 + 4 * 24 * H);
+      expect(row.available).toBe(false);
+      expect(row.unavailableReason).toMatch(/no step within 90 min of now \(nearest is 3\.\d days before now\)/);
+      expect(row.waveHeightM).toBeNull();
+      expect(row.outlookSteps).toEqual([]);
+      expect(row.outlookMissingHours).toBe(24);
+    });
+
+    test('a feed that has not started yet (clock before the first step) is also unavailable', async () => {
+      const row = await run(NOW_AT_STEP_0 - 5 * H);
+      expect(row.available).toBe(false);
+      expect(row.unavailableReason).toMatch(/5\.0 h after now/);
+    });
+  });
+
+  describe('the sampled wave-model node is kept', () => {
+    test('node location and great-circle distance are exposed per harbour', async () => {
+      const waveWithNode = () => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          times: Array.from({ length: 24 }, (_, i) => new Date(Date.UTC(2026, 8, 29, 0) + i * 3600e3).toISOString()),
+          variables: { tpeak: Array(24).fill(9) },
+          lon_requested: -159.7856, lat_requested: -21.1978, node_lon: -159.7856, node_lat: -21.2328, // 3.5' south = ~3.9 km
+          distance_degrees: 0.035,
+        }),
+      });
+      mockFetchSequence([
+        ['/cok/suitability/point/timeseries', () => Promise.resolve(timeseriesResponse())],
+        ['wave/ugrid/timeseries', waveWithNode],
+      ]);
+      const { result } = renderHook(() => useCookIslandsHarbourWaveConditions(true));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      const avatiu = result.current.rows.find((r) => r.name === 'Avatiu Harbour');
+      expect(avatiu.waveNode.lat).toBeCloseTo(-21.2328, 4);
+      expect(avatiu.waveNode.distanceKm).toBeGreaterThan(3.8);
+      expect(avatiu.waveNode.distanceKm).toBeLessThan(4.0);
+    });
+
+    test('no node when the wave fetch failed', async () => {
+      mockFetchSequence([['/cok/suitability/point/timeseries', () => Promise.resolve(timeseriesResponse())]]);
+      const { result } = renderHook(() => useCookIslandsHarbourWaveConditions(true));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.rows.find((r) => r.name === 'Avatiu Harbour').waveNode).toBeNull();
+    });
   });
 
   describe('24 h / 72 h windows are built by time, and shortfalls are counted', () => {

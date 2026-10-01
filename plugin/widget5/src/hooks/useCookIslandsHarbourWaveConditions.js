@@ -61,6 +61,18 @@ function attachPeriod(steps, waveRows, cyclesMatch) {
 
 const HOUR_MS = 3_600_000;
 
+// "Now" must be a step that is actually near the wall clock. The nearest step by itself can be
+// arbitrarily far away: an old feed whose last step is days past would present that step as the
+// current condition and anchor the whole 24 h / 72 h outlook to it. Same 1.5 h bound the route
+// midpoint uses (buildMidpointConditions). Beyond it, current conditions are unavailable.
+export const MAX_NOW_GAP_MS = 90 * 60 * 1000;
+
+function describeGap(gapMs, nowMs, stepTimeMs) {
+  const hours = gapMs / HOUR_MS;
+  const text = hours >= 48 ? `${(hours / 24).toFixed(1)} days` : `${hours.toFixed(1)} h`;
+  return `${text} ${stepTimeMs < nowMs ? 'before' : 'after'} now`;
+}
+
 // The steps falling in [start, start + hours) hourly slots from steps[startIndex], plus how
 // many of those hourly slots have NO step. Slicing by index (what this used to do) treats
 // whatever arrived as the whole window: a forecast that ends early, or has holes, then looked
@@ -82,7 +94,8 @@ export function windowFrom(steps, startIndex, hours) {
   return { steps: inWindow, missingHours };
 }
 
-function summarizePoint(point, timeseries, waveRows, suitabilityRunStart) {
+function summarizePoint(point, timeseries, wave, suitabilityRunStart) {
+  const waveRows = wave?.rows ?? null;
   const waveRunStart = waveRows?.[0]?.time ?? null;
   const cyclesMatch = sameCycle(suitabilityRunStart, waveRunStart);
   const steps = attachPeriod(Array.isArray(timeseries?.steps) ? timeseries.steps : [], waveRows, cyclesMatch);
@@ -91,13 +104,19 @@ function summarizePoint(point, timeseries, waveRows, suitabilityRunStart) {
   // the time someone opens the panel (seen live: a 22 h-old first step showed
   // 0.9 m against the chart's current 0.8 m).
   const nowMs = Date.now();
-  let nowIndex = 0;
+  let nowIndex = -1;
   let bestDiff = Infinity;
   steps.forEach((step, i) => {
     const diff = Math.abs(new Date(step.valid_time).getTime() - nowMs);
     if (diff < bestDiff) { bestDiff = diff; nowIndex = i; }
   });
-  const now = steps[nowIndex] ?? null;
+  // No step close enough to the clock: there is no "now" to report (see MAX_NOW_GAP_MS).
+  const nowTooFar = steps.length > 0 && bestDiff > MAX_NOW_GAP_MS;
+  const now = nowIndex >= 0 && !nowTooFar ? steps[nowIndex] : null;
+  const gapReason = nowTooFar
+    ? `Forecast has no step within 90 min of now (nearest is ${describeGap(bestDiff, nowMs, new Date(steps[nowIndex].valid_time).getTime())}).`
+    : null;
+  if (!now) nowIndex = -1; // windowFrom(-1) = empty window, every hour counted missing
   const outlook = windowFrom(steps, nowIndex, Math.round(OUTLOOK_HOURS / HOURLY_STEP_HOURS));
   const outlook72 = windowFrom(steps, nowIndex, Math.round(EXTENDED_OUTLOOK_HOURS / HOURLY_STEP_HOURS));
   const outlookSteps = outlook.steps;
@@ -107,8 +126,8 @@ function summarizePoint(point, timeseries, waveRows, suitabilityRunStart) {
 
   return {
     ...point,
-    available: Boolean(timeseries?.available) && steps.length > 0,
-    unavailableReason: timeseries?.unavailable_reason ?? null,
+    available: Boolean(timeseries?.available) && steps.length > 0 && now !== null,
+    unavailableReason: gapReason ?? timeseries?.unavailable_reason ?? null,
     validTime: now?.valid_time ?? null,
     waveHeightM: now?.wave_height_m ?? null,
     windSpeedKt: now?.wind_speed_kt ?? null,
@@ -127,6 +146,9 @@ function summarizePoint(point, timeseries, waveRows, suitabilityRunStart) {
     // First timestamp of the wave model forecast (its run start), for the
     // panel's model-run-age notice; null if the wave fetch failed.
     waveRunStart,
+    // The wave-model node actually sampled for this location (null if the wave fetch failed): the
+    // sampled point can be km away from a harbour, and reefs/passages are not resolved at that scale.
+    waveNode: wave?.node ?? null,
     // Wave data exists but was deliberately not joined (different cycle, or
     // the suitability run couldn't be confirmed).
     periodWithheld: Boolean(waveRows?.length) && !cyclesMatch,
@@ -151,9 +173,11 @@ export function useCookIslandsHarbourWaveConditions(enabled) {
       if (cancelled) return;
       const rows = await mapWithConcurrency(COOK_ISLANDS_HARBOUR_POINTS, FETCH_CONCURRENCY, async (point) => {
         try {
-          const [timeseries, waveRows] = await Promise.all([
+          const [timeseries, waveRows] = await Promise.all([ // waveRows: {rows, node} | null
             fetchCookIslandsSuitabilityPointTimeseries(point.lon, point.lat, VESSEL),
-            fetchWaveTimeseries(point.lon, point.lat).then((ts) => ts.rows).catch(() => null),
+            fetchWaveTimeseries(point.lon, point.lat)
+              .then((ts) => ({ rows: ts.rows, node: { lon: ts.nodeLon, lat: ts.nodeLat, distanceKm: ts.nodeDistanceKm } }))
+              .catch(() => null),
           ]);
           return summarizePoint(point, timeseries, waveRows, suitabilityRunStart);
         } catch (err) {

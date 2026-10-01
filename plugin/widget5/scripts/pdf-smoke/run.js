@@ -38,7 +38,7 @@ const B = { west: -160.05, south: -21.5, east: -159.5, north: -21.0 };
 let failures = 0;
 const check = (name, ok, detail = '') => { if (!ok) { failures += 1; console.error(`  FAIL ${name} ${detail}`); } else console.log(`  ok   ${name}`); };
 
-function inspect(name, doc, { pages, mustContain = [], mustNotContain = [], size = 'a4-landscape', minImage = 0 }) {
+function inspect(name, doc, { pages, mustContain = [], mustNotContain = [], rawMustContain = [], rawMustNotContain = [], size = 'a4-landscape', minImage = 0 }) {
   const file = path.join(OUT, `FIXTURE_${name}.pdf`);
   fs.writeFileSync(file, Buffer.from(doc.output('arraybuffer')));
   console.log(name);
@@ -53,6 +53,13 @@ function inspect(name, doc, { pages, mustContain = [], mustNotContain = [], size
   const text = execFileSync('pdftotext', ['-layout', file, '-']).toString().replace(/\s+/g, ' ');
   mustContain.forEach((re) => check(`contains ${re}`, re.test(text)));
   mustNotContain.forEach((re) => check(`omits ${re}`, !re.test(text)));
+  // Rotated text (the watermark) is invisible to -layout extraction but present in -raw: check it there,
+  // and require it on EVERY page, not just somewhere.
+  if (rawMustContain.length || rawMustNotContain.length) {
+    const raw = execFileSync('pdftotext', ['-raw', file, '-']).toString().replace(/\s+/g, ' ');
+    rawMustContain.forEach((re) => check(`raw text contains ${re}`, re.test(raw)));
+    rawMustNotContain.forEach((re) => check(`raw text omits ${re}`, !re.test(raw)));
+  }
   check('no forbidden phrases', findForbiddenPhrases(text).length === 0, findForbiddenPhrases(text).join(', '));
   // every drawn word inside its page
   const bbox = execFileSync('pdftotext', ['-bbox', file, '-']).toString();
@@ -194,6 +201,9 @@ const base = { vessel: 'small_craft', timeIndex: 60, bounds: B, scope: 'viewport
       ...p, available: n !== 7, validTime: iso(0), waveHeightM: steps[0].wave_height_m, peakPeriodS: steps[0].tp_s, peakDirectionDeg: 75,
       windSpeedKt: steps[0].wind_speed_kt, periodWithheld: false, waveRunStart: iso(-6),
       outlookSteps: n === 7 ? [] : steps.slice(0, 24), outlook72Steps: n === 7 ? [] : steps,
+      // Every 4th harbour samples a wave-model node more than 2 km away.
+      waveNode: n === 7 ? null : { lon: p.lon, lat: p.lat - 0.02, distanceKm: n % 4 === 0 ? 3.9 : 0.6 },
+      unavailableReason: n === 7 ? 'Forecast has no step within 90 min of now (nearest is 3.1 days before now).' : null,
     };
   });
   const approvedMeta = { version: 2, approvedBy: 'Fixture Ports Authority', approvedOn: '2026-09-01T00:00:00Z', effectiveFrom: '2026-09-02T00:00:00Z' };
@@ -202,25 +212,30 @@ const base = { vessel: 'small_craft', timeIndex: 60, bounds: B, scope: 'viewport
 
   inspect('harbour_approved', (await buildCookIslandsHarbourAdvisoryPdfDoc(hb({ limits: { basis: 'approved', config: limitsCfg, meta: approvedMeta } }))).doc, {
     pages: 2,
-    mustContain: [/Harbour Conditions Advisory/, /Avatiu Harbour/, /Takuua Passage/, /version 2, approved by Fixture Ports Authority/, /Exceeds (caution|stop) limit|Within limits/, /No model data for this location/, /Next 72 hours/, /Stop limit \(approved/, /Not navigation advice|not navigation advice/, /Harbour forecast run 2026-09-23/],
-    mustNotContain: [/DRAFT/],
+    mustContain: [/Harbour Conditions Advisory/, /Avatiu Harbour/, /Takuua Passage/, /version 2, approved by Fixture Ports Authority/, /Exceeds (caution|stop) limit|Within limits/, /no step within 90 min of now/, /Next 72 hours/, /Sig\. wave/, /Max wind/, /Wave node/, /Wave height [0-9.]+ m, over (stop|caution) [0-9.]+ m/, /Hs = significant wave height/, /3\.9 km/, /wave-model point more than 2 km/, /Stop limit \(approved/, /Not navigation advice|not navigation advice/, /Harbour forecast run 2026-09-23/],
+    mustNotContain: [/DRAFT/, /\(PROVISIONAL\)/],
+    rawMustNotContain: [/LIMITS - NOT APPROVED/],
   });
   inspect('harbour_provisional', (await buildCookIslandsHarbourAdvisoryPdfDoc(hb({ limits: { basis: 'provisional', config: limitsCfg, meta: { version: 0 } } }))).doc, {
     pages: 2,
-    mustContain: [/PROVISIONAL placeholder values, NOT confirmed by Cook Islands Government/, /indicative only/, /Exceeds (caution|stop) limit|Within limits/, /PROVISIONAL, not confirmed/],
+    mustContain: [/PROVISIONAL placeholder values, NOT confirmed by Cook Islands Government/, /indicative only/, /Exceeds (caution|stop) limit|Within limits/, /PROVISIONAL, not confirmed/, /Verdict now \(PROVISIONAL\)/, /Worst next 24 h \(PROVISIONAL\)/],
+    // the watermark: once per page, so twice in a two-page report
+    rawMustContain: [/(PROVISIONAL LIMITS - NOT APPROVED.*){2}/],
     mustNotContain: [/approved by/],
   });
   // forecast that ends early: the 24 h and 72 h windows are short
   const partialRows = harbourRows.map((r, n) => (r.available ? { ...r, outlookSteps: r.outlookSteps.slice(0, n % 2 ? 10 : 24), outlookMissingHours: n % 2 ? 14 : 0, outlook72Steps: r.outlook72Steps.slice(0, 30), outlook72MissingHours: 42 } : r));
   inspect('harbour_partial_windows', (await buildCookIslandsHarbourAdvisoryPdfDoc(hb({ rows: partialRows, limits: { basis: 'approved', config: limitsCfg, meta: approvedMeta } }))).doc, {
     pages: 2,
-    mustContain: [/less than a full 24 h of forecast/, /Incomplete data/, /Only 30 of 72 h of forecast available/, /\* less than a full 24 h of forecast is available for this location/],
+    mustContain: [/less than a full 24 h of forecast/, /Incomplete data/, /Only 30 of 72 h of forecast available/, /\* Less than a full 24 h of forecast is available/],
   });
   inspect('harbour_draft', (await buildCookIslandsHarbourAdvisoryPdfDoc(hb({ limits: { basis: 'draft', config: limitsCfg, meta: null } }))).doc, {
-    pages: 2, mustContain: [/DRAFT, entered locally and NOT approved/, /DRAFT, not approved/],
+    pages: 2, mustContain: [/DRAFT, entered locally and NOT approved/, /DRAFT, not approved/, /Verdict now \(DRAFT\)/],
+    rawMustContain: [/(DRAFT LIMITS - NOT APPROVED.*){2}/],
   });
   inspect('harbour_no_limits', (await buildCookIslandsHarbourAdvisoryPdfDoc(hb({}))).doc, {
-    pages: 2, mustContain: [/No approved unloading limits have been set/, /No unloading limits applied/], mustNotContain: [/Within limits/, /Exceeds (caution|stop) limit/],
+    pages: 2, mustContain: [/No approved unloading limits have been set/, /No unloading limits applied/], mustNotContain: [/Within limits/, /Exceeds (caution|stop) limit/, /\(PROVISIONAL\)/],
+    rawMustNotContain: [/LIMITS - NOT APPROVED/],
   });
   // As the live hook produces them: when the feeds are different cycles the period is
   // never joined onto the steps at all, so neither the current row nor any step has it.

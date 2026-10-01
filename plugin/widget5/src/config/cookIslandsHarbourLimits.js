@@ -126,6 +126,63 @@ export function limitOrderIssues(limits) {
   });
 }
 
+// Which variable drove a verdict, how far it went, and when. `steps` are the forecast steps of the
+// window being judged ({valid_time, wave_height_m, tp_s, wind_speed_kt}); `limits` the harbour's
+// {caution, stop}. Returns:
+//   level    2 / 1 / 0  worst level reached (Stop / Caution / none)
+//   driver   for level 2 or 1: the controlling variable -- the one furthest past ITS limit (peak /
+//            limit), with its limit, peak value, first and last time at or over the limit and the
+//            number of steps over it -- or null
+//   missing  labels of variables that HAVE a limit but have no value in at least one step: why a
+//            verdict can read Incomplete
+const STEP_VALUE = { hsM: 'wave_height_m', tpS: 'tp_s', windKt: 'wind_speed_kt' };
+
+export function explainWindow(steps, limits) {
+  const list = Array.isArray(steps) ? steps : [];
+  const valueOf = (step, key) => {
+    const v = step?.[STEP_VALUE[key]];
+    return v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v);
+  };
+
+  const missing = LIMIT_VARIABLES
+    .filter(({ key }) => {
+      const hasLimit = ['caution', 'stop'].some((lvl) => limits?.[lvl]?.[key] !== null && limits?.[lvl]?.[key] !== undefined);
+      return hasLimit && list.some((step) => valueOf(step, key) === null);
+    })
+    .map(({ label }) => label);
+
+  for (const [levelName, level] of [['stop', 2], ['caution', 1]]) {
+    const candidates = [];
+    LIMIT_VARIABLES.forEach(({ key, label, unit }) => {
+      const limit = limits?.[levelName]?.[key];
+      if (limit === null || limit === undefined) return;
+      const over = list.filter((step) => {
+        const v = valueOf(step, key);
+        return v !== null && v >= limit;
+      });
+      if (!over.length) return;
+      const peak = Math.max(...over.map((step) => valueOf(step, key)));
+      candidates.push({
+        key, label, unit, limit, peak, ratio: peak / limit, steps: over.length,
+        firstTime: over[0].valid_time, lastTime: over[over.length - 1].valid_time,
+      });
+    });
+    if (candidates.length) {
+      const driver = candidates.reduce((a, b) => (b.ratio > a.ratio ? b : a));
+      return {
+        level,
+        levelName,
+        driver: {
+          key: driver.key, label: driver.label, unit: driver.unit, limit: driver.limit, peak: driver.peak,
+          steps: driver.steps, firstTime: driver.firstTime, lastTime: driver.lastTime,
+        },
+        missing,
+      };
+    }
+  }
+  return { level: 0, levelName: null, driver: null, missing };
+}
+
 export const UNLOADING_LABELS = { 0: 'OK', 1: 'Caution', 2: 'Stop' };
 
 // The LOCAL DRAFT (this browser only). null = no draft has been started.

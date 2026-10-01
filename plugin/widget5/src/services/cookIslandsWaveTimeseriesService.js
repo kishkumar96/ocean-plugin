@@ -35,13 +35,19 @@ export function normalizeWaveTimeseries(payload) {
     WAVE_TIMESERIES_VARIABLES.forEach((name) => { row[name] = finiteOrNull(vars[name]?.[i]); });
     return row;
   });
-  return {
-    rows,
-    nodeLon: finiteOrNull(payload?.node_lon),
-    nodeLat: finiteOrNull(payload?.node_lat),
-    // ~111 km per degree; how far the model node used is from the request.
-    nodeDistanceKm: finiteOrNull(payload?.distance_degrees) === null ? null : payload.distance_degrees * 111,
-  };
+  const nodeLon = finiteOrNull(payload?.node_lon);
+  const nodeLat = finiteOrNull(payload?.node_lat);
+  const reqLon = finiteOrNull(payload?.lon_requested);
+  const reqLat = finiteOrNull(payload?.lat_requested);
+  let nodeDistanceKm = null;
+  if ([nodeLon, nodeLat, reqLon, reqLat].every((v) => v !== null)) {
+    // Great-circle distance between the requested point and the model node actually sampled.
+    // (degrees * 111 km, used before, overstates east-west distance away from the equator.)
+    nodeDistanceKm = haversineNm({ lon: reqLon, lat: reqLat }, { lon: nodeLon, lat: nodeLat }) * 1.852;
+  } else if (finiteOrNull(payload?.distance_degrees) !== null) {
+    nodeDistanceKm = payload.distance_degrees * 111;
+  }
+  return { rows, nodeLon, nodeLat, nodeDistanceKm };
 }
 
 export async function fetchWaveTimeseries(lon, lat, { signal } = {}) {

@@ -1,5 +1,5 @@
 import {
-  normalizePublishedLimits, resolveActiveLimits, buildLimitsProposal, INCOMPLETE, worstVerdict, limitOrderIssues, emptyLimits, emptyLimitsConfig, normalizeLimitsConfig, evaluateConditions, limitsForHarbour, hasAnyLimit,
+  explainWindow, normalizePublishedLimits, resolveActiveLimits, buildLimitsProposal, INCOMPLETE, worstVerdict, limitOrderIssues, emptyLimits, emptyLimitsConfig, normalizeLimitsConfig, evaluateConditions, limitsForHarbour, hasAnyLimit,
   serializeLimitsConfig,
 } from '../cookIslandsHarbourLimits';
 
@@ -143,5 +143,52 @@ describe('published limits governance', () => {
       expect(normalizePublishedLimits(prov({ default: {} })).problems.join(' ')).toMatch(/provisional but no limits set/);
       expect(normalizePublishedLimits(prov({ default: { caution: { hsM: 2 }, stop: { hsM: 1 } } })).ok).toBe(false);
     });
+  });
+});
+
+describe('explainWindow: which variable drove a verdict, how far, and when', () => {
+  const H = 3600e3;
+  const T0 = Date.UTC(2026, 9, 1, 0);
+  const step = (i, hs, wind, tp = 9) => ({ valid_time: new Date(T0 + i * H).toISOString(), wave_height_m: hs, wind_speed_kt: wind, tp_s: tp });
+  const cfg = (caution, stop) => limits(caution, stop);
+
+  test('names the controlling variable (furthest past ITS OWN limit), with peak, limit, first/last time and hours', () => {
+    // hs limit 1.5 (peak 1.9 -> ratio 1.27); wind limit 25 (peak 26 -> ratio 1.04): waves control.
+    const steps = [step(0, 1.0, 20), step(1, 1.6, 26), step(2, 1.9, 25), step(3, 1.7, 22), step(4, 1.0, 18)];
+    const out = explainWindow(steps, cfg({}, { hsM: 1.5, windKt: 25 }));
+    expect(out.level).toBe(2);
+    expect(out.driver).toEqual(expect.objectContaining({ key: 'hsM', label: 'Wave height', unit: 'm', limit: 1.5, peak: 1.9, steps: 3 }));
+    expect(out.driver.firstTime).toBe(steps[1].valid_time);
+    expect(out.driver.lastTime).toBe(steps[3].valid_time);
+  });
+
+  test('a variable that is only over its limit by a little loses to one far over', () => {
+    const out = explainWindow([step(0, 1.51, 40)], cfg({}, { hsM: 1.5, windKt: 25 }));
+    expect(out.driver.key).toBe('windKt'); // 40/25 = 1.6 beats 1.51/1.5
+  });
+
+  test('Stop wins over Caution; with only Caution exceeded the level is 1 and uses the caution limit', () => {
+    const steps = [step(0, 1.1, 10), step(1, 1.2, 10)];
+    const out = explainWindow(steps, cfg({ hsM: 1.0 }, { hsM: 1.5 }));
+    expect(out.level).toBe(1);
+    expect(out.driver).toEqual(expect.objectContaining({ key: 'hsM', limit: 1.0, peak: 1.2, steps: 2 }));
+  });
+
+  test('within limits: level 0, no driver', () => {
+    const out = explainWindow([step(0, 0.5, 10)], cfg({ hsM: 1 }, { hsM: 2 }));
+    expect(out).toEqual(expect.objectContaining({ level: 0, driver: null, missing: [] }));
+  });
+
+  test('lists the variables that have a limit but are missing from some step (why a verdict can be Incomplete)', () => {
+    const out = explainWindow([step(0, 0.5, 10, null), step(1, 0.6, 10, 9)], cfg({}, { hsM: 2, tpS: 14 }));
+    expect(out.missing).toEqual(['Peak period']);
+    // a variable with no limit is never reported missing
+    expect(explainWindow([step(0, 0.5, null)], cfg({}, { hsM: 2 })).missing).toEqual([]);
+  });
+
+  test('empty or garbage input never throws', () => {
+    expect(explainWindow([], cfg({}, { hsM: 1 })).level).toBe(0);
+    expect(explainWindow(null, null).level).toBe(0);
+    expect(explainWindow([{ valid_time: 'x', wave_height_m: 'nope' }], cfg({}, { hsM: 1 })).level).toBe(0);
   });
 });

@@ -154,6 +154,17 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
   // Verdicts are judged against the ACTIVE limits: approved, or a local draft
   // (labelled as such). See HARBOUR_LIMITS.md.
   const limitsConfig = limitsState.active.config;
+  // The same facts the PDF reports (verdict drivers, node distance, unavailable reasons), from the one
+  // bundle builder, so the screen and the PDF cannot disagree about why a verdict is what it is.
+  const reportBundle = useMemo(() => buildHarbourAdvisoryBundle({
+    rows,
+    suitabilityRunStart,
+    limits: limitsState.active,
+    limitsUnavailable: limitsState.published.state === 'unavailable' || limitsState.published.state === 'invalid',
+    timeDisplayZone,
+    generatedAt: new Date(),
+  }), [rows, suitabilityRunStart, limitsState.active, limitsState.published.state, timeDisplayZone]);
+  const detailById = useMemo(() => new Map(reportBundle.harbours.map((h) => [h.riskPointId, h])), [reportBundle]);
   const anyLimitSet = useMemo(() => (
     hasAnyLimit(limitsConfig.default) || Object.values(limitsConfig.harbours).some(hasAnyLimit)
   ), [limitsConfig]);
@@ -249,6 +260,7 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
                 ? evaluateConditions({ hsM: row.waveHeightM, tpS: row.peakPeriodS, windKt: row.windSpeedKt }, limits)
                 : null;
               const dayVerdict = row.available ? worstOver24h(row, limits) : null;
+              const detail = detailById.get(row.riskPointId);
               return (
                 <React.Fragment key={row.riskPointId}>
                   <tr style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
@@ -269,7 +281,10 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
                         <td style={{ padding: '0.35rem 0.4rem', color: TEXT_MUTED }}>{formatKt(row.windSpeedKt)}</td>
                         <td style={{ padding: '0.35rem 0.4rem' }} title={row.outlookMissingHours > 0 ? `Only ${24 - row.outlookMissingHours} of 24 h of forecast available` : undefined}>{formatMetres(row.outlookMaxWaveHeightM)}{row.outlookMissingHours > 0 ? ' *' : ''}</td>
                         {anyLimitSet && (
-                          <td style={{ padding: '0.35rem 0 0.35rem 0.4rem', lineHeight: 1.3 }}>
+                          <td
+                            style={{ padding: '0.35rem 0 0.35rem 0.4rem', lineHeight: 1.3 }}
+                            title={[detail?.detailNow && `Now: ${detail.detailNow}`, detail?.detail24h && `Next 24 h: ${detail.detail24h}`].filter(Boolean).join('\n') || undefined}
+                          >
                             <Verdict value={nowVerdict} />
                             <div style={{ color: TEXT_MUTED, fontSize: '0.68rem' }}>
                               {'24h: '}
@@ -279,7 +294,7 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
                         )}
                       </>
                     ) : (
-                      <td colSpan={anyLimitSet ? 4 : 3} style={{ padding: '0.35rem 0.4rem', color: TEXT_MUTED, fontStyle: 'italic' }}>
+                      <td colSpan={anyLimitSet ? 4 : 3} title={row.unavailableReason ?? undefined} style={{ padding: '0.35rem 0.4rem', color: TEXT_MUTED, fontStyle: 'italic' }}>
                         Unavailable
                       </td>
                     )}
@@ -287,6 +302,12 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
                   {expanded && (
                     <tr>
                       <td colSpan={anyLimitSet ? 5 : 4} style={{ padding: '0.25rem 0 0.75rem' }}>
+                        {(detail?.detailNow || detail?.detail24h) && (
+                          <div style={{ fontSize: '0.7rem', lineHeight: 1.45, margin: '0 0 0.45rem' }}>
+                            {detail.detailNow && <div><span style={{ color: TEXT_MUTED }}>Now: </span>{detail.detailNow}</div>}
+                            {detail.detail24h && <div><span style={{ color: TEXT_MUTED }}>Next 24 h: </span>{detail.detail24h}</div>}
+                          </div>
+                        )}
                         <CookIslandsWaveTimeseriesChart
                           site={{ name: row.name, lon: row.lon, lat: row.lat }}
                           timeDisplayZone={timeDisplayZone}
