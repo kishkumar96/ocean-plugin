@@ -5,8 +5,8 @@
 // into the module itself; everything else it does is plain grid math and
 // calls on the `map` object passed into the constructor.
 import * as maplibregl from 'maplibre-gl';
-import { CookIslandsSuitabilityDynamicOverlay } from '../CookIslandsSuitabilityDynamicOverlay';
-import { resolveOperatingEnvelope } from '../CookIslandsSuitabilityOverlay';
+import { CookIslandsSuitabilityDynamicOverlay, hazardTileAlpha } from '../CookIslandsSuitabilityDynamicOverlay';
+import { resolveOperatingEnvelope, HAZARD_TILE_ALPHA } from '../CookIslandsSuitabilityOverlay';
 
 jest.mock('maplibre-gl', () => ({ addProtocol: jest.fn(), removeProtocol: jest.fn() }));
 
@@ -223,5 +223,42 @@ describe('CookIslandsSuitabilityDynamicOverlay protocol lifecycle', () => {
     overlayA.destroy();
     expect(maplibregl.removeProtocol).toHaveBeenCalledWith(overlayA._protocolScheme);
     expect(maplibregl.removeProtocol).not.toHaveBeenCalledWith(overlayB._protocolScheme);
+  });
+});
+
+
+describe('Custom envelope overlay matches the Preset overlay\'s look', () => {
+  test('every hazard class is drawn at the server preset alpha (210/255) -- Suitable is no longer near-transparent', () => {
+    expect(Math.round(HAZARD_TILE_ALPHA * 255)).toBe(210); // COK_SUIT_COLORS in zarr-api main.py
+    [0, 1, 2].forEach((hc) => expect(Math.round(hazardTileAlpha(hc) * 255)).toBe(210));
+    expect(hazardTileAlpha(0)).toBe(hazardTileAlpha(2));
+  });
+
+  test('an unknown class draws nothing', () => {
+    expect(hazardTileAlpha(7)).toBe(0);
+    expect(hazardTileAlpha(undefined)).toBe(0);
+  });
+
+  test('the Overlay Opacity slider is applied once, via raster-opacity -- not baked into tiles', () => {
+    const map = fakeMap();
+    map.getLayer = jest.fn(() => true);
+    map.setPaintProperty = jest.fn();
+    const overlay = new CookIslandsSuitabilityDynamicOverlay(map);
+    overlay._envelope = resolveOperatingEnvelope('small_craft');
+    overlay._grid = overlayWithGrid()._grid;
+    const refresh = jest.spyOn(overlay, '_refreshTiles');
+
+    overlay.setOpacity(0.5);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('cok-suitability-dynamic-layer', 'raster-opacity', 0.5);
+    expect(refresh).not.toHaveBeenCalled(); // no tile regeneration just because the slider moved
+    expect(overlay._buildTileUrl()).not.toMatch(/[?&]op=/);
+  });
+
+  test('a Custom overlay created while the slider is already at a value starts at that value, not a hard-coded 0.85', () => {
+    expect(new CookIslandsSuitabilityDynamicOverlay(fakeMap(), { opacity: 1 })._opacity).toBe(1);
+    expect(new CookIslandsSuitabilityDynamicOverlay(fakeMap(), { opacity: 0.4 })._opacity).toBe(0.4);
+    expect(new CookIslandsSuitabilityDynamicOverlay(fakeMap(), {})._opacity).toBe(0.85);
+    expect(new CookIslandsSuitabilityDynamicOverlay(fakeMap())._opacity).toBe(0.85);
   });
 });

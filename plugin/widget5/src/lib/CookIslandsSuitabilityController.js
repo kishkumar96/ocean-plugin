@@ -32,7 +32,7 @@ export class CookIslandsSuitabilityController {
     this._mode = config.suitabilityMode === 'custom' ? 'custom' : 'preset';
     this._timeIndex = config.timeIndex ?? 0;
     this.fixed = new CookIslandsSuitabilityOverlay(map, config);
-    this.dynamic = new CookIslandsSuitabilityDynamicOverlay(map);
+    this.dynamic = new CookIslandsSuitabilityDynamicOverlay(map, { opacity: config.opacity });
     this._applyVisibility();
 
     this.setEnvelope(

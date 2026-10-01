@@ -34,6 +34,7 @@ import { findNearestIndex } from '../components/InundationWindowControl';
 import { findIslandZoomTarget } from '../config/islandConfig';
 import { COOK_ISLANDS_PRESET_ROUTES, presetRouteBounds, shouldConfirmRouteReplacement } from '../config/cookIslandsPresetRoutes';
 import { createAppShareUrl, readAppShareState } from '../domain/share/appStateSnapshot';
+import { defaultSliderIndex } from '../utils/forecastTime';
 
 const widgetContainerStyle = {
   position: 'fixed',
@@ -72,6 +73,8 @@ function CookIslandsForecast() {
   const [rangeWindow, setRangeWindow] = useState({ mode: 'single' });
   const pendingSharedTimeRef = useRef(sharedState?.forecast?.time ?? null);
   const pendingSharedRangeRef = useRef(sharedState?.forecast?.rangeWindow ?? null);
+  // The layer id the default ("now") slider position was last applied for; see the effect that resolves it.
+  const defaultTimeLayerRef = useRef(null);
   // App-wide display zone for every date/time readout (CKT = Pacific/Rarotonga,
   // fixed UTC-10 year-round, or UTC) — lifted here (rather than living inside
   // ForecastApp, which owned it before) so ModernHeader and the BottomOffCanvas
@@ -430,6 +433,14 @@ function CookIslandsForecast() {
     if (pendingSharedTimeRef.current) {
       setSliderIndex(findNearestIndex(timestamps, pendingSharedTimeRef.current));
       pendingSharedTimeRef.current = null;
+      defaultTimeLayerRef.current = selectedWaveForecast; // a shared link's time wins; don't override it
+    } else if (selectedWaveForecast !== 'sfincs-inundation' && defaultTimeLayerRef.current !== selectedWaveForecast) {
+      // Open the forecast on the hour we are in, once per layer (the layer switch itself resets the
+      // slider to 0, so this re-applies on every switch but never fights a user's own scrubbing),
+      // and skip the Cook suitability layer's frozen hindcast frames. The inundation layer keeps its
+      // own range-window behaviour.
+      setSliderIndex(defaultSliderIndex(timestamps, { modelRunStart: capTime.modelRunStart }));
+      defaultTimeLayerRef.current = selectedWaveForecast;
     }
 
     const pendingRange = pendingSharedRangeRef.current;
@@ -451,7 +462,7 @@ function CookIslandsForecast() {
       }
     }
     pendingSharedRangeRef.current = null;
-  }, [capTime.availableTimestamps, capTime.layerId, selectedWaveForecast]);
+  }, [capTime.availableTimestamps, capTime.layerId, capTime.modelRunStart, selectedWaveForecast]);
 
   // Bounds for the route departure-time picker: the currently active wave-
   // forecast layer's own first/last timestep, so a route can never be asked

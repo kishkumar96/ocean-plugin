@@ -27,6 +27,13 @@ export const HAZARD_COLORS = {
   2: '#E63946',  // Warning   — red
 };
 
+// Alpha (0..1) every suitability class is drawn at: 210/255, the same value the server bakes into
+// its preset tiles (COK_SUIT_COLORS in zarr-api main.py). The client-drawn Custom envelope overlay
+// must use it too -- it used to draw Suitable at 0.18, so the same sea read vivid teal in Preset
+// mode and almost transparent in Custom mode. The Overlay Opacity slider is a separate, single
+// multiplier applied by MapLibre's raster-opacity, never baked in here.
+export const HAZARD_TILE_ALPHA = 210 / 255;
+
 export const VESSEL_CLASS_OPTIONS = [
   { value: 'traditional_craft',          label: 'Traditional craft',     examples: 'Canoes, vaka' },
   { value: 'very_small_motorised_craft', label: 'Very small (<6 m)',      examples: 'Dinghies, open skiffs' },

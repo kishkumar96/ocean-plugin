@@ -39,7 +39,7 @@
 // regardless of which mode the user ends up in.
 
 import * as maplibregl from 'maplibre-gl';
-import { classifyAgainstOperatingEnvelope } from './CookIslandsSuitabilityOverlay';
+import { classifyAgainstOperatingEnvelope, HAZARD_TILE_ALPHA } from './CookIslandsSuitabilityOverlay';
 import { SUITABILITY_DEBUG_TIMING, logSuitabilityFrameTiming } from './suitabilityDebugTiming';
 import { parseUtcTimestamp } from '../utils/backendTime';
 
@@ -73,10 +73,10 @@ const HAZARD_RGB = {
   2: [230, 57, 70],    // #E63946 Warning
 };
 
-// Suitable coverage is contextual information, not a warning mask. Keeping
-// it faint lets the satellite basemap remain readable while the two hazard
-// classes retain the strong visual emphasis used by the preset overlay.
-const HAZARD_ALPHA = { 0: 0.18, 1: 0.82, 2: 0.9 };
+// Same alpha for every class, and the same one the server uses for the preset tiles
+// (HAZARD_TILE_ALPHA). Suitable used to be drawn at 0.18 ("contextual, so the satellite basemap stays
+// readable") while the preset draws it at 0.82, so switching Preset -> Custom made the green vanish.
+export const hazardTileAlpha = (hazardClass) => (HAZARD_RGB[hazardClass] ? HAZARD_TILE_ALPHA : 0);
 
 // Bilinearly sample the continuous wind/wave fields at (lon, lat) from a
 // decoded /cok/suitability/grid response, then let the caller classify --
@@ -119,7 +119,10 @@ function sampleGrid(grid, lon, lat) {
 }
 
 export class CookIslandsSuitabilityDynamicOverlay {
-  constructor(map) {
+  // opts.opacity: the Overlay Opacity slider's current value, so a Custom overlay created while the
+  // slider is already at, say, 100% starts there. (It used to start at a fixed 0.85 and only caught up
+  // when the slider next moved, so Custom was drawn dimmer than Preset at the same setting.)
+  constructor(map, opts = {}) {
     this._map = map;
     this._gridCache = new Map(); // time_index -> parsed grid
     this._destroyed = false;
@@ -129,7 +132,7 @@ export class CookIslandsSuitabilityDynamicOverlay {
     this._timeCount = 0;
     this._grid = null;
     this._envelope = null;
-    this._opacity = 0.85;
+    this._opacity = opts.opacity ?? 0.85;
     // Desired visibility, tracked independently of whether LAYER_ID exists
     // yet. setVisible() below used to be a no-op until the layer was first
     // created (by _refreshTiles(), from the first ready envelope+grid) -- if
@@ -467,10 +470,9 @@ export class CookIslandsSuitabilityDynamicOverlay {
     if (this._map?.getLayer(LAYER_ID)) {
       this._map.setPaintProperty(LAYER_ID, 'raster-opacity', opacity);
     }
-    // Baked into each tile's own alpha too (see _handleTileRequest), so
-    // already-rendered/cached tiles need a real reload, not just the paint
-    // property, to pick up a new value.
-    if (this._grid && this._envelope) this._refreshTiles();
+    // raster-opacity is the ONLY place opacity is applied. It used to be baked into every tile's
+    // alpha as well, so the slider's value counted twice (50% looked like 25%) and every change
+    // regenerated all on-screen tiles for nothing.
   }
 
   // Recomputes stats from the grid's own native cells (one vote per actual
@@ -541,7 +543,6 @@ export class CookIslandsSuitabilityDynamicOverlay {
       ti: String(this._timeIndex),
       wc: String(e.cautionWindKt), ww: String(e.maxWindKt),
       cc: String(e.cautionWaveHeightM), cw: String(e.maxWaveHeightM),
-      op: String(this._opacity),
     });
     return `${this._protocolScheme}://{z}/{x}/{y}?${q}`;
   }
@@ -562,7 +563,6 @@ export class CookIslandsSuitabilityDynamicOverlay {
       cautionWindKt: Number(params.get('wc')), maxWindKt: Number(params.get('ww')),
       cautionWaveHeightM: Number(params.get('cc')), maxWaveHeightM: Number(params.get('cw')),
     };
-    const opacity = Number(params.get('op'));
 
     const grid = this._gridCache.get(timeIndex);
     const canvas = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
@@ -585,7 +585,7 @@ export class CookIslandsSuitabilityDynamicOverlay {
         pixels[pixelIndex] = r;
         pixels[pixelIndex + 1] = g;
         pixels[pixelIndex + 2] = b;
-        pixels[pixelIndex + 3] = Math.round(opacity * HAZARD_ALPHA[hazardClass] * 255);
+        pixels[pixelIndex + 3] = Math.round(hazardTileAlpha(hazardClass) * 255);
       }
     }
     ctx.putImageData(imageData, 0, 0);
