@@ -25,6 +25,7 @@ import {
 } from '../services/riskDataService';
 import { disableTerrain, enableTerrain, hasTerrainDem } from '../lib/terrainMapLibre';
 import { resolveModelRunStart, modelRunAgeHours as modelRunAgeHoursFor, isModelRunStale } from '../utils/modelRunTiming';
+import { legLabelsNearPoint } from '../utils/routeProbeLayout';
 
 // maplibre-gl v6's own worker loader does `new Worker(new URL(`./${t}`, e))` with a runtime-
 // built template string -- webpack can't statically resolve that (the "Critical dependency"
@@ -1013,6 +1014,7 @@ export function useZarrMap({
       const midLon = (a.lon + b.lon) / 2;
       const midLat = (a.lat + b.lat) / 2;
       const el = document.createElement('div');
+      el.className = 'cok-route-leg-label';
       el.textContent = `${nm.toFixed(1)} nm`;
       el.style.cssText = `
         padding: 2px 6px; border-radius: 4px;
@@ -1035,6 +1037,8 @@ export function useZarrMap({
     const map = mapInstance.current;
     routeProbeMarkersRef.current.forEach((marker) => marker.remove());
     routeProbeMarkersRef.current = [];
+    // Put every leg-distance label back where it belongs; collisions are re-nudged below.
+    routeLegLabelMarkersRef.current.forEach((marker) => marker.setOffset([0, 0]));
     if (!map || !routeProbe) { routeProbeWasActiveRef.current = false; return; }
 
     // Labels sit BESIDE the marker, not under it: the per-leg distance labels are centred on a
@@ -1074,6 +1078,14 @@ export function useZarrMap({
       }
     }
     routeProbeWasActiveRef.current = true;
+    // A leg-distance label centred where a probe marker sits would be covered by it (on a two-leg
+    // crossing the long leg's midpoint is almost exactly the route midpoint). Nudge it just below
+    // the marker instead of hiding it, so the distance stays readable.
+    [midpoint, vessel].forEach((probePoint) => {
+      legLabelsNearPoint(routePoints, probePoint).forEach((legIndex) => {
+        routeLegLabelMarkersRef.current[legIndex]?.setOffset([0, 26]);
+      });
+    });
     if (midpoint && Number.isFinite(midpoint.lon) && Number.isFinite(midpoint.lat)) {
       const el = document.createElement('div');
       el.className = 'cok-route-probe-midpoint';
