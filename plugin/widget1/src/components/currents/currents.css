@@ -383,12 +383,16 @@
 }
 
 .currents-timestep__labels {
-  display: flex;
-  justify-content: space-between;
-  padding: 2px 2px 5px;
+  position: relative;
+  height: 0.9rem;
+  margin: 2px 2px 5px;
 }
 
 .currents-timestep__label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
   font: inherit;
   font-size: 0.58rem;
   color: rgba(255, 255, 255, 0.22);

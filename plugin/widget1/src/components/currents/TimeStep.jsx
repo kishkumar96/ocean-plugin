@@ -41,18 +41,23 @@ export default function TimeStep({
   const timeLabel = currentSliderDate ? formatZoned(currentSliderDate, timeDisplayZone) : '—';
 
   const dayMarkers = useMemo(() => {
-    // Five evenly-spaced real calendar-date labels across the loaded window —
-    // mirrors niu_current's TimeStep exactly (five dates at 0/25/50/75/100%),
-    // reading straight off this layer's own real timestamps rather than an
-    // approximation based on step offsets.
+    
     if (!availableTimestamps.length) return [];
-    const count = 5;
-    return Array.from({ length: count }, (_, i) => {
-      const idx = Math.round(minIndex + (range * i) / (count - 1));
+    const markers = [];
+    let prevLabel = null;
+    for (let idx = minIndex; idx <= Math.min(totalSteps, availableTimestamps.length - 1); idx++) {
       const label = shortDate(availableTimestamps[idx], timeDisplayZone);
-      return label ? { idx, label } : null;
-    }).filter(Boolean);
-  }, [availableTimestamps, minIndex, range, timeDisplayZone]);
+      if (!label || label === prevLabel) continue;
+      prevLabel = label;
+      markers.push({ idx, label, fraction: (idx - minIndex) / range });
+    }
+  
+    const MIN_GAP = 0.1;
+    if (markers.length > 2 && markers[1].fraction - markers[0].fraction < MIN_GAP) markers.shift();
+    const n = markers.length;
+    if (n > 2 && markers[n - 1].fraction - markers[n - 2].fraction < MIN_GAP) markers.pop();
+    return markers;
+  }, [availableTimestamps, minIndex, totalSteps, range, timeDisplayZone]);
 
   const handleRibbonClick = (e) => {
     if (!onTimeIndexChange || !ribbonRef.current) return;
@@ -95,6 +100,11 @@ export default function TimeStep({
                 key={m.idx}
                 type="button"
                 className="currents-timestep__label"
+                style={{
+                  left: `${m.fraction * 100}%`,
+                  // Keep edge labels inside the ribbon instead of centring them off it.
+                  transform: `translateX(${m.fraction < 0.05 ? 0 : m.fraction > 0.95 ? -100 : -50}%)`,
+                }}
                 onClick={() => onTimeIndexChange?.(m.idx)}
               >
                 {m.label}
