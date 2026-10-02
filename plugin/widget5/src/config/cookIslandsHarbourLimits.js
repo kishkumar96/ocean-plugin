@@ -185,6 +185,69 @@ export function explainWindow(steps, limits) {
 
 export const UNLOADING_LABELS = { 0: 'OK', 1: 'Caution', 2: 'Stop' };
 
+// The wording of a verdict depends on who stands behind the limits. "Stop" in red reads as an order, so
+// until limits are approved the label says what was actually found: a value over a PROVISIONAL / DRAFT
+// limit. Approved limits keep the plain operational words.
+export function unloadingLabel(verdict, basis) {
+  if (verdict === INCOMPLETE) return 'Incomplete';
+  const qualifier = basis === 'provisional' ? 'provisional ' : basis === 'draft' ? 'draft ' : null;
+  if (qualifier === null) return UNLOADING_LABELS[verdict] ?? '—';
+  if (verdict === 0) return `Within ${qualifier}limits`;
+  if (verdict === 1) return `Over ${qualifier}caution limit`;
+  if (verdict === 2) return `Over ${qualifier}stop limit`;
+  return '—';
+}
+
+// A usable unloading window needs more than a single lucky hour. Provisional, like the limits.
+export const MIN_WINDOW_HOURS = 3;
+const WINDOW_GAP_MS = 90 * 60 * 1000;
+
+// When conditions are (or next will be) within every limit, over the forecast steps from "now" on.
+// Steps are hourly; a missing hour or a value that can't be judged ends a run, so a window is never
+// claimed across a hole in the data. State:
+//   within  -- now is within limits; `until` = first step that is not (null when it lasts to the end)
+//   next    -- now is not; the first run of >= minHours within-limit steps (start, end, hours)
+//   none    -- judged, but no such run in the available forecast (horizonHours long)
+//   unknown -- nothing could be judged (no limits, or every step Incomplete)
+export function findOperationalWindow(steps, limits, { minHours = MIN_WINDOW_HOURS } = {}) {
+  const list = Array.isArray(steps) ? steps : [];
+  const times = list.map((st) => new Date(st.valid_time).getTime());
+  const verdicts = list.map((st) => evaluateConditions({ hsM: st.wave_height_m, tpS: st.tp_s, windKt: st.wind_speed_kt }, limits));
+  const horizonHours = list.length;
+  if (!list.length || verdicts.every((v) => v === null || v === INCOMPLETE)) {
+    return { state: 'unknown', horizonHours };
+  }
+  const contiguous = (i) => i > 0 && times[i] - times[i - 1] <= WINDOW_GAP_MS;
+  const runFrom = (start) => {
+    let end = start;
+    while (end + 1 < list.length && verdicts[end + 1] === 0 && contiguous(end + 1)) end += 1;
+    return end;
+  };
+  if (verdicts[0] === 0) {
+    const end = runFrom(0);
+    const throughEnd = end === list.length - 1;
+    return {
+      state: 'within', hours: end + 1, throughEnd, horizonHours,
+      until: throughEnd ? null : list[end + 1].valid_time,
+    };
+  }
+  for (let i = 1; i < list.length; i += 1) {
+    if (verdicts[i] !== 0 || (verdicts[i - 1] === 0 && contiguous(i))) continue;
+    const end = runFrom(i);
+    const hours = end - i + 1;
+    if (hours >= minHours || end === list.length - 1) {
+      // A run still going at the end of the forecast may be shorter than minHours only because the
+      // forecast stops; it is reported as open-ended rather than dropped.
+      return {
+        state: 'next', start: list[i].valid_time, end: list[end].valid_time, hours,
+        throughEnd: end === list.length - 1, horizonHours,
+      };
+    }
+    i = end;
+  }
+  return { state: 'none', horizonHours };
+}
+
 // The LOCAL DRAFT (this browser only). null = no draft has been started.
 // Approved limits are never stored here -- they come from the published file
 // (see resolveActiveLimits).

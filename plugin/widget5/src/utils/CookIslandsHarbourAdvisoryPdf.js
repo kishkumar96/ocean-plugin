@@ -25,16 +25,17 @@ const fmt = (v, digits, unit) => (Number.isFinite(v) ? `${v.toFixed(digits)} ${u
 // sits under the harbour name (two lines) to leave room for the verdict columns, which carry WHICH
 // variable drove the verdict, its peak against the limit, and when.
 const COLUMNS = [
-  { key: 'name', label: 'Harbour / anchorage / passage', w: 50, align: 'left' },
-  { key: 'hs', label: 'Sig. wave height (Hs) now', w: 17, align: 'right' },
-  { key: 'tp', label: 'Peak period', w: 14, align: 'right' },
-  { key: 'dir', label: 'Waves from', w: 20, align: 'right' },
-  { key: 'wind', label: 'Wind now', w: 15, align: 'right' },
-  { key: 'max24', label: 'Max Hs next 24 h', w: 17, align: 'right' },
-  { key: 'maxWind24', label: 'Max wind next 24 h', w: 17, align: 'right' },
-  { key: 'node', label: 'Wave node', w: 14, align: 'right' },
-  { key: 'v1', label: 'Verdict now', w: 54, align: 'left' },
-  { key: 'v24', label: 'Worst next 24 h', w: 63, align: 'left' },
+  { key: 'name', label: 'Harbour / anchorage / passage', w: 40, align: 'left' },
+  { key: 'hs', label: 'Sig. wave height (Hs) now', w: 16, align: 'right' },
+  { key: 'tp', label: 'Peak period', w: 13, align: 'right' },
+  { key: 'dir', label: 'Waves from', w: 17, align: 'right' },
+  { key: 'wind', label: 'Wind now', w: 14, align: 'right' },
+  { key: 'max24', label: 'Max Hs next 24 h', w: 16, align: 'right' },
+  { key: 'maxWind24', label: 'Max wind next 24 h', w: 16, align: 'right' },
+  { key: 'node', label: 'Wave node', w: 13, align: 'right' },
+  { key: 'v1', label: 'Verdict now', w: 36, align: 'left' },
+  { key: 'v24', label: 'Worst next 24 h', w: 66, align: 'left' },
+  { key: 'win', label: 'Unloading window (next 72 h)', w: 34, align: 'left' },
 ];
 
 // Which limits the verdict columns are judged against, in the header itself, so a verdict cell that
@@ -60,6 +61,17 @@ function drawTablePage(doc, bundle, tz) {
     const lines = doc.splitTextToSize(bundle.basisStatement, cw);
     doc.text(lines, MARGIN, y + 2.5);
     y += lines.length * 3.6 + 3;
+  }
+  if (bundle.judged) {
+    setFont(doc, TEXT_DK, 7.2, 'bold');
+    doc.text(`Outlook, ${bundle.summary.total} locations`, MARGIN, y + 2.6);
+    [['Now', bundle.summaryText.now], ['Next 24 h', bundle.summaryText.next24h]].forEach(([label, text], k) => {
+      setFont(doc, TEXT_MD, 7.2, 'bold');
+      doc.text(label, MARGIN + 38, y + 2.6 + k * 3.8);
+      setFont(doc, TEXT_DK, 7.2, 'normal');
+      doc.text(fitText(doc, text, cw - 58), MARGIN + 54, y + 2.6 + k * 3.8);
+    });
+    y += 9;
   }
   bundle.warnings.forEach((w) => { y += notice(doc, { x: MARGIN, y, w: cw, text: w, size: 7 }) + 2; });
 
@@ -123,7 +135,7 @@ function drawTablePage(doc, bundle, tz) {
       } else if (!h.available) {
         if (col.key === 'hs') {
           setFont(doc, TEXT_MD, fontSize, 'italic');
-          const reason = doc.splitTextToSize(h.unavailableReason || 'No model data for this location', 17 + 14 + 20 + 15 + 17 + 17 + 14 - 3);
+          const reason = doc.splitTextToSize(h.unavailableReason || 'No model data for this location', 16 + 13 + 17 + 14 + 16 + 16 + 13 - 3);
           doc.text(reason.slice(0, 2), cx + 1.5, reason.length > 1 ? line1 : mid);
         }
       } else if (col.key === 'hs') cell(col, fmt(h.hsM, 1, 'm'));
@@ -138,6 +150,11 @@ function drawTablePage(doc, bundle, tz) {
       else if (col.key === 'maxWind24') cell(col, `${fmt(h.max24WindKt, 0, 'kt')}${h.missing24Hours > 0 ? ' *' : ''}`);
       else if (col.key === 'node') {
         cell(col, Number.isFinite(h.nodeDistanceKm) ? `${h.nodeDistanceKm.toFixed(1)} km${h.nodeFar ? ' †' : ''}` : '—', { color: h.nodeFar ? hazardText(1) : TEXT_DK, style: h.nodeFar ? 'bold' : 'normal' });
+      } else if (col.key === 'win') {
+        if (h.windowCell) {
+          cell(col, h.windowCell.head, { style: 'bold', y: line1 });
+          cell(col, h.windowCell.sub, { color: TEXT_MD, size: subSize, y: line2 });
+        } else cell(col, '—', { color: TEXT_MD });
       } else if (col.key === 'v1' || col.key === 'v24') {
         const v = col.key === 'v1' ? h.verdictNow : h.verdict24h;
         const detail = col.key === 'v1' ? h.detailNowShort : h.detail24hShort;

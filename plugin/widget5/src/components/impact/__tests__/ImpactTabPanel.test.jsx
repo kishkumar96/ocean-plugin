@@ -55,14 +55,26 @@ function renderPanel(props = {}) {
 }
 
 describe('ImpactTabPanel', () => {
-  it('leads with exposure, then aggregated information, then the lists', () => {
+  it('leads with the summary, then hazard, exposure and impact in causal order, then the lists', () => {
     const { container } = renderPanel();
     const text = container.textContent;
     // the sticky summary (buildings, population, damage) leads; the detail sections follow in order
-    const order = ['Buildings', 'Population', 'Aggregated information', 'Estimated economic damage', 'Most damaged assets'];
+    const order = ['Buildings', 'Population', '1 · Hazard', '2 · Exposure', 'Exposed assets by type', '3 · Impact', 'Estimated economic damage', 'Most damaged assets'];
     const positions = order.map((label) => text.indexOf(label));
     expect(positions.every((p) => p >= 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+
+  it('keeps depth (hazard), counts and values (exposure) and dollars (impact) in their own sections', () => {
+    renderPanel();
+    const section = (n) => screen.getByText(new RegExp(`^${n} · `)).parentElement.parentElement;
+    expect(within(section(1)).getByText('Deepest flooding at an exposed asset')).toBeInTheDocument();
+    expect(within(section(1)).queryByText('Estimated economic damage')).not.toBeInTheDocument();
+    expect(within(section(2)).getByText('Buildings exposed')).toBeInTheDocument();
+    expect(within(section(2)).getByText('Total exposed asset value')).toBeInTheDocument();
+    expect(within(section(2)).queryByText('Estimated economic damage')).not.toBeInTheDocument();
+    expect(within(section(3)).getByText('Estimated economic damage')).toBeInTheDocument();
+    expect(within(section(3)).queryByText('Buildings exposed')).not.toBeInTheDocument();
   });
 
   it('expands an asset type to its assets and shows the top damaged assets once per port', () => {

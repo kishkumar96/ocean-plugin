@@ -1,6 +1,6 @@
 import {
   explainWindow, normalizePublishedLimits, resolveActiveLimits, buildLimitsProposal, INCOMPLETE, worstVerdict, limitOrderIssues, emptyLimits, emptyLimitsConfig, normalizeLimitsConfig, evaluateConditions, limitsForHarbour, hasAnyLimit,
-  serializeLimitsConfig,
+  serializeLimitsConfig, findOperationalWindow, unloadingLabel,
 } from '../cookIslandsHarbourLimits';
 
 const limits = (caution, stop) => ({ caution: { hsM: null, tpS: null, windKt: null, ...caution }, stop: { hsM: null, tpS: null, windKt: null, ...stop } });
@@ -190,5 +190,67 @@ describe('explainWindow: which variable drove a verdict, how far, and when', () 
     expect(explainWindow([], cfg({}, { hsM: 1 })).level).toBe(0);
     expect(explainWindow(null, null).level).toBe(0);
     expect(explainWindow([{ valid_time: 'x', wave_height_m: 'nope' }], cfg({}, { hsM: 1 })).level).toBe(0);
+  });
+});
+
+describe('unloadingLabel', () => {
+  test('approved limits keep the plain operational words; others say whose limit was exceeded', () => {
+    expect(unloadingLabel(2, 'approved')).toBe('Stop');
+    expect(unloadingLabel(0, 'approved')).toBe('OK');
+    expect(unloadingLabel(2, 'provisional')).toBe('Over provisional stop limit');
+    expect(unloadingLabel(1, 'provisional')).toBe('Over provisional caution limit');
+    expect(unloadingLabel(0, 'provisional')).toBe('Within provisional limits');
+    expect(unloadingLabel(2, 'draft')).toBe('Over draft stop limit');
+    expect(unloadingLabel(INCOMPLETE, 'provisional')).toBe('Incomplete');
+  });
+});
+
+describe('findOperationalWindow', () => {
+  const H = 3600e3;
+  const T0 = Date.UTC(2026, 9, 1, 0);
+  const at = (i, hs) => ({ valid_time: new Date(T0 + i * H).toISOString(), wave_height_m: hs, wind_speed_kt: 5, tp_s: 8 });
+  const lim = limits({ hsM: 1 }, { hsM: 1.5 });
+  const run = (hs) => hs.map((v, i) => at(i, v));
+
+  test('within limits now: reports when that ends', () => {
+    const w = findOperationalWindow(run([0.5, 0.6, 0.7, 1.6, 0.4]), lim);
+    expect(w).toMatchObject({ state: 'within', hours: 3, throughEnd: false });
+    expect(w.until).toBe(new Date(T0 + 3 * H).toISOString());
+  });
+
+  test('within limits for the whole forecast', () => {
+    expect(findOperationalWindow(run([0.5, 0.5, 0.5]), lim)).toMatchObject({ state: 'within', throughEnd: true, until: null, horizonHours: 3 });
+  });
+
+  test('not now: the next run of at least 3 within-limit hours, skipping a short one', () => {
+    const w = findOperationalWindow(run([2, 0.5, 2, 2, 0.4, 0.4, 0.4, 0.4, 2]), lim);
+    expect(w).toMatchObject({ state: 'next', hours: 4, throughEnd: false });
+    expect(w.start).toBe(new Date(T0 + 4 * H).toISOString());
+    expect(w.end).toBe(new Date(T0 + 7 * H).toISOString());
+  });
+
+  test('caution counts as not suitable', () => {
+    expect(findOperationalWindow(run([2, 1.2, 1.2, 1.2]), lim).state).toBe('none');
+  });
+
+  test('a run still open at the end of the forecast is reported, not dropped', () => {
+    expect(findOperationalWindow(run([2, 2, 0.4]), lim)).toMatchObject({ state: 'next', hours: 1, throughEnd: true });
+  });
+
+  test('none: judged, but no window in the available forecast', () => {
+    expect(findOperationalWindow(run([2, 2, 2]), lim)).toEqual({ state: 'none', horizonHours: 3 });
+  });
+
+  test('a missing hour breaks a run: no window is claimed across a hole', () => {
+    const steps = [at(0, 2), at(1, 0.4), at(2, 0.4), at(4, 0.4), at(5, 0.4), at(6, 2)];
+    expect(findOperationalWindow(steps, lim).state).toBe('none'); // 2 h + 2 h, never 3 contiguous
+  });
+
+  test('unknown when nothing can be judged', () => {
+    expect(findOperationalWindow([], lim)).toEqual({ state: 'unknown', horizonHours: 0 });
+    expect(findOperationalWindow(run([0.5, 0.5]), limits({}, {})).state).toBe('unknown'); // no limits
+    // a period limit with no period at all: every step Incomplete
+    const noTp = run([0.5, 0.5]).map((st) => ({ ...st, tp_s: null }));
+    expect(findOperationalWindow(noTp, limits({}, { tpS: 14 })).state).toBe('unknown');
   });
 });

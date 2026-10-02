@@ -92,6 +92,14 @@ const COK_IMPACT_ASSETS_FILL_LAYER = 'cok-impact-assets-fill';
 const COK_IMPACT_ASSETS_LINE_HALO_LAYER = 'cok-impact-assets-line-halo';
 const COK_IMPACT_ASSETS_LINE_LAYER = 'cok-impact-assets-line';
 const COK_IMPACT_ASSETS_CIRCLE_LAYER = 'cok-impact-assets-circle';
+// Focus overlay: when a whole asset (e.g. Avatiu Harbour = 100+ RiskScape segments) is picked from the
+// impact list, every one of its features is copied into this source and drawn as a bright cyan
+// outline above the sector-coloured layers, so "what does it count as the port?" is answered on the map.
+const COK_IMPACT_FOCUS_SOURCE = 'cok-impact-focus-src';
+const COK_IMPACT_FOCUS_FILL_LAYER = 'cok-impact-focus-fill';
+const COK_IMPACT_FOCUS_CASING_LAYER = 'cok-impact-focus-casing';
+const COK_IMPACT_FOCUS_LINE_LAYER = 'cok-impact-focus-line';
+const COK_IMPACT_FOCUS_CIRCLE_LAYER = 'cok-impact-focus-circle';
 const COK_IMPACT_ASSETS_LAYERS = [COK_IMPACT_ASSETS_FILL_LAYER, COK_IMPACT_ASSETS_LINE_HALO_LAYER, COK_IMPACT_ASSETS_LINE_LAYER, COK_IMPACT_ASSETS_CIRCLE_LAYER];
 
 // RiskScape impact-by-district choropleth (/cok/impact/latest/districts/geojson)
@@ -274,6 +282,7 @@ export function useZarrMap({
   impactAssetsGeojson = null,
   impactAssetsVisible = false,
   impactAssetsScenario = null,
+  impactExposedHighlight = false,
   impactDistrictsGeojson = null,
   impactDistrictsVisible = false,
   impactDistrictsScenario = null,
@@ -309,6 +318,11 @@ export function useZarrMap({
   const riskHoverPopupRef = useRef(null);
   const advisoryHoverPopupRef = useRef(null);
   const impactAssetPopupRef = useRef(null);
+  const impactFocusPopupRef = useRef(null);
+  // Every flooded asset in the selected window while the "Highlight exposed assets" switch is on (null
+  // when off). The focus source falls back to this, so picking one asset and then clearing it returns to
+  // the whole-set highlight instead of blanking it.
+  const impactExposedRef = useRef(null);
   const impactDistrictHoverPopupRef = useRef(null);
   const routeWaypointMarkersRef = useRef([]);
   const routeLegLabelMarkersRef = useRef([]);
@@ -730,6 +744,37 @@ export function useZarrMap({
         },
       }, impactAssetsBeforeId);
 
+      map.addSource(COK_IMPACT_FOCUS_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addLayer({
+        id: COK_IMPACT_FOCUS_FILL_LAYER,
+        type: 'fill',
+        source: COK_IMPACT_FOCUS_SOURCE,
+        filter: IMPACT_POLYGON_FILTER,
+        paint: { 'fill-color': '#38bdf8', 'fill-opacity': 0.28, 'fill-outline-color': '#38bdf8' },
+      }, impactAssetsBeforeId);
+      // Polygon edges too, so a footprint is outlined as clearly as a wharf line.
+      map.addLayer({
+        id: COK_IMPACT_FOCUS_CASING_LAYER,
+        type: 'line',
+        source: COK_IMPACT_FOCUS_SOURCE,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#0f172a', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 5, 17, 9], 'line-opacity': 0.85 },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_IMPACT_FOCUS_LINE_LAYER,
+        type: 'line',
+        source: COK_IMPACT_FOCUS_SOURCE,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#38bdf8', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 17, 5] },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_IMPACT_FOCUS_CIRCLE_LAYER,
+        type: 'circle',
+        source: COK_IMPACT_FOCUS_SOURCE,
+        filter: IMPACT_POINT_FILTER,
+        paint: { 'circle-radius': 9, 'circle-color': 'rgba(56,189,248,0.25)', 'circle-stroke-width': 3, 'circle-stroke-color': '#38bdf8' },
+      }, impactAssetsBeforeId);
+
       map.on('click', RISK_CIRCLES_LAYER, onRiskClick);
       map.on('mouseenter', RISK_CIRCLES_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mousemove', RISK_CIRCLES_LAYER, onRiskHover);
@@ -1129,6 +1174,7 @@ export function useZarrMap({
     const map = mapInstance.current;
     if (!map) return;
     const visibility = impactAssetsVisible ? 'visible' : 'none';
+    if (!impactAssetsVisible) clearImpactFocus();
     for (const layerId of COK_IMPACT_ASSETS_LAYERS) {
       if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
     }
@@ -1142,6 +1188,7 @@ export function useZarrMap({
     // hiding the layer outright -- a reasonable default, and avoids a
     // flash-to-empty between "assets fetched" and "which window is selected"
     // landing on the same render.
+    clearImpactFocus(); // a focused asset belongs to the previous window
     const scenarioFilter = impactAssetsScenario ? ['==', ['get', 'scenario'], impactAssetsScenario] : true;
     // Values are arrays, not single strings -- ['geometry-type'] returns the literal GeoJSON
     // type, never folding e.g. MultiPolygon into 'Polygon' or MultiLineString into
@@ -1164,6 +1211,21 @@ export function useZarrMap({
       }
     }
   }, [impactAssetsScenario]);
+
+  // "Highlight exposed assets": outline every asset the selected window floods (any loss, population rows
+  // are people not assets), so the affected buildings and infrastructure read at a glance.
+  useEffect(() => {
+    const map = mapInstance.current;
+    const on = impactExposedHighlight && impactAssetsVisible;
+    const features = on && Array.isArray(impactAssetsGeojson?.features)
+      ? impactAssetsGeojson.features.filter((f) => (
+        f?.geometry && f.properties?.asset !== 'Population' && (f.properties?.totalLoss ?? 0) > 0
+        && (!impactAssetsScenario || f.properties?.scenario === impactAssetsScenario)
+      ))
+      : null;
+    impactExposedRef.current = features;
+    if (map?.getSource?.(COK_IMPACT_FOCUS_SOURCE)) clearImpactFocus();
+  }, [impactExposedHighlight, impactAssetsVisible, impactAssetsGeojson, impactAssetsScenario]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── RiskScape impact by district (data / visibility / scenario filter) ───
   // Same three-effects split and same scenario-filter fallback (show every
@@ -1462,7 +1524,29 @@ export function useZarrMap({
   // IMPACT_ASSET_SELECTED in the layer paint above -- mirrors
   // setSelectedRiskPoint below, just for the impact-assets source instead
   // of risk points.
-  function flyToImpactAsset(feature) {
+  function clearImpactFocus() {
+    const map = mapInstance.current;
+    map?.getSource?.(COK_IMPACT_FOCUS_SOURCE)?.setData(
+      impactExposedRef.current ? { type: 'FeatureCollection', features: impactExposedRef.current } : emptyFeatureCollection(),
+    );
+    impactFocusPopupRef.current?.remove();
+  }
+
+  // Bounds of every coordinate in the given features, [[w, s], [e, n]], or null when none.
+  function impactFeaturesBounds(features) {
+    let w = Infinity; let s = Infinity; let e = -Infinity; let n = -Infinity;
+    const visit = (c) => {
+      if (typeof c?.[0] === 'number') {
+        w = Math.min(w, c[0]); e = Math.max(e, c[0]); s = Math.min(s, c[1]); n = Math.max(n, c[1]);
+      } else if (Array.isArray(c)) c.forEach(visit);
+    };
+    features.forEach((f) => visit(f?.geometry?.coordinates));
+    return Number.isFinite(w) ? [[w, s], [e, n]] : null;
+  }
+
+  // `focus` ({ features, label }) is the whole real-world asset behind the picked row: every segment is
+  // outlined and the view fits all of them, instead of zooming to the single worst segment.
+  function flyToImpactAsset(feature, focus = null) {
     const map = mapInstance.current;
     if (!map || !feature) return;
     const prevId = selectedImpactAssetIdRef.current;
@@ -1473,6 +1557,27 @@ export function useZarrMap({
       map.setFeatureState({ source: COK_IMPACT_ASSETS_SOURCE, id: feature.id }, { selected: true });
     }
     selectedImpactAssetIdRef.current = feature.id ?? null;
+
+    const segments = Array.isArray(focus?.features) && focus.features.length > 1 ? focus.features : null;
+    clearImpactFocus();
+    if (segments) {
+      map.getSource(COK_IMPACT_FOCUS_SOURCE)?.setData({ type: 'FeatureCollection', features: segments });
+      const bounds = impactFeaturesBounds(segments);
+      if (bounds) {
+        map.fitBounds(bounds, { padding: 70, maxZoom: 17, duration: 800 });
+        if (focus.label) {
+          if (!impactFocusPopupRef.current) {
+            impactFocusPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8, maxWidth: '240px', className: 'impact-asset-popup' });
+          }
+          const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+          impactFocusPopupRef.current
+            .setLngLat([(bounds[0][0] + bounds[1][0]) / 2, bounds[1][1]])
+            .setHTML(`<div style="font:600 12px/1.4 system-ui,sans-serif;color:#0f172a;"><b>${esc(focus.label)}</b><div style="font-weight:400;opacity:.75;">${segments.length} mapped segments counted as this asset</div></div>`)
+            .addTo(map);
+        }
+        return;
+      }
+    }
     const center = impactAssetCenter(feature.geometry);
     if (center) map.flyTo({ center, zoom: Math.max(map.getZoom(), 17) });
   }
@@ -1723,7 +1828,7 @@ export function useZarrMap({
     }
     const html = `
       <div style="font:600 12px/1.5 system-ui, sans-serif; color:#0f172a; min-width:170px;">
-        <div style="font-weight:700; margin-bottom:3px;">${p.useType || 'Impact asset'}</div>
+        <div style="font-weight:700; margin-bottom:3px;">${p.details || p.useType || 'Impact asset'}</div>
         <div style="display:flex; align-items:center; gap:5px; margin-bottom:5px; font-weight:400; opacity:0.8;">
           <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${sectorColor}; flex-shrink:0;"></span>
           ${sectorLabel}

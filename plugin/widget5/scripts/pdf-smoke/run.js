@@ -212,13 +212,13 @@ const base = { vessel: 'small_craft', timeIndex: 60, bounds: B, scope: 'viewport
 
   inspect('harbour_approved', (await buildCookIslandsHarbourAdvisoryPdfDoc(hb({ limits: { basis: 'approved', config: limitsCfg, meta: approvedMeta } }))).doc, {
     pages: 2,
-    mustContain: [/Harbour Conditions Advisory/, /Avatiu Harbour/, /Takuua Passage/, /version 2, approved by Fixture Ports Authority/, /Exceeds (caution|stop) limit|Within limits/, /no step within 90 min of now/, /Next 72 hours/, /Sig\. wave/, /Max wind/, /Wave node/, /Wave height [0-9.]+ m, over (stop|caution) [0-9.]+ m/, /Hs = significant wave height/, /3\.9 km/, /wave-model point more than 2 km/, /Stop limit \(approved/, /Not navigation advice|not navigation advice/, /Harbour forecast run 2026-09-23/],
+    mustContain: [/Harbour Conditions Advisory/, /Avatiu Harbour/, /Takuua Passage/, /version 2, approved by Fixture Ports Authority/, /Exceeds (caution|stop) limit|Within limits/, /no step within 90 min of now/, /Next 72 hours/, /Sig\. wave/, /Max wind/, /Wave node/, /Hs [0-9.]+ m, over (stop|caution) [0-9.]+ m/, /Hs = significant wave height/, /3\.9 km/, /wave-model point more than 2 km/, /Stop limit \(approved/, /Not navigation advice|not navigation advice/, /Harbour forecast run 2026-09-23/, /Outlook, 16 locations/, /Now\s+[0-9]+ .*(stop|caution|within)/, /Next 24 h\s+[0-9]+ .*(stop|caution|within)/, /Unloading window/, /Next window|Within limits|None in/],
     mustNotContain: [/DRAFT/, /\(PROVISIONAL\)/],
     rawMustNotContain: [/LIMITS - NOT APPROVED/],
   });
   inspect('harbour_provisional', (await buildCookIslandsHarbourAdvisoryPdfDoc(hb({ limits: { basis: 'provisional', config: limitsCfg, meta: { version: 0 } } }))).doc, {
     pages: 2,
-    mustContain: [/PROVISIONAL placeholder values, NOT confirmed by Cook Islands Government/, /indicative only/, /Exceeds (caution|stop) limit|Within limits/, /PROVISIONAL, not confirmed/, /Verdict now \(PROVISIONAL\)/, /Worst next 24 h \(PROVISIONAL\)/],
+    mustContain: [/PROVISIONAL placeholder values, NOT confirmed by Cook Islands Government/, /indicative only/, /Exceeds (caution|stop) limit|Within limits/, /PROVISIONAL, not confirmed/, /Verdict now \(PROVISIONAL\)/, /Worst next 24 h \(PROVISIONAL\)/, /over provisional (stop|caution) limit|within provisional limits/],
     // the watermark: once per page, so twice in a two-page report
     rawMustContain: [/(PROVISIONAL LIMITS - NOT APPROVED.*){2}/],
     mustNotContain: [/approved by/],

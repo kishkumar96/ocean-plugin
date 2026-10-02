@@ -359,6 +359,7 @@ function CookIslandsForecast() {
     impactAssetsGeojson: impactAssets.geojson,
     impactAssetsVisible: impactSurfaceVisible,
     impactAssetsScenario: impactSelectedScenario,
+    impactExposedHighlight: activeLayers?.impactExposed === true,
     impactDistrictsGeojson: impactDistrictsGeojson.geojson,
     impactDistrictsVisible: impactSurfaceVisible && activeLayers?.impactDistricts !== false,
     impactDistrictsScenario: impactSelectedScenario,
@@ -1090,7 +1091,7 @@ function CookIslandsForecast() {
 
   return (
     <div style={widgetContainerStyle}>
-      <ModernHeader timeDisplayZone={timeDisplayZone} onShareView={handleShareView} />
+      <ModernHeader timeDisplayZone={timeDisplayZone} onShareView={handleShareView} modelRunStart={capTime.modelRunStart} />
       <ForecastApp
         WAVE_FORECAST_LAYERS={ALL_LAYERS}
         ALL_LAYERS={ALL_LAYERS}

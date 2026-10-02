@@ -50,3 +50,34 @@ describe('age + staleness', () => {
     expect(modelRunAgeHours(null)).toBeNull();
   });
 });
+
+describe('forecast freshness and lead time', () => {
+  const { forecastFreshness, formatAge, leadHours, formatLead } = require('../modelRunTiming');
+
+  test('current to 24 h, aging to the 30 h stale limit, stale beyond, unknown without a run', () => {
+    expect(forecastFreshness(19)).toBe('current');
+    expect(forecastFreshness(24)).toBe('current');
+    expect(forecastFreshness(27)).toBe('aging');
+    expect(forecastFreshness(30)).toBe('aging');
+    expect(forecastFreshness(30.1)).toBe('stale');
+    expect(forecastFreshness(null)).toBe('unknown');
+    expect(forecastFreshness(NaN)).toBe('unknown');
+  });
+
+  test('ages read in hours, then days', () => {
+    expect(formatAge(19.4)).toBe('19 h');
+    expect(formatAge(60)).toBe('2.5 days');
+    expect(formatAge(-1)).toBe('0 h');
+    expect(formatAge(null)).toBe('');
+  });
+
+  test('lead time is hours since the run start, signed, and null when unusable', () => {
+    const run = new Date('2026-09-30T08:00:00Z');
+    expect(leadHours(new Date('2026-10-01T03:00:00Z'), run)).toBe(19);
+    expect(formatLead(19)).toBe('+19 h');
+    expect(formatLead(-3.2)).toBe('-3 h');
+    expect(leadHours('2026-10-01T03:00:00Z', run)).toBe(19);
+    expect(leadHours(undefined, run)).toBeNull();
+    expect(leadHours(new Date(), null)).toBeNull();
+  });
+});

@@ -47,13 +47,17 @@ describe('ImpactLayerSwitches', () => {
   test('is a compact list of switches with no legends, and toggles call back', () => {
     const setActiveLayers = jest.fn();
     render(<ImpactLayerSwitches activeLayers={layers} setActiveLayers={setActiveLayers} />);
-    expect(screen.getAllByRole('checkbox')).toHaveLength(5);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(6);
     expect(screen.queryByText('Over $1M')).toBeNull();
     expect(screen.getByRole('checkbox', { name: /Compare lines/ })).not.toBeChecked();
     fireEvent.click(screen.getByRole('checkbox', { name: /Compare lines/ }));
     expect(setActiveLayers.mock.calls[0][0]({}).mhwsAltContours).toBe(true);
+    // off by default (opt-in), unlike the other layers
+    expect(screen.getByRole('checkbox', { name: /Highlight exposed assets/ })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Highlight exposed assets/ }));
+    expect(setActiveLayers.mock.calls[1][0]({}).impactExposed).toBe(true);
     fireEvent.click(screen.getByRole('checkbox', { name: /District damage/ }));
-    expect(setActiveLayers.mock.calls[1][0]({ impactDistricts: true }).impactDistricts).toBe(false);
+    expect(setActiveLayers.mock.calls[2][0]({ impactDistricts: true }).impactDistricts).toBe(false);
   });
 });
 

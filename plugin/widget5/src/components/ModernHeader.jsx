@@ -2,8 +2,17 @@ import React from 'react';
 import { AlertCircle, Check, Share2 } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 import { formatZoned } from '../utils/timeZoneFormat';
+import { modelRunAgeHours, forecastFreshness, formatAge } from '../utils/modelRunTiming';
 
-const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga', onShareView }) => {
+// What the status dot says about the FORECAST, not about the connection: how old the model run is.
+const FRESHNESS = {
+  current: { color: '#10b981', glow: 'rgba(16, 185, 129, 0.6)', word: 'Current' },
+  aging: { color: '#f59e0b', glow: 'rgba(245, 158, 11, 0.6)', word: 'Aging' },
+  stale: { color: '#ef4444', glow: 'rgba(239, 68, 68, 0.6)', word: 'Stale' },
+  unknown: { color: '#94a3b8', glow: 'rgba(148, 163, 184, 0.5)', word: 'Forecast run unknown' },
+};
+
+const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga', onShareView, modelRunStart = null }) => {
   const [currentTime, setCurrentTime] = React.useState(new Date());
   const [shareStatus, setShareStatus] = React.useState('idle');
   const shareResetTimerRef = React.useRef(null);
@@ -115,25 +124,29 @@ const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga', onShareView }) =>
         )}
         <ThemeToggle />
 
-        {/* Connection Status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            backgroundColor: '#10b981',
-            boxShadow: '0 0 6px rgba(16, 185, 129, 0.6)',
-            animation: 'pulse 2s infinite'
-          }}></div>
-          <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)' }}>Live</span>
-          <span style={{ 
-            fontSize: '0.8rem', 
-            color: 'rgba(255,255,255,0.5)',
-            marginLeft: '10px'
-          }}>
-            {formatDateTime(currentTime)}
-          </span>
-        </div>
+        {/* Forecast status: when the model run was issued and how old it is (not a "live" connection light) */}
+        {(() => {
+          const ageHours = modelRunAgeHours(modelRunStart, currentTime.getTime());
+          const state = forecastFreshness(ageHours);
+          const f = FRESHNESS[state];
+          const issued = modelRunStart instanceof Date && Number.isFinite(modelRunStart.getTime())
+            ? formatZoned(modelRunStart, timeDisplayZone, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+            : null;
+          const tip = issued
+            ? `Model run issued ${issued}. Age ${formatAge(ageHours)}. A healthy run is up to a day old when it reaches the dashboard; older than 30 h means a newer run has not published.`
+            : 'The model run time of the selected layer is not known.';
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} role="status" data-testid="forecast-status" title={tip}>
+              <div aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: f.color, boxShadow: `0 0 6px ${f.glow}` }} />
+              <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.78)' }}>
+                {issued ? <>Forecast issued {issued} · {formatAge(ageHours)} old · <b style={{ color: f.color }}>{f.word}</b></> : f.word}
+              </span>
+              <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', marginLeft: '10px' }}>
+                {formatDateTime(currentTime)}
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Add the pulse animation as a style tag */}

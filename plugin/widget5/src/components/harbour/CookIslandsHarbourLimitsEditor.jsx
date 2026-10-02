@@ -8,6 +8,13 @@ import { downloadJson } from '../../services/cookIslandsWaveTimeseriesService';
 
 const TEXT_MUTED = 'rgba(203, 213, 225, 0.72)';
 const DEFAULT_TARGET = 'default';
+// The native <select> popup ignores the select's own translucent background and opens as a plain white
+// list, so options inheriting this panel's pale text were white-on-white (only the hovered one showed).
+// Every option therefore carries its own explicit background and colour, and the select declares a dark
+// colour scheme so the OS popup (and its scrollbar) render dark too. Same fix as ImpactCategoryAccordion's
+// Severity dropdown and the landing-area comparison's site picker.
+const OPTION_STYLE = { background: '#0f172a', color: '#f8fafc' };
+
 const inputStyle = {
   width: '4.2rem', padding: '0.2rem 0.3rem', fontSize: '0.74rem', color: '#f8fafc',
   background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 4,
@@ -67,10 +74,10 @@ function CookIslandsHarbourLimitsEditor({ config, onChange, hasDraft = false, on
 
       <label style={{ display: 'block', marginBottom: '0.5rem' }}>
         <span style={{ color: TEXT_MUTED }}>Applies to </span>
-        <select value={target} onChange={(e) => setTarget(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
-          <option value={DEFAULT_TARGET}>All harbours (default)</option>
+        <select id="harbour-limits-target" name="harbour-limits-target" autoComplete="off" value={target} onChange={(e) => setTarget(e.target.value)} style={{ ...inputStyle, width: 'auto', colorScheme: 'dark' }}>
+          <option value={DEFAULT_TARGET} style={OPTION_STYLE}>All harbours (default)</option>
           {COOK_ISLANDS_HARBOUR_POINTS.map((p) => (
-            <option key={p.riskPointId} value={String(p.riskPointId)}>
+            <option key={p.riskPointId} value={String(p.riskPointId)} style={OPTION_STYLE}>
               {p.name}{config.harbours[String(p.riskPointId)] ? ' (custom)' : ''}
             </option>
           ))}
@@ -104,6 +111,7 @@ function CookIslandsHarbourLimitsEditor({ config, onChange, hasDraft = false, on
               {['caution', 'stop'].map((level) => (
                 <td key={level} style={{ paddingRight: '0.5rem', paddingTop: 4 }}>
                   <input
+                    id={`harbour-limit-${level}-${key}`} name={`harbour-limit-${level}-${key}`} autoComplete="off"
                     type="number" min="0" step={step} inputMode="decimal"
                     aria-label={`${label} ${level} limit${isDefault ? '' : ` for ${COOK_ISLANDS_HARBOUR_POINTS.find((p) => String(p.riskPointId) === target)?.name}`}`}
                     disabled={!editable}
@@ -141,7 +149,7 @@ function CookIslandsHarbourLimitsEditor({ config, onChange, hasDraft = false, on
             Discard draft
           </button>
         )}
-        <input ref={fileRef} type="file" accept="application/json,.json" onChange={handleImport} style={{ display: 'none' }} data-testid="limits-import" />
+        <input ref={fileRef} id="harbour-limits-import" name="harbour-limits-import" type="file" accept="application/json,.json" onChange={handleImport} style={{ display: 'none' }} data-testid="limits-import" />
       </div>
       {published?.history?.length > 0 && (
         <details style={{ marginTop: '0.6rem', color: TEXT_MUTED }}>

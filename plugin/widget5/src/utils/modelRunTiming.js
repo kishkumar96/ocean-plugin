@@ -32,3 +32,37 @@ export function modelRunAgeHours(modelRunStart, now = Date.now()) {
 }
 
 export const isModelRunStale = (ageHours) => ageHours !== null && ageHours > STALE_AFTER_HOURS;
+
+// A normal run reaches the dashboard ~16-22 h after its init time and the next cycle is 6 h behind it,
+// so a healthy feed is routinely a day old. "Current" therefore runs to 24 h, "aging" to the stale limit,
+// "stale" beyond it. Distinct from the stale banner's own bound only in having the middle state.
+export const AGING_AFTER_HOURS = 24;
+
+export function forecastFreshness(ageHours) {
+  if (ageHours === null || ageHours === undefined || !Number.isFinite(ageHours)) return 'unknown';
+  if (ageHours > STALE_AFTER_HOURS) return 'stale';
+  if (ageHours > AGING_AFTER_HOURS) return 'aging';
+  return 'current';
+}
+
+// "19 h" under two days, "2.3 days" beyond.
+export function formatAge(ageHours) {
+  if (!Number.isFinite(ageHours)) return '';
+  const h = Math.max(0, ageHours);
+  return h >= 48 ? `${(h / 24).toFixed(1)} days` : `${Math.round(h)} h`;
+}
+
+// Hours from the model run start to a valid time ("+19 h"); null when either is unusable.
+export function leadHours(validTime, modelRunStart) {
+  // new Date(null) is the 1970 epoch, so a missing time must be rejected before it is parsed.
+  if (validTime === null || validTime === undefined || modelRunStart === null || modelRunStart === undefined) return null;
+  const v = validTime instanceof Date ? validTime.getTime() : new Date(validTime).getTime();
+  const r = modelRunStart instanceof Date ? modelRunStart.getTime() : new Date(modelRunStart).getTime();
+  return Number.isFinite(v) && Number.isFinite(r) ? (v - r) / 3_600_000 : null;
+}
+
+export function formatLead(hours) {
+  if (!Number.isFinite(hours)) return '';
+  const rounded = Math.round(hours);
+  return `${rounded >= 0 ? '+' : '-'}${Math.abs(rounded)} h`;
+}

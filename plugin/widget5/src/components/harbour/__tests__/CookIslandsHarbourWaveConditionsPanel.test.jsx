@@ -132,7 +132,7 @@ describe('unloading limits', () => {
     // 1.2 m now >= 1 m stop limit at every harbour.
     expect(screen.getByText('Unloading (draft)')).toBeInTheDocument();
     expect(screen.getByText(/DRAFT limits \(local to this browser, not approved\)/)).toBeInTheDocument();
-    expect(screen.getAllByText('Stop').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Over draft stop limit').length).toBeGreaterThan(0);
 
     unmount();
     render(<CookIslandsHarbourWaveConditionsPanel enabled />);
@@ -150,8 +150,8 @@ describe('unloading limits', () => {
     fireEvent.click(screen.getByRole('button', { name: /Set custom limits for this harbour/ }));
     fireEvent.change(screen.getByLabelText('Wave height stop limit for Avatiu Harbour'), { target: { value: '3' } });
     const avatiu = screen.getAllByRole('row').find((r) => within(r).queryByRole('button', { name: /Avatiu Harbour/ }));
-    expect(avatiu).not.toHaveTextContent('Stop');
-    expect(avatiu).toHaveTextContent('OK');
+    expect(avatiu).not.toHaveTextContent('Over draft stop');
+    expect(avatiu).toHaveTextContent('Within draft limits');
   });
 
   test('a period limit with no period available shows Incomplete, never OK (even with Hs/wind well within limits)', async () => {
@@ -195,8 +195,27 @@ describe('unloading limits', () => {
       await load();
       expect(await screen.findByText(/PROVISIONAL unloading limits \(placeholder values, not confirmed by Cook Islands Government\)/)).toBeInTheDocument();
       expect(screen.getByText('Unloading (provisional)')).toBeInTheDocument();
-      expect(screen.getAllByText('Stop').length).toBeGreaterThan(0);
+      // Not the bare operational word "Stop": the limits are placeholders.
+      expect(screen.queryByText('Stop')).not.toBeInTheDocument();
+      expect(screen.getAllByText('Over provisional stop limit').length).toBeGreaterThan(0);
       expect(screen.queryByText(/approved by/)).not.toBeInTheDocument();
+    });
+
+    test('a headline banner counts locations by verdict, in the limits\' own wording', async () => {
+      global.fetch = mockFetch(timeseriesResponse(1.2, 14, 0), provisional(1)); // 1.2 m >= 1 m stop everywhere
+      await load();
+      const banner = await screen.findByTestId('harbour-summary');
+      expect(banner).toHaveTextContent(/Marine operations outlook, 16 locations/);
+      expect(banner).toHaveTextContent(/Now\s*●\s*16 over provisional stop limit/);
+      expect(banner).toHaveTextContent(/Next 24 h\s*●\s*16 over provisional stop limit/);
+    });
+
+    test('each row says what drives the verdict and when conditions next allow unloading', async () => {
+      global.fetch = mockFetch(timeseriesResponse(1.2, 14, 0), provisional(1));
+      await load();
+      // the 24 h peak (2.4 m in this fixture), not the current 1.2 m, is what the cause reports
+      expect((await screen.findAllByText('Cause: Wave height 2.4 m vs stop 1.0 m')).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/No window of 3 h or more in the next/).length).toBeGreaterThan(0);
     });
 
     test('entering your own limits replaces provisional values (as a labelled draft)', async () => {
@@ -206,7 +225,7 @@ describe('unloading limits', () => {
       fireEvent.click(screen.getByRole('button', { name: /Edit unloading limits/ }));
       fireEvent.change(screen.getByLabelText('Wave height stop limit'), { target: { value: '3' } });
       expect(screen.getByText('Unloading (draft)')).toBeInTheDocument();
-      expect(screen.queryByText('Stop')).not.toBeInTheDocument();
+      expect(screen.queryByText('Over draft stop limit')).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: /Discard draft/ }));
       expect(screen.getByText('Unloading (provisional)')).toBeInTheDocument();
     });
@@ -374,6 +393,21 @@ describe('unloading limits', () => {
       const cells = screen.getAllByText('Unavailable');
       expect(cells.length).toBe(16);
       expect(cells[0]).toHaveAttribute('title', expect.stringMatching(/no step within 90 min of now/));
+    });
+  });
+
+  test('the editor\'s "Applies to" list is readable: every option has its own dark background and light text', async () => {
+    global.fetch = mockFetch(timeseriesResponse(1, 5, 0));
+    render(<CookIslandsHarbourWaveConditionsPanel enabled />);
+    await waitFor(() => expect(screen.queryByText(/Loading harbour wave conditions/)).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Edit unloading limits/ }));
+    const options = within(screen.getByLabelText(/^Applies to/)).getAllByRole('option');
+    expect(options).toHaveLength(1 + 16); // "All harbours" + the 16 named locations
+    options.forEach((opt) => {
+      // Without these the native popup showed white-on-white text.
+      expect(opt.style.background).toBeTruthy();
+      expect(opt.style.color).toBeTruthy();
+      expect(opt.style.color).not.toBe(opt.style.background);
     });
   });
 });

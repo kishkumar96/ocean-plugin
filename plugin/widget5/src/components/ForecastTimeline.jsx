@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import './ForecastTimeline.css';
+import { leadHours, formatLead } from '../utils/modelRunTiming';
 
 const SPEED_OPTIONS = [
   { label: '0.5×', ms: 1400 },
@@ -77,7 +78,11 @@ export default function ForecastTimeline({
     });
   }, [capTime?.availableTimestamps, timeDisplayZone]);
 
-  const thumbLabel = formatThumbLabel(currentSliderDate, timeDisplayZone);
+  // Forecast lead time beside the clock time ("+19 h"): hours since the model run started. Omitted when
+  // the run start is unknown, and when the slider is on a step before it (the suitability hindcast).
+  const lead = leadHours(currentSliderDate, capTime?.modelRunStart);
+  const leadText = lead !== null && lead >= 0 ? ` · ${formatLead(lead)}` : '';
+  const thumbLabel = `${formatThumbLabel(currentSliderDate, timeDisplayZone)}${leadText}`;
   const loading = !!capTime?.loading;
   // capTime.loading is the same flag the active overlay flips true→false on
   // *every* timestep fetch, including each Play advance (see UgridOverlay.js

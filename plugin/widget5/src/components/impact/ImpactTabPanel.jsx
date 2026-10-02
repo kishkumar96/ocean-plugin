@@ -62,7 +62,19 @@ function SummaryTile({ icon: Icon, label, value, color, badge = null }) {
         {label}
       </div>
       <div style={{ fontSize: '1.02rem', fontWeight: 700, color: TEXT_PRIMARY, lineHeight: 1.2 }}>{value}</div>
-      {badge && <div title="Port assets often reflect harbour water beside the structure, not flooding of it; see the note under Aggregated information." style={{ fontSize: '0.58rem', color: '#fcd34d' }}>{badge}</div>}
+      {badge && <div title="Port assets often reflect harbour water beside the structure, not flooding of it; see the note under Impact." style={{ fontSize: '0.58rem', color: '#fcd34d' }}>{badge}</div>}
+    </div>
+  );
+}
+
+// The three stages of the assessment, in the order they are caused: the HAZARD (what the water does),
+// the EXPOSURE (what is in its way) and the IMPACT (what that is estimated to cost). Each figure sits in
+// exactly one stage, so a depth is never read as damage nor a count of assets as a loss.
+function StageHeading({ step, title, gloss }) {
+  return (
+    <div style={{ borderLeft: '3px solid rgba(125, 211, 252, 0.6)', paddingLeft: '0.5rem', margin: '0.2rem 0 0.15rem' }}>
+      <h3 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: TEXT_PRIMARY }}>{step} · {title}</h3>
+      <div style={{ fontSize: '0.64rem', color: TEXT_MUTED }}>{gloss}</div>
     </div>
   );
 }
@@ -81,7 +93,7 @@ function AssetsNote({ children, isError }) {
 
 function AssetUnitRow({ unit, onSelectAsset }) {
   const clickable = Boolean(onSelectAsset);
-  const select = () => onSelectAsset?.(unit.representative);
+  const select = () => onSelectAsset?.(unit.representative, { features: unit.segments, label: unit.label });
   const meta = [
     unit.useType && unit.useType !== unit.label ? unit.useType : null,
     Number.isFinite(unit.maxDepth) ? `depth ${unit.maxDepth.toFixed(2)} m` : null,
@@ -127,7 +139,9 @@ function AssetTypeRow({ row, expanded, onToggle, onSelectAsset }) {
         <ChevronDown size={14} style={{ flexShrink: 0, color: TEXT_MUTED, transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
         <span style={{ fontSize: '0.74rem', flex: 1 }}>{row.label}</span>
         <span style={{ fontSize: '0.72rem', color: TEXT_MUTED }}>{row.count} exposed</span>
-        <span style={{ fontSize: '0.76rem', fontWeight: 700, minWidth: '3.6rem', textAlign: 'right' }}>{fmtUsd(row.loss)}</span>
+        <span title="Deepest modelled flooding at any asset of this type" style={{ fontSize: '0.76rem', fontWeight: 700, minWidth: '3.6rem', textAlign: 'right' }}>
+          {Number.isFinite(row.maxDepth) ? `up to ${row.maxDepth.toFixed(1)} m` : '—'}
+        </span>
       </button>
       {expanded && (
         <div style={{ margin: '0 0 0.3rem 1.2rem', borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
@@ -168,7 +182,7 @@ function TopAssetRow({ rank, unit, maxLoss, onSelectAsset }) {
     Number.isFinite(unit.maxDepth) ? `depth ${unit.maxDepth.toFixed(2)} m` : null,
   ].filter(Boolean).join(' · ');
   const clickable = Boolean(onSelectAsset);
-  const select = () => onSelectAsset?.(unit.representative);
+  const select = () => onSelectAsset?.(unit.representative, { features: unit.segments, label: unit.label });
   return (
     <div
       role={clickable ? 'button' : undefined}
@@ -344,6 +358,11 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
     return groupImpactAssetUnits(features.filter((f) => f.properties?.scenario === selected.scenario));
   }, [assetsGeojson, selected?.scenario]);
   const assetTypes = useMemo(() => summarizeImpactAssetTypes(assetUnits), [assetUnits]);
+  // Hazard as seen by what it touches: the deepest modelled flooding at any exposed asset.
+  const deepestAssetDepthM = useMemo(() => {
+    const depths = assetUnits.map((u) => u.maxDepth).filter(Number.isFinite);
+    return depths.length ? Math.max(...depths) : null;
+  }, [assetUnits]);
   const [topLimit, setTopLimit] = useState(5);
   // Kept by asset type (not window), so the open type stays open when you
   // switch windows, as long as that type is still exposed there.
@@ -491,21 +510,34 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
         )}
       </div>
 
-      {/* Aggregated information: window totals, then exposed assets across all
-          asset types (buildings, roads, bridges, ports, pipes, ...). */}
+      {/* HAZARD -> EXPOSURE -> IMPACT. Hazard: what the water does. Exposure: what is in its way.
+          Impact: what that is estimated to cost. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-        <SectionHeading>Aggregated information</SectionHeading>
+        <StageHeading step="1" title="Hazard" gloss="What the water does: how deep, and how much land." />
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <MetricRow icon={DollarSign} label="Estimated economic damage" value={fmtUsd(selected?.totalLoss)} accentColor="#E63946" />
-          {portLoss > 0 && selected?.totalLoss > 0 && (
-            <div style={{ fontSize: '0.64rem', color: '#fcd34d', lineHeight: 1.4, padding: '0 0 0.4rem 2.1rem' }}>
-              {Math.round((100 * portLoss) / selected.totalLoss)}% ({fmtUsd(portLoss)}) is Port assets, likely overstated (harbour water, not
-              flooding of the structures). Excluding them: <strong>{fmtUsd(Math.max(selected.totalLoss - portLoss, 0))}</strong>.
-            </div>
-          )}
+          <MetricRow
+            icon={Waves}
+            label="Deepest flooding at an exposed asset"
+            value={deepestAssetDepthM === null ? '—' : `${deepestAssetDepthM.toFixed(1)} m`}
+            accentColor="#38bdf8"
+          />
+        </div>
+        <MhwsInundationSection scenario={selected?.scenario ?? null} impactCycleId={result?.cycleId ?? null} onMhwsResult={onMhwsResult} />
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+        <StageHeading step="2" title="Exposure" gloss="What is in the water’s way. Counts and values, not losses." />
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <MetricRow icon={Building2} label="Buildings exposed" value={selected?.totalExposedBuildings?.toLocaleString() ?? '—'} accentColor="#F4A261" />
+          <MetricRow
+            icon={Users}
+            label="Population exposed"
+            value={selected?.population?.value === null || selected?.population?.value === undefined ? '—' : `${selected.population.value.toLocaleString()}${selected.population.validated ? '' : '*'}`}
+            accentColor="#a78bfa"
+          />
           <MetricRow icon={Layers} label="Total exposed asset value" value={fmtUsd(selected?.totalExposedValue)} accentColor="#38bdf8" />
         </div>
-        <div style={{ fontSize: '0.66rem', color: TEXT_MUTED, marginTop: '0.4rem' }}>Exposed assets by type</div>
+        <div style={{ fontSize: '0.66rem', color: TEXT_MUTED, marginTop: '0.4rem' }}>Exposed assets by type (select one to outline it on the map)</div>
         {assetsPending ? <AssetsNote>Loading asset breakdown…</AssetsNote>
           : assetsFailed ? <AssetsNote isError>Asset breakdown unavailable: {assets.error}</AssetsNote>
           : assetTypes.length === 0 ? <AssetsNote>No per-asset detail for this window.</AssetsNote>
@@ -520,13 +552,22 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
           ))}
       </div>
 
-      <div>
-        <h3 style={{ margin: '0 0 0.35rem', fontSize: '0.8rem', fontWeight: 600 }}>Economic damage by sector</h3>
-        <ImpactSectorChart sectorValues={selected?.lossesBySector} isDarkMode />
-      </div>
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem' }}>
+        <StageHeading step="3" title="Impact" gloss="What that is estimated to cost: forecast economic damage." />
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <MetricRow icon={DollarSign} label="Estimated economic damage" value={fmtUsd(selected?.totalLoss)} accentColor="#E63946" />
+          {portLoss > 0 && selected?.totalLoss > 0 && (
+            <div style={{ fontSize: '0.64rem', color: '#fcd34d', lineHeight: 1.4, padding: '0 0 0.4rem 2.1rem' }}>
+              {Math.round((100 * portLoss) / selected.totalLoss)}% ({fmtUsd(portLoss)}) is Port assets, likely overstated (harbour water, not
+              flooding of the structures). Excluding them: <strong>{fmtUsd(Math.max(selected.totalLoss - portLoss, 0))}</strong>.
+            </div>
+          )}
+        </div>
+
+        <h3 style={{ margin: '0.5rem 0 0.35rem', fontSize: '0.8rem', fontWeight: 600 }}>Economic damage by sector</h3>
+        <ImpactSectorChart sectorValues={selected?.lossesBySector} isDarkMode />
+
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem', marginTop: '0.5rem' }}>
           <SectionHeading>Most damaged assets</SectionHeading>
           {damagedAssetCount > 5 && (
             <button
@@ -544,10 +585,10 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
           : topAssets.map((unit, i) => (
             <TopAssetRow key={unit.key} rank={i + 1} unit={unit} maxLoss={topAssets[0].totalLoss} onSelectAsset={onSelectAsset} />
           ))}
-      </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-        <SectionHeading>By district</SectionHeading>
+        <div style={{ marginTop: '0.5rem' }}>
+          <SectionHeading>By district</SectionHeading>
+        </div>
         {districtsPending ? <AssetsNote>Loading district breakdown…</AssetsNote>
           : districtsFailed ? <AssetsNote isError>District breakdown unavailable: {districts.error}</AssetsNote>
           : topDistricts.length === 0 ? <AssetsNote>No district-level damage modelled for this window.</AssetsNote>
@@ -555,13 +596,6 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
             <DistrictRow key={district.districtId} rank={i + 1} district={district} maxLoss={topDistricts[0].totalLoss} />
           ))}
       </div>
-
-      <details>
-        <summary style={{ cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, color: '#7dd3fc' }}>Advanced: land flooded above the tide line</summary>
-        <div style={{ marginTop: '0.5rem' }}>
-          <MhwsInundationSection scenario={selected?.scenario ?? null} impactCycleId={result?.cycleId ?? null} onMhwsResult={onMhwsResult} />
-        </div>
-      </details>
 
       {onExpand && (
         <button

@@ -8,9 +8,10 @@ import { useHarbourUnloadingLimits } from '../../hooks/useHarbourUnloadingLimits
 import { buildHarbourAdvisoryBundle } from '../../reports/harbourAdvisoryBundle';
 import { exportCookIslandsHarbourAdvisoryPdf } from '../../utils/CookIslandsHarbourAdvisoryPdf';
 import {
-  evaluateConditions, worstVerdict, INCOMPLETE, hasAnyLimit, limitsForHarbour, UNLOADING_LABELS,
+  evaluateConditions, worstVerdict, INCOMPLETE, hasAnyLimit, limitsForHarbour, unloadingLabel,
 } from '../../config/cookIslandsHarbourLimits';
 import { formatZoned } from '../../utils/timeZoneFormat';
+import { leadHours, formatLead } from '../../utils/modelRunTiming';
 
 // Status colours: matches the app's single hazard palette semantics
 // (green ok / amber caution / red stop), kept local because these are
@@ -30,7 +31,7 @@ function worstOver24h(row, limits) {
   ]);
 }
 
-function Verdict({ value }) {
+function Verdict({ value, basis }) {
   if (value === null) return <span style={{ color: TEXT_MUTED }}>—</span>;
   if (value === INCOMPLETE) {
     return (
@@ -42,10 +43,49 @@ function Verdict({ value }) {
       </span>
     );
   }
-  return <span style={{ color: UNLOADING_COLORS[value], fontWeight: 700 }}>{UNLOADING_LABELS[value]}</span>;
+  return <span style={{ color: UNLOADING_COLORS[value], fontWeight: 700 }}>{unloadingLabel(value, basis)}</span>;
 }
 
 const TEXT_MUTED = 'rgba(203, 213, 225, 0.72)';
+
+// Headline over the table: how many locations are over which limit, now and across the next 24 h. Counts
+// only; the table below says which and why. Wording follows the limits' authority (see unloadingLabel).
+function SummaryBanner({ summary, basis }) {
+  const row = (label, t) => {
+    const parts = [
+      t.stop > 0 && { key: 'stop', color: UNLOADING_COLORS[2], text: `${t.stop} ${unloadingLabel(2, basis).toLowerCase()}` },
+      t.caution > 0 && { key: 'caution', color: UNLOADING_COLORS[1], text: `${t.caution} ${unloadingLabel(1, basis).toLowerCase()}` },
+      t.within > 0 && { key: 'within', color: UNLOADING_COLORS[0], text: `${t.within} ${unloadingLabel(0, basis).toLowerCase()}` },
+      t.incomplete > 0 && { key: 'incomplete', color: '#fbbf24', text: `${t.incomplete} incomplete data` },
+      t.unavailable > 0 && { key: 'unavailable', color: TEXT_MUTED, text: `${t.unavailable} unavailable` },
+    ].filter(Boolean);
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.15rem 0.7rem', alignItems: 'baseline' }}>
+        <span style={{ color: TEXT_MUTED, minWidth: '3.6rem' }}>{label}</span>
+        {parts.map((part) => (
+          <span key={part.key} style={{ color: part.color, fontWeight: 600 }}>
+            <span aria-hidden="true">● </span>{part.text}
+          </span>
+        ))}
+      </div>
+    );
+  };
+  return (
+    <div
+      role="status"
+      aria-label="Harbour outlook summary"
+      data-testid="harbour-summary"
+      style={{
+        fontSize: '0.74rem', lineHeight: 1.5, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+        borderRadius: 8, padding: '0.45rem 0.6rem', marginBottom: '0.6rem',
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: '0.15rem' }}>Marine operations outlook, {summary.total} locations</div>
+      {row('Now', summary.now)}
+      {row('Next 24 h', summary.next24h)}
+    </div>
+  );
+}
 
 function formatMetres(value) {
   return Number.isFinite(value) ? `${value.toFixed(1)} m` : '—';
@@ -209,6 +249,8 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
         />
       )}
 
+      {!loading && rows.length > 0 && reportBundle.judged && <SummaryBanner summary={reportBundle.summary} basis={reportBundle.basis} />}
+
       {!loading && rows.length > 0 && (
         <>
           <CookIslandsWaveRunAge
@@ -285,11 +327,13 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
                             style={{ padding: '0.35rem 0 0.35rem 0.4rem', lineHeight: 1.3 }}
                             title={[detail?.detailNow && `Now: ${detail.detailNow}`, detail?.detail24h && `Next 24 h: ${detail.detail24h}`].filter(Boolean).join('\n') || undefined}
                           >
-                            <Verdict value={nowVerdict} />
+                            <Verdict value={nowVerdict} basis={limitsState.active.basis} />
                             <div style={{ color: TEXT_MUTED, fontSize: '0.68rem' }}>
                               {'24h: '}
-                              <Verdict value={dayVerdict} />
+                              <Verdict value={dayVerdict} basis={limitsState.active.basis} />
                             </div>
+                            {detail?.cause && <div style={{ color: TEXT_MUTED, fontSize: '0.66rem' }}>Cause: {detail.cause}</div>}
+                            {detail?.windowText && <div style={{ color: '#cbd5e1', fontSize: '0.66rem' }}>{detail.windowText}</div>}
                           </td>
                         )}
                       </>
@@ -325,7 +369,11 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
 
       {!loading && rows.length > 0 && rows.find((r) => r.validTime)?.validTime && (
         <div style={{ fontSize: '0.66rem', color: TEXT_MUTED, marginTop: '0.5rem' }}>
-          "Now" is the forecast step valid at {formatZoned(new Date(rows.find((r) => r.validTime).validTime), timeDisplayZone)}.
+          "Now" is the forecast step valid at {formatZoned(new Date(rows.find((r) => r.validTime).validTime), timeDisplayZone)}
+          {(() => {
+            const lead = leadHours(rows.find((r) => r.validTime).validTime, suitabilityRunStart);
+            return lead !== null && lead >= 0 ? `, ${formatLead(lead)} after the model run started` : '';
+          })()}.
         </div>
       )}
     </div>

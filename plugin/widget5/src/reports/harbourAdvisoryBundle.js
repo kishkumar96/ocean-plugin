@@ -5,7 +5,7 @@
 // Inputs are the rows from useCookIslandsHarbourWaveConditions plus the
 // limits authority from useHarbourUnloadingLimits. Nothing here fetches.
 import {
-  evaluateConditions, worstVerdict, limitsForHarbour, hasAnyLimit, explainWindow, INCOMPLETE,
+  evaluateConditions, worstVerdict, limitsForHarbour, hasAnyLimit, explainWindow, findOperationalWindow, MIN_WINDOW_HOURS, unloadingLabel, INCOMPLETE,
 } from '../config/cookIslandsHarbourLimits';
 import { waveRunAgeHours, WAVE_STALE_HOURS, compassPoint } from '../services/cookIslandsWaveTimeseriesService';
 
@@ -41,9 +41,12 @@ export function shortTime(value, timeZone) {
   }
 }
 
+// Table cells are narrow: Hs / Tp are the terms the report's own column headers already define.
+const COMPACT_LABEL = { hsM: 'Hs', tpS: 'Tp' };
+
 // One line saying WHY a verdict is what it is: the controlling variable, its peak against the limit,
 // and when it was over. e.g. "Wave height peaks 1.9 m (stop 1.5 m), over Thu 03:00 to Thu 09:00 (7 h)".
-export function describeDriver(explanation, timeZone, { compact = false } = {}) {
+export function describeDriver(explanation, timeZone, { compact = false, withTime = true } = {}) {
   const d = explanation?.driver;
   if (!d) return '';
   const level = explanation.levelName; // 'stop' | 'caution'
@@ -54,12 +57,78 @@ export function describeDriver(explanation, timeZone, { compact = false } = {}) 
     const last = shortTime(d.lastTime, timeZone);
     const sameDay = first.split(' ')[0] === last.split(' ')[0];
     const when = sameTime ? `at ${first}` : `${first}-${sameDay ? last.split(' ')[1] : last} (${d.steps} h)`;
-    return `${d.label} ${num(d.peak, d.unit)}, over ${level} ${num(d.limit, d.unit)} · ${when}`;
+    return `${COMPACT_LABEL[d.key] ?? d.label} ${num(d.peak, d.unit)}, over ${level} ${num(d.limit, d.unit)}${withTime ? ` · ${when}` : ''}`;
   }
   const when = sameTime
     ? `over at ${shortTime(d.firstTime, timeZone)}`
     : `over ${shortTime(d.firstTime, timeZone)} to ${shortTime(d.lastTime, timeZone)} (${d.steps} h)`;
   return `${d.label} peaks ${num(d.peak, d.unit)} (${level} ${num(d.limit, d.unit)}), ${when}`;
+}
+
+// One line for a harbour's operational window (see findOperationalWindow), e.g.
+// "Next window Thu 16:00-Fri 11:00 (19 h)" or "No window of 3 h or more in the next 72 h".
+export function describeWindow(win, timeZone) {
+  if (!win) return '';
+  if (win.state === 'within') {
+    return win.throughEnd
+      ? `Within limits for the whole forecast (${win.horizonHours} h)`
+      : `Within limits until ${shortTime(win.until, timeZone)}`;
+  }
+  if (win.state === 'next') {
+    return `Next window ${shortTime(win.start, timeZone)}-${shortTime(win.end, timeZone)} (${win.hours} h${win.throughEnd ? ' or more' : ''})`;
+  }
+  if (win.state === 'none') return `No window of ${MIN_WINDOW_HOURS} h or more in the next ${win.horizonHours} h`;
+  return 'Window not assessable (data incomplete)';
+}
+
+// The same window as two short lines for a narrow table column: the times, then what they are.
+export function describeWindowCell(win, timeZone) {
+  if (!win) return null;
+  if (win.state === 'within') {
+    return win.throughEnd
+      ? { head: 'Whole forecast', sub: `Within limits (${win.horizonHours} h)` }
+      : { head: `Until ${shortTime(win.until, timeZone)}`, sub: 'Within limits' };
+  }
+  if (win.state === 'next') {
+    return { head: `${shortTime(win.start, timeZone)}-${shortTime(win.end, timeZone)}`, sub: `Next window, ${win.hours} h${win.throughEnd ? '+' : ''}` };
+  }
+  if (win.state === 'none') return { head: `None in ${win.horizonHours} h`, sub: `no window of ${MIN_WINDOW_HOURS} h+` };
+  return { head: 'Not assessable', sub: 'data incomplete' };
+}
+
+// Short cause for a table row: the controlling variable and its peak against the limit it crossed.
+export function describeCause(explanation) {
+  const d = explanation?.driver;
+  if (!d) return '';
+  return `${d.label} ${num(d.peak, d.unit)} vs ${explanation.levelName} ${num(d.limit, d.unit)}`;
+}
+
+// Counts of locations by verdict, for the headline banner. `now` and `next24h` are each tallied separately.
+export function summarizeVerdicts(harbours) {
+  const tally = (key) => {
+    const t = { stop: 0, caution: 0, within: 0, incomplete: 0, unavailable: 0 };
+    harbours.forEach((h) => {
+      if (!h.available) t.unavailable += 1;
+      else if (h[key] === 2) t.stop += 1;
+      else if (h[key] === 1) t.caution += 1;
+      else if (h[key] === 0) t.within += 1;
+      else t.incomplete += 1;
+    });
+    return t;
+  };
+  return { total: harbours.length, now: tally('verdictNow'), next24h: tally('verdict24h') };
+}
+
+// The headline counts as two sentences, worded by who stands behind the limits (see unloadingLabel).
+export function describeSummary(summary, basis) {
+  const sentence = (t) => [
+    t.stop && `${t.stop} ${unloadingLabel(2, basis).toLowerCase()}`,
+    t.caution && `${t.caution} ${unloadingLabel(1, basis).toLowerCase()}`,
+    t.within && `${t.within} ${unloadingLabel(0, basis).toLowerCase()}`,
+    t.incomplete && `${t.incomplete} incomplete data`,
+    t.unavailable && `${t.unavailable} unavailable`,
+  ].filter(Boolean).join(', ');
+  return { now: sentence(summary.now), next24h: sentence(summary.next24h) };
 }
 
 // Why a verdict reads Incomplete: the variables that have a limit but no value, and/or a forecast
@@ -125,12 +194,16 @@ export function buildHarbourAdvisoryBundle({
     const verdict24h = row.available && harbourLimits
       ? worstVerdict([...outlook.map(judge), row.outlookMissingHours > 0 ? INCOMPLETE : null])
       : null;
-    const detailFor = (verdict, explanation, missingHours, windowHours, compact = false) => {
+    const detailFor = (verdict, explanation, missingHours, windowHours, compact = false, withTime = true) => {
       if (!explanation || verdict === null) return '';
       if (verdict === INCOMPLETE) return describeIncomplete(explanation, missingHours, windowHours);
       // Stop/Caution: the driver. (A Stop proven in a short window still gets its driver.)
-      return verdict === 0 ? '' : describeDriver(explanation, timeDisplayZone, { compact });
+      return verdict === 0 ? '' : describeDriver(explanation, timeDisplayZone, { compact, withTime });
     };
+    // Operational window over the 72 h outlook from "now" (step 0 is the "now" step).
+    const win = row.available && harbourLimits ? findOperationalWindow(row.outlook72Steps ?? [], harbourLimits) : null;
+    // The headline cause: what the next 24 h peaks at when that is over a limit, else what now is.
+    const causeSource = verdict24h === 1 || verdict24h === 2 ? explain24 : explainNow;
     return {
       riskPointId: row.riskPointId,
       name: row.name,
@@ -148,12 +221,16 @@ export function buildHarbourAdvisoryBundle({
       max24WindKt: row.available ? max(outlook.map((s) => s.wind_speed_kt)) : null,
       verdictNow,
       detailNow: detailFor(verdictNow, explainNow, 0, 1),
-      detailNowShort: detailFor(verdictNow, explainNow, 0, 1, true),
+      detailNowShort: detailFor(verdictNow, explainNow, 0, 1, true, false),
       driverNow: explainNow?.driver ?? null,
       verdict24h,
       detail24h: detailFor(verdict24h, explain24, row.outlookMissingHours ?? 0, 24),
       detail24hShort: detailFor(verdict24h, explain24, row.outlookMissingHours ?? 0, 24, true),
       driver24h: explain24?.driver ?? null,
+      cause: describeCause(causeSource),
+      window: win,
+      windowText: describeWindow(win, timeDisplayZone),
+      windowCell: describeWindowCell(win, timeDisplayZone),
       missing24Hours: row.available ? (row.outlookMissingHours ?? 0) : null,
       missing72Hours: row.available ? (row.outlook72MissingHours ?? 0) : null,
       // 72 h trend of Hs for the page-2 small multiples.
@@ -213,6 +290,8 @@ export function buildHarbourAdvisoryBundle({
     judged: Boolean(judged),
     basisStatement: limitsBasisStatement(basis, limits.meta),
     harbours,
+    summary: summarizeVerdicts(harbours),
+    summaryText: describeSummary(summarizeVerdicts(harbours), basis),
     validTimeCommon,
     validTimeMin,
     validTimeMax,

@@ -149,12 +149,13 @@ describe('why a verdict is what it is: driver, peak and timing', () => {
     const hs = [0.8, 1.6, 1.9, 1.7, 0.9];
     const r = row(29, 'A', { outlookSteps: stepsOf(hs, hs.map(() => 10)) });
     const h = build([r]).harbours[0];
-    expect(h.detail24hShort).toBe(`Wave height 1.9 m, over stop 1.5 m · ${WD} 01:00-03:00 (3 h)`);
+    expect(h.detail24hShort).toBe(`Hs 1.9 m, over stop 1.5 m · ${WD} 01:00-03:00 (3 h)`);
     expect(h.detail24hShort.length).toBeLessThan(60);
     expect(h.detail24hShort).not.toMatch(/[≥≤→]/);
-    // a single step reads "at <time>"
+    // the "now" column states no time (it is now); the full form still says "at <time>"
     const one = build([row(29, 'A', { waveHeightM: 1.7, outlookSteps: [step(0, 1.7, 10, 9)] })]).harbours[0];
-    expect(one.detailNowShort).toBe(`Wave height 1.7 m, over stop 1.5 m · at ${WD} 00:00`);
+    expect(one.detailNowShort).toBe('Hs 1.7 m, over stop 1.5 m');
+    expect(one.detailNow).toMatch(/over at /);
   });
 
   test('picks the variable furthest past its OWN limit, not the biggest number', () => {
@@ -236,5 +237,51 @@ describe('wording', () => {
   test('verdict text uses limits vocabulary, never instructions', () => {
     expect([0, 1, 2, INCOMPLETE, null].map(verdictText)).toEqual(['Within limits', 'Exceeds caution limit', 'Exceeds stop limit', 'Incomplete data', '—']);
     expect(limitsBasisStatement('pending', { version: 3, effectiveFrom: '2999-01-01T00:00:00Z' })).toMatch(/take effect 2999-01-01/);
+  });
+});
+
+describe('headline summary, cause and window', () => {
+  const cfgHs = { ...emptyLimitsConfig(), default: { caution: { hsM: 1, tpS: null, windKt: null }, stop: { hsM: 1.5, tpS: null, windKt: null } } };
+  const mk = (id, name, hs) => row(id, name, {
+    waveHeightM: hs[0],
+    outlookSteps: hs.map((v, i) => step(i, v, 10, 9)),
+    outlook72Steps: hs.map((v, i) => step(i, v, 10, 9)),
+  });
+  const bundle = (basis) => buildHarbourAdvisoryBundle({
+    rows: [mk(1, 'Stopped', [2, 2, 2, 2]), mk(2, 'Careful', [1.2, 1.2, 0.5, 0.5, 0.5, 0.5]), mk(3, 'Fine', [0.4, 0.4, 0.4, 0.4]),
+      { ...row(4, 'Gone'), available: false }],
+    limits: { basis, config: cfgHs, meta: { version: 0 } },
+    suitabilityRunStart: new Date(T0).toISOString(), generatedAt: NOW,
+  });
+
+  test('counts locations by verdict, now and over 24 h, unavailable separate', () => {
+    expect(bundle('provisional').summary).toEqual({
+      total: 4,
+      now: { stop: 1, caution: 1, within: 1, incomplete: 0, unavailable: 1 },
+      next24h: { stop: 1, caution: 1, within: 1, incomplete: 0, unavailable: 1 },
+    });
+  });
+
+  test('summary wording follows the limits authority', () => {
+    expect(bundle('provisional').summaryText.now).toBe('1 over provisional stop limit, 1 over provisional caution limit, 1 within provisional limits, 1 unavailable');
+    expect(bundle('approved').summaryText.now).toBe('1 stop, 1 caution, 1 ok, 1 unavailable');
+  });
+
+  test('each harbour carries a short cause and its window', () => {
+    const [stopped, careful, fine] = bundle('provisional').harbours;
+    expect(stopped.cause).toBe('Wave height 2.0 m vs stop 1.5 m');
+    expect(stopped.windowText).toMatch(/^No window of 3 h or more in the next 4 h$/);
+    expect(careful.cause).toBe('Wave height 1.2 m vs caution 1.0 m');
+    expect(careful.windowText).toMatch(/^Next window .* \(4 h or more\)$/);
+    expect(careful.windowCell.sub).toBe('Next window, 4 h+');
+    expect(fine.cause).toBe('');
+    expect(fine.windowText).toBe('Within limits for the whole forecast (4 h)');
+  });
+
+  test('no limits: no window, no cause, no summary judgement', () => {
+    const b = buildHarbourAdvisoryBundle({ rows: [row(1, 'A')], suitabilityRunStart: new Date(T0).toISOString(), generatedAt: NOW });
+    expect(b.judged).toBe(false);
+    expect(b.harbours[0].window).toBeNull();
+    expect(b.harbours[0].windowText).toBe('');
   });
 });

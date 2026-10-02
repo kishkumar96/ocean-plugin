@@ -24,6 +24,12 @@ export default function ImpactLayerSwitches({ activeLayers, setActiveLayers }) {
   return (
     <div role="group" aria-label="Map layers" style={{ display: 'flex', flexDirection: 'column', marginBottom: '0.5rem' }}>
       <Switch checked={on('impactDistricts')} onChange={set('impactDistricts')} label="District damage" />
+      <Switch
+        checked={activeLayers?.impactExposed === true}
+        onChange={set('impactExposed')}
+        sample={<span style={{ width: 11, height: 11, borderRadius: 3, background: 'rgba(56, 189, 248, 0.28)', border: '2px solid #38bdf8', flexShrink: 0 }} />}
+        label="Highlight exposed assets"
+      />
       <Switch checked={on('riskPoints')} onChange={set('riskPoints')} label="Coastal risk points" />
       <Switch checked={on('mhwsContour')} onChange={set('mhwsContour')} sample={line(MHWS_LINE_COLORS[17.5], false)} label="MHWS + 17.5 cm line" />
       <Switch checked={activeLayers?.mhwsAltContours === true} onChange={set('mhwsAltContours')} sample={line(MHWS_LINE_COLORS[0], true)} label="Compare lines (MHWS, +15, +20 cm)" />

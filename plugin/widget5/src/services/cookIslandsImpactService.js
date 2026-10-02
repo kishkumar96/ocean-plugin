@@ -560,11 +560,13 @@ export function groupImpactAssetUnits(features) {
         segmentCount: 0,
         representative: feature,
         representativeLoss: -1,
+        segments: [],
       };
       units.set(key, unit);
     }
     unit.totalLoss += loss;
     unit.segmentCount += 1;
+    unit.segments.push(feature);
     if (depth !== null && (unit.maxDepth === null || depth > unit.maxDepth)) unit.maxDepth = depth;
     if (loss > unit.representativeLoss) {
       unit.representative = feature;
@@ -589,11 +591,12 @@ export function summarizeImpactAssetTypes(units) {
   for (const unit of units) {
     let row = byType.get(unit.asset);
     if (!row) {
-      row = { asset: unit.asset, label: impactAssetTypeLabel(unit.asset), count: 0, loss: 0, units: [] };
+      row = { asset: unit.asset, label: impactAssetTypeLabel(unit.asset), count: 0, loss: 0, maxDepth: null, units: [] };
       byType.set(unit.asset, row);
     }
     row.count += 1;
     row.loss += unit.totalLoss;
+    if (Number.isFinite(unit.maxDepth) && (row.maxDepth === null || unit.maxDepth > row.maxDepth)) row.maxDepth = unit.maxDepth;
     row.units.push(unit);
   }
   for (const row of byType.values()) row.units.sort((a, b) => b.totalLoss - a.totalLoss);

@@ -56,6 +56,15 @@ describe('groupImpactAssetUnits', () => {
     expect(port.representative.properties.totalLoss).toBe(300);
   });
 
+  it('carries every segment of a unit so the map can outline the whole asset', () => {
+    const port = units.find((u) => u.asset === 'Port');
+    expect(port.segments).toHaveLength(3);
+    expect(port.segments.map((f) => f.properties.totalLoss).sort()).toEqual([100, 200, 300]);
+    expect(units.find((u) => u.useType === 'Ringmain').segments).toHaveLength(2);
+    // an unsegmented building is its own single feature
+    expect(units.filter((u) => u.asset === 'Building').every((u) => u.segments.length === 1)).toBe(true);
+  });
+
   it('ranks by summed loss', () => {
     expect(topImpactAssetUnits(units, 2).map((u) => u.label)).toEqual(['Avatiu Ports', 'Residential #1']);
     expect(topImpactAssetUnits(units, 10).every((u) => u.totalLoss > 0)).toBe(true);

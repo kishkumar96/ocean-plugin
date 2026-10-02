@@ -1,6 +1,6 @@
 /* eslint-disable testing-library/no-node-access */
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import ImpactTabPanel from '../ImpactTabPanel';
 import block01 from '../../../services/__tests__/mhwsInundationBlock01.fixture.json';
 
@@ -70,10 +70,10 @@ describe('ImpactTabPanel: area inundated above MHWS', () => {
     await screen.findAllByText('4.13 ha');
   });
 
-  it('keeps the land-area analysis available but as an advanced, folded section', async () => {
+  it('shows the land-area analysis as part of the Hazard stage, not folded away', async () => {
     render(<ImpactTabPanel {...props()} />);
-    const summary = screen.getByText(/Advanced: land flooded above the tide line/);
-    expect(summary.closest('details')).not.toHaveAttribute('open');
-    await screen.findByText('4.13 ha'); // still rendered inside the fold
+    const hazard = screen.getByText(/^1 · Hazard/).parentElement.parentElement;
+    await within(hazard).findByText('4.13 ha');
+    expect(screen.queryByText(/Advanced: land flooded above the tide line/)).not.toBeInTheDocument();
   });
 });
