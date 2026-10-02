@@ -1,4 +1,4 @@
-import { describeWindowMismatch } from '../impactWindowSync';
+import { describeWindowMismatch, selectHazardBlock } from '../impactWindowSync';
 
 const block = { windowStart: '2026-09-23T12:00:00Z', windowEnd: '2026-09-26T11:00:00Z' };
 
@@ -41,5 +41,39 @@ describe('describeWindowMismatch', () => {
     const available = { minMs: Date.parse('2026-09-24T06:00:00Z'), maxMs: Date.parse('2026-10-03T18:00:00Z') };
     // exactly what the app stores after clicking the window: the requested range, 6 h past the last timestep
     expect(describeWindowMismatch(last, { mode: 'custom', startTime: new Date('2026-09-26T12:00:00Z'), endTime: new Date('2026-10-03T23:59:59Z') }, 'Pacific/Rarotonga', available)).toBeNull();
+  });
+});
+
+describe('selectHazardBlock', () => {
+  const sel = {
+    cycleId: '2026100106', block: 1,
+    window: { windowStart: '2026-10-01T06:00:00Z', windowEnd: '2026-10-04T05:00:00Z' },
+  };
+  const custom = (a, b) => ({ mode: 'custom', startTime: new Date(a), endTime: new Date(b) });
+
+  it('draws the block while the map range is the impact window', () => {
+    expect(selectHazardBlock(sel, custom('2026-10-01T06:00:00Z', '2026-10-04T05:00:00Z'), true)).toEqual({ cycleId: '2026100106', block: 1 });
+  });
+
+  it('never overrides a single time step: the slider must drive the map', () => {
+    expect(selectHazardBlock(sel, { mode: 'single' }, true)).toBeNull();
+  });
+
+  it('never overrides the first-48 h maximum or a different custom range', () => {
+    expect(selectHazardBlock(sel, { mode: '48h' }, true)).toBeNull();
+    expect(selectHazardBlock(sel, custom('2026-10-05T00:00:00Z', '2026-10-06T00:00:00Z'), true)).toBeNull();
+  });
+
+  it('nothing outside the impact surface, or without a selection', () => {
+    expect(selectHazardBlock(sel, custom('2026-10-01T06:00:00Z', '2026-10-04T05:00:00Z'), false)).toBeNull();
+    expect(selectHazardBlock(null, { mode: 'single' }, true)).toBeNull();
+  });
+});
+
+describe('describeWindowMismatch map labels', () => {
+  const block = { windowStart: '2026-10-01T06:00:00Z', windowEnd: '2026-10-04T05:00:00Z' };
+  it('names the Next 48h Max mode by its real id, not as a single time step', () => {
+    expect(describeWindowMismatch(block, { mode: 'rolling-48h', startIndex: 181, endIndex: 228 }).mapLabel).toBe('the next 48 h maximum');
+    expect(describeWindowMismatch(block, { mode: 'single' }).mapLabel).toBe('a single time step');
   });
 });

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { describeWindowMismatch } from '../components/impact/impactWindowSync';
+import { describeWindowMismatch, selectHazardBlock } from '../components/impact/impactWindowSync';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import BottomOffCanvas from './BottomOffCanvas';
 import BottomBuoyOffCanvas from './BottomBuoyOffCanvas';
@@ -30,7 +30,7 @@ import {
 } from '../services/cookIslandsScenarioService';
 import { fetchCookIslandsImpactLatest, fetchCookIslandsImpactAssets, fetchCookIslandsImpactDistricts, fetchCookIslandsImpactDistrictsGeojson, fetchCookIslandsDistrictBoundaries, buildFullDistrictChoropleth, fetchCookIslandsMhwsContour, mhwsFloodFeatureCollection, mhwsBlockIndexFromScenario } from '../services/cookIslandsImpactService';
 import { exportCookIslandsScenarioComparisonPdf } from '../utils/CookIslandsScenarioComparisonPdf';
-import { findNearestIndex } from '../components/InundationWindowControl';
+import { findNearestIndex, nextWindowRange } from '../components/InundationWindowControl';
 import { findIslandZoomTarget } from '../config/islandConfig';
 import { COOK_ISLANDS_PRESET_ROUTES, presetRouteBounds, shouldConfirmRouteReplacement } from '../config/cookIslandsPresetRoutes';
 import { createAppShareUrl, readAppShareState } from '../domain/share/appStateSnapshot';
@@ -282,11 +282,14 @@ function CookIslandsForecast() {
   // The impact window on screen -> the hazard block (same cycle, same window) RiskScape read, so the
   // map's depth layer is exactly what the impact figures were computed from. Only while an impact
   // surface is showing; elsewhere the inundation layer keeps its own time controls.
-  const [impactHazardSelection, setImpactHazardSelection] = useState(null); // { cycleId, block }
+  const [impactHazardSelection, setImpactHazardSelection] = useState(null); // { cycleId, block, window }
   const [hazardBlockStatus, setHazardBlockStatus] = useState(null);
+  // Only while the map's range IS that impact window: the block is one fixed 3-day maximum, so drawing
+  // it over a "Timestep", "48 h" or a different custom range silently replaced what the user picked
+  // (the slider moved, the map did not). Any other range falls through to the normal time controls.
   const hazardBlock = useMemo(
-    () => (impactSurfaceVisible && impactHazardSelection ? { cycleId: impactHazardSelection.cycleId, block: impactHazardSelection.block } : null),
-    [impactSurfaceVisible, impactHazardSelection],
+    () => selectHazardBlock(impactHazardSelection, rangeWindow, impactSurfaceVisible),
+    [impactSurfaceVisible, impactHazardSelection, rangeWindow],
   );
   // MHWS reference layers: the static routine-tide zone, and the latest
   // "flooded above MHWS" result reported up by the Impacts tab (so the map
@@ -447,8 +450,9 @@ function CookIslandsForecast() {
     const pendingRange = pendingSharedRangeRef.current;
     if (!pendingRange) return;
     if (pendingRange.mode === 'rolling-48h') {
-      const endIndex = timestamps.length - 1;
-      setRangeWindow({ mode: 'rolling-48h', startIndex: Math.max(0, endIndex - 47), endIndex });
+      // A shared "Next 48h Max" means the next 48 h for whoever opens the link, from their now.
+      const next = nextWindowRange(timestamps);
+      if (next) setRangeWindow(next);
     } else if (pendingRange.mode === 'custom' && pendingRange.startTime && pendingRange.endTime) {
       const startIndex = findNearestIndex(timestamps, pendingRange.startTime);
       const endIndex = findNearestIndex(timestamps, pendingRange.endTime);
@@ -915,7 +919,11 @@ function CookIslandsForecast() {
     if (!block?.dateStart || !block?.dateEnd) return;
     setImpactWindowBlock(block);
     const hazardIndex = mhwsBlockIndexFromScenario(block.scenario);
-    setImpactHazardSelection(block.cycleId && hazardIndex ? { cycleId: String(block.cycleId), block: hazardIndex } : null);
+    setImpactHazardSelection(block.cycleId && hazardIndex ? {
+      cycleId: String(block.cycleId),
+      block: hazardIndex,
+      window: { windowStart: block.windowStart, windowEnd: block.windowEnd, dateStart: block.dateStart, dateEnd: block.dateEnd },
+    } : null);
     pendingImpactWindowRef.current = block;
     impactWindowRequestedAtRef.current = Date.now();
 

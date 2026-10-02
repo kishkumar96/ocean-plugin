@@ -526,12 +526,12 @@ function BottomOffCanvas({
                 letterSpacing: "-0.01em",
               }}>
                 {data?.rangeWindow?.mode === 'rolling-48h'
-                  ? '48h Max Inundation'
+                  ? 'Next 48h Max Inundation'
                   : data?.rangeWindow?.mode === 'custom'
                     ? 'Custom Range Inundation'
                     : 'Point Inundation Forecast'}
               </span>
-              {data?.rangeWindow?.mode === 'custom' && data?.rangeWindow?.startTime && data?.rangeWindow?.endTime ? (
+              {(data?.rangeWindow?.mode === 'custom' || data?.rangeWindow?.mode === 'rolling-48h') && data?.rangeWindow?.startTime && data?.rangeWindow?.endTime ? (
                 <span style={{
                   fontSize: 11,
                   color: isDarkMode ? "#cbd5e1" : "#475569",
