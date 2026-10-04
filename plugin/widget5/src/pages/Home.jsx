@@ -31,6 +31,10 @@ import {
 import { fetchCookIslandsImpactLatest, fetchCookIslandsImpactAssets, fetchCookIslandsImpactDistricts, fetchCookIslandsImpactDistrictsGeojson, fetchCookIslandsDistrictBoundaries, buildFullDistrictChoropleth, fetchCookIslandsMhwsContour, mhwsFloodFeatureCollection, mhwsBlockIndexFromScenario } from '../services/cookIslandsImpactService';
 import { exportCookIslandsScenarioComparisonPdf } from '../utils/CookIslandsScenarioComparisonPdf';
 import { findNearestIndex, nextWindowRange } from '../components/InundationWindowControl';
+import { useCookIslandsHarbourWaveConditions } from '../hooks/useCookIslandsHarbourWaveConditions';
+import { useHarbourUnloadingLimits } from '../hooks/useHarbourUnloadingLimits';
+import { buildHarbourAdvisoryBundle } from '../reports/harbourAdvisoryBundle';
+import { buildHarbourOutlookFeatures } from '../lib/harbourOutlookLayer';
 import { findIslandZoomTarget } from '../config/islandConfig';
 import { COOK_ISLANDS_PRESET_ROUTES, presetRouteBounds, shouldConfirmRouteReplacement } from '../config/cookIslandsPresetRoutes';
 import { createAppShareUrl, readAppShareState } from '../domain/share/appStateSnapshot';
@@ -66,6 +70,7 @@ function CookIslandsForecast() {
     // most zooms they merge into one line. The table compares the areas; turn on to see them.
     mhwsAltContours: false,
     mhwsFlood: true,
+    harbourPoints: true,
   });
   const [sliderIndex, setSliderIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -279,6 +284,21 @@ function CookIslandsForecast() {
   // layer) shouldn't need to pull polygon geometry it'll never render.
   const [impactDistrictsGeojson, setImpactDistrictsGeojson] = useState({ loading: false, error: null, geojson: null });
   const impactSurfaceVisible = impactsVisible || Boolean(showBottomCanvas && bottomCanvasData?.mode === 'impact');
+  // Harbour unloading outlook: one fetch shared by the Forecast map's harbour badges and the Harbour
+  // Wave Conditions panel (which used to fetch on its own), and one limits state, so a draft limit typed
+  // in the panel recolours the map at once. Fetched while the Forecast tab is up (where the badges show).
+  const harbourOutlookEnabled = !impactsVisible;
+  const harbourConditions = useCookIslandsHarbourWaveConditions(harbourOutlookEnabled);
+  const harbourLimits = useHarbourUnloadingLimits(harbourOutlookEnabled);
+  const harbourBundle = useMemo(() => buildHarbourAdvisoryBundle({
+    rows: harbourConditions.rows,
+    suitabilityRunStart: harbourConditions.suitabilityRunStart,
+    limits: harbourLimits.active,
+    limitsUnavailable: harbourLimits.published.state === 'unavailable' || harbourLimits.published.state === 'invalid',
+    timeDisplayZone,
+    generatedAt: new Date(),
+  }), [harbourConditions.rows, harbourConditions.suitabilityRunStart, harbourLimits.active, harbourLimits.published.state, timeDisplayZone]);
+  const harbourOutlookGeojson = useMemo(() => buildHarbourOutlookFeatures(harbourBundle), [harbourBundle]);
   // The impact window on screen -> the hazard block (same cycle, same window) RiskScape read, so the
   // map's depth layer is exactly what the impact figures were computed from. Only while an impact
   // surface is showing; elsewhere the inundation layer keeps its own time controls.
@@ -373,6 +393,9 @@ function CookIslandsForecast() {
     mhwsFloodVisible: impactSurfaceVisible && activeLayers?.mhwsFlood !== false,
     initialMapView: sharedState?.map ?? null,
     initialBasemapId: activeBasemapId,
+    harbourOutlookGeojson,
+    harbourOutlookBundle: harbourBundle,
+    harbourOutlookVisible: harbourOutlookEnabled && activeLayers?.harbourPoints !== false,
   });
 
   // Pre-fills "Plan route" with one of the standing inter-island crossings
@@ -1101,6 +1124,9 @@ function CookIslandsForecast() {
     <div style={widgetContainerStyle}>
       <ModernHeader timeDisplayZone={timeDisplayZone} onShareView={handleShareView} modelRunStart={capTime.modelRunStart} />
       <ForecastApp
+        harbourConditions={harbourConditions}
+        harbourLimits={harbourLimits}
+        harbourBundle={harbourBundle}
         WAVE_FORECAST_LAYERS={ALL_LAYERS}
         ALL_LAYERS={ALL_LAYERS}
         selectedWaveForecast={selectedWaveForecast}

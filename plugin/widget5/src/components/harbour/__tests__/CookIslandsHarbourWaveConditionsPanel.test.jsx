@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import '@testing-library/jest-dom';
 import CookIslandsHarbourWaveConditionsPanel from '../CookIslandsHarbourWaveConditionsPanel';
 import { COOK_ISLANDS_HARBOUR_POINTS } from '../../../config/cookIslandsHarbourPoints';
+import { resolveActiveLimits } from '../../../config/cookIslandsHarbourLimits';
 
 jest.mock('../../../utils/CookIslandsHarbourAdvisoryPdf', () => ({
   exportCookIslandsHarbourAdvisoryPdf: jest.fn(() => Promise.resolve('x.pdf')),
@@ -409,5 +410,22 @@ describe('unloading limits', () => {
       expect(opt.style.color).toBeTruthy();
       expect(opt.style.color).not.toBe(opt.style.background);
     });
+  });
+
+  test('uses the parent\'s shared data when given, and does not fetch its own', () => {
+    global.fetch = jest.fn(() => Promise.reject(new Error('should not fetch')));
+    const shared = {
+      loading: false, error: null, suitabilityRunStart: null,
+      rows: [{ riskPointId: 29, name: 'Avatiu Harbour', island: 'Rarotonga', lon: -159.78, lat: -21.19, available: true,
+        waveHeightM: 0.7, windSpeedKt: 9, outlookMaxWaveHeightM: 0.9, outlookSteps: [], outlook72Steps: [], outlookMissingHours: 0, steps: [] }],
+    };
+    const limitsState = {
+      published: { state: 'ok', data: null, problems: [] }, draft: null,
+      active: resolveActiveLimits({ published: null, draft: null }), editable: null, setDraft: () => {}, discardDraft: () => {},
+    };
+    render(<CookIslandsHarbourWaveConditionsPanel enabled conditions={shared} limitsState={limitsState} />);
+    expect(screen.getByText('Avatiu Harbour')).toBeInTheDocument();
+    expect(screen.getByText('0.7 m')).toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

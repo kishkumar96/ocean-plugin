@@ -26,6 +26,7 @@ import {
 import { disableTerrain, enableTerrain, hasTerrainDem } from '../lib/terrainMapLibre';
 import { resolveModelRunStart, modelRunAgeHours as modelRunAgeHoursFor, isModelRunStale } from '../utils/modelRunTiming';
 import { legLabelsNearPoint } from '../utils/routeProbeLayout';
+import { registerHarbourIcons, harbourPopupHtml } from '../lib/harbourOutlookLayer';
 
 // maplibre-gl v6's own worker loader does `new Worker(new URL(`./${t}`, e))` with a runtime-
 // built template string -- webpack can't statically resolve that (the "Critical dependency"
@@ -100,6 +101,11 @@ const COK_IMPACT_FOCUS_FILL_LAYER = 'cok-impact-focus-fill';
 const COK_IMPACT_FOCUS_CASING_LAYER = 'cok-impact-focus-casing';
 const COK_IMPACT_FOCUS_LINE_LAYER = 'cok-impact-focus-line';
 const COK_IMPACT_FOCUS_CIRCLE_LAYER = 'cok-impact-focus-circle';
+// The 16 named harbours on the Forecast map (see lib/harbourOutlookLayer.js): an anchor badge per location
+// (fill = unloading verdict now, ring = worst over the next 24 h) plus a name label from island zoom in.
+const COK_HARBOUR_SOURCE = 'cok-harbour-outlook-src';
+const COK_HARBOUR_LAYER = 'cok-harbour-outlook';
+const COK_HARBOUR_LABEL_LAYER = 'cok-harbour-outlook-label';
 const COK_IMPACT_ASSETS_LAYERS = [COK_IMPACT_ASSETS_FILL_LAYER, COK_IMPACT_ASSETS_LINE_HALO_LAYER, COK_IMPACT_ASSETS_LINE_LAYER, COK_IMPACT_ASSETS_CIRCLE_LAYER];
 
 // RiskScape impact-by-district choropleth (/cok/impact/latest/districts/geojson)
@@ -293,6 +299,9 @@ export function useZarrMap({
   mhwsFloodVisible = false,
   initialMapView = null,
   initialBasemapId = 'satellite',
+  harbourOutlookGeojson = null,
+  harbourOutlookBundle = null,
+  harbourOutlookVisible = false,
 }) {
   // mapRef  = DOM container div ref  (used as <div ref={mapRef}>)
   // mapInstance = actual MapLibre map ref (used for fitBounds, getZoom, etc.)
@@ -319,6 +328,13 @@ export function useZarrMap({
   const advisoryHoverPopupRef = useRef(null);
   const impactAssetPopupRef = useRef(null);
   const impactFocusPopupRef = useRef(null);
+  const harbourPopupRef = useRef(null);
+  const harbourPinnedRef = useRef(false); // a clicked popup stays until closed; hover ones follow the pointer
+  const harbourBundleRef = useRef(null);
+  harbourBundleRef.current = harbourOutlookBundle;
+  // Read by onLoad so state set before the style loaded is applied once the layers exist.
+  const harbourInitRef = useRef(null);
+  harbourInitRef.current = { geojson: harbourOutlookGeojson, visible: harbourOutlookVisible };
   // Every flooded asset in the selected window while the "Highlight exposed assets" switch is on (null
   // when off). The focus source falls back to this, so picking one asset and then clearing it returns to
   // the whole-set highlight instead of blanking it.
@@ -391,6 +407,7 @@ export function useZarrMap({
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-left');
     mapInstance.current = map;
+    if (process.env.NODE_ENV === "development") window.__TMP_DEBUG_MAP = map; // TMP-DEBUG remove
 
     const onLoad = () => {
       // Risk points layer
@@ -806,6 +823,56 @@ export function useZarrMap({
         map.getCanvas().style.cursor = '';
         advisoryHoverPopupRef.current?.remove();
       });
+      // Harbour outlook: added last so it draws above the risk markers and every overlay (those all
+      // insert themselves below 'risk-circles').
+      registerHarbourIcons(map);
+      const harbourInit = harbourInitRef.current;
+      const harbourVisibility = harbourInit?.visible ? 'visible' : 'none';
+      map.addSource(COK_HARBOUR_SOURCE, { type: 'geojson', data: harbourInit?.geojson?.features ? harbourInit.geojson : emptyFeatureCollection() });
+      map.addLayer({
+        id: COK_HARBOUR_LAYER,
+        type: 'symbol',
+        source: COK_HARBOUR_SOURCE,
+        layout: {
+          visibility: harbourVisibility,
+          'icon-image': ['get', 'icon'],
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.62, 8, 0.85, 12, 1],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          'symbol-sort-key': ['get', 'sortKey'],
+          'symbol-z-order': 'source',
+        },
+      });
+      map.addLayer({
+        id: COK_HARBOUR_LABEL_LAYER,
+        type: 'symbol',
+        source: COK_HARBOUR_SOURCE,
+        minzoom: 7,
+        layout: {
+          visibility: harbourVisibility,
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 7, 11, 12, 13],
+          'text-anchor': 'left',
+          'text-offset': [1.35, 0],
+          'text-optional': true,
+          'text-max-width': 12,
+        },
+        paint: {
+          'text-color': '#f8fafc',
+          'text-halo-color': 'rgba(2, 6, 23, 0.9)',
+          'text-halo-width': 1.6,
+          'text-halo-blur': 0.4,
+        },
+      });
+      map.on('mouseenter', COK_HARBOUR_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mousemove', COK_HARBOUR_LAYER, (e) => { if (!harbourPinnedRef.current) showHarbourPopup(e, false); });
+      map.on('mouseleave', COK_HARBOUR_LAYER, () => {
+        map.getCanvas().style.cursor = '';
+        if (!harbourPinnedRef.current) harbourPopupRef.current?.remove();
+      });
+      map.on('click', COK_HARBOUR_LAYER, (e) => showHarbourPopup(e, true));
+
       map.on('moveend', doRefreshRisk);
       map.on('zoomend', doRefreshRisk);
       doRefreshRisk();
@@ -1227,6 +1294,23 @@ export function useZarrMap({
     if (map?.getSource?.(COK_IMPACT_FOCUS_SOURCE)) clearImpactFocus();
   }, [impactExposedHighlight, impactAssetsVisible, impactAssetsGeojson, impactAssetsScenario]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── harbour outlook (data / visibility) ─────────────────────────────────
+  useEffect(() => {
+    const src = mapInstance.current?.getSource?.(COK_HARBOUR_SOURCE);
+    if (!src) return;
+    src.setData(harbourOutlookGeojson && Array.isArray(harbourOutlookGeojson.features) ? harbourOutlookGeojson : emptyFeatureCollection());
+  }, [harbourOutlookGeojson]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const visibility = harbourOutlookVisible ? 'visible' : 'none';
+    for (const layerId of [COK_HARBOUR_LAYER, COK_HARBOUR_LABEL_LAYER]) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+    if (!harbourOutlookVisible) harbourPopupRef.current?.remove();
+  }, [harbourOutlookVisible]);
+
   // ── RiskScape impact by district (data / visibility / scenario filter) ───
   // Same three-effects split and same scenario-filter fallback (show every
   // window when no scenario is selected yet) as the impact-assets block
@@ -1524,6 +1608,36 @@ export function useZarrMap({
   // IMPACT_ASSET_SELECTED in the layer paint above -- mirrors
   // setSelectedRiskPoint below, just for the impact-assets source instead
   // of risk points.
+  // One popup for both hover (follows the pointer, closes on leave) and click (pinned until closed).
+  function showHarbourPopup(e, pin) {
+    const map = mapInstance.current;
+    const feature = e.features?.[0];
+    if (!map || !feature) return;
+    const id = feature.properties?.riskPointId;
+    const bundle = harbourBundleRef.current;
+    const harbour = bundle?.harbours?.find((h) => String(h.riskPointId) === String(id));
+    if (!harbour) return;
+    if (pin) {
+      harbourPopupRef.current?.remove();
+      harbourPopupRef.current = null;
+    }
+    if (!harbourPopupRef.current) {
+      harbourPopupRef.current = new maplibregl.Popup({
+        closeButton: pin,
+        closeOnClick: pin,
+        offset: 18,
+        maxWidth: '280px',
+        className: 'harbour-outlook-popup',
+      });
+      harbourPopupRef.current.on('close', () => { harbourPinnedRef.current = false; harbourPopupRef.current = null; });
+    }
+    harbourPinnedRef.current = pin;
+    harbourPopupRef.current
+      .setLngLat(feature.geometry.coordinates)
+      .setHTML(harbourPopupHtml(harbour, bundle))
+      .addTo(map);
+  }
+
   function clearImpactFocus() {
     const map = mapInstance.current;
     map?.getSource?.(COK_IMPACT_FOCUS_SOURCE)?.setData(
@@ -1867,6 +1981,7 @@ export function useZarrMap({
     // just usually hidden -- included unconditionally rather than behind a
     // getLayer() guard for that reason, unlike the two below.
     const clickableLayers = [RISK_CIRCLES_LAYER, ...COK_IMPACT_ASSETS_LAYERS];
+    if (map.getLayer(COK_HARBOUR_LAYER)) clickableLayers.push(COK_HARBOUR_LAYER);
     if (map.getLayer(COK_SUITABILITY_CIRCLES_LAYER)) clickableLayers.push(COK_SUITABILITY_CIRCLES_LAYER);
     if (map.getLayer(COK_ADVISORY_LOCATIONS_LAYER)) clickableLayers.push(COK_ADVISORY_LOCATIONS_LAYER);
     const feats = map.queryRenderedFeatures(e.point, { layers: clickableLayers });

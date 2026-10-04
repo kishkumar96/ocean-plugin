@@ -38,6 +38,7 @@ import CollapsibleSection from './shared/CollapsibleSection';
 import ImpactMapKey from './ImpactMapKey';
 import CookIslandsSuitabilityReadinessCard from './suitability/CookIslandsSuitabilityReadinessCard';
 import CookIslandsHarbourWaveConditionsPanel from './harbour/CookIslandsHarbourWaveConditionsPanel';
+import HarbourOutlookKey from './harbour/HarbourOutlookKey';
 import { formatZoned } from '../utils/timeZoneFormat';
 
 
@@ -153,6 +154,9 @@ const ForecastApp = ({
   onSyncImpactWindow,
   onRetryImpact,
   onImpactsVisibleChange,
+  harbourConditions = null,
+  harbourLimits = null,
+  harbourBundle = null,
 }) => {
   const lastZoomedLayerRef = useRef(preserveInitialMapView ? selectedWaveForecast : null);
   const [selectedIslandId, setSelectedIslandId] = useState(ISLAND_ZOOM_TARGETS[0]?.id || '');
@@ -214,7 +218,9 @@ const ForecastApp = ({
   // while suitability is selected the risk points are hidden (a checkbox in Vessel Class brings them
   // back), and the user's previous choice is restored when they leave the suitability layer.
   const riskPointsBeforeSuitabilityRef = useRef(null);
-  const hideRiskPoints = isSuitabilityLayer || impactsVisible;
+  // Coastal flood risk is exactly what the Inundation & Impacts tab is about, so the markers stay on there
+  // (they used to be forced off on entering it); only the suitability layer hides them.
+  const hideRiskPoints = isSuitabilityLayer;
   useEffect(() => {
     if (hideRiskPoints) {
       if (riskPointsBeforeSuitabilityRef.current === null) {
@@ -690,11 +696,14 @@ const ForecastApp = ({
             mapRotation={0} 
           />
           
-          {!impactsVisible && activeLayers?.riskPoints !== false && (() => {
+          {!impactsVisible && (activeLayers?.riskPoints !== false || activeLayers?.harbourPoints !== false) && (() => {
             const riskLegendInfoText = "Colors show forecast maximum total water level against each point's Minor/Moderate thresholds. Zoomed out, one marker per island represents its highest-risk point — zoom in for every point.";
+            const showRisk = activeLayers?.riskPoints !== false;
             return (
               <div className="marine-legend marine-legend--left" style={{ minWidth: 150, left: 20, right: 'auto' }}>
-                <div className="marine-legend-title">
+                {activeLayers?.harbourPoints !== false && <HarbourOutlookKey bundle={harbourBundle} />}
+                {showRisk && (<>
+                <div className="marine-legend-title" style={activeLayers?.harbourPoints !== false ? { marginTop: '0.6rem' } : undefined}>
                   Coastal Risk
                   <span className="marine-legend-info" aria-label={riskLegendInfoText}>
                     ⓘ
@@ -712,6 +721,7 @@ const ForecastApp = ({
                     </div>
                   ))}
                 </div>
+                </>)}
               </div>
             );
           })()}
@@ -1283,6 +1293,14 @@ const ForecastApp = ({
             />
             Show coastal risk points
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem', cursor: 'pointer', marginTop: '0.3rem' }}>
+            <input
+              type="checkbox"
+              checked={activeLayers?.harbourPoints !== false}
+              onChange={(e) => setActiveLayers?.(prev => ({ ...prev, harbourPoints: e.target.checked }))}
+            />
+            Show harbour unloading outlook
+          </label>
         </ControlGroup>
 
         <CollapsibleSection
@@ -1290,7 +1308,7 @@ const ForecastApp = ({
           icon={<FancyIcon icon={Anchor} animationType="pulse" color="#38bdf8" />}
           storageKey="harbour-wave-conditions-section"
         >
-          <CookIslandsHarbourWaveConditionsPanel enabled timeDisplayZone={timeDisplayZone} />
+          <CookIslandsHarbourWaveConditionsPanel enabled timeDisplayZone={timeDisplayZone} conditions={harbourConditions} limitsState={harbourLimits} />
         </CollapsibleSection>
 
         {/* Desktop (>=1024px) shows impacts inline under the Inundation

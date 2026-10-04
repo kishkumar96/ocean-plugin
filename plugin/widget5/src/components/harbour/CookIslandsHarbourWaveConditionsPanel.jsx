@@ -159,10 +159,14 @@ function LimitsBasisLine({ limitsState, timeDisplayZone, anyLimitSet }) {
 // Mounted lazily (only while its CollapsibleSection in ForecastApp.jsx is
 // open, see the `enabled` prop) so the 16 requests this needs don't fire on
 // every page load regardless of whether anyone opens it.
-function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pacific/Rarotonga' }) {
-  const { loading, error, rows, suitabilityRunStart } = useCookIslandsHarbourWaveConditions(enabled);
+// `conditions` / `limitsState`, when given, are the parent's shared copies (Home fetches them once for
+// both the Forecast map's harbour badges and this panel); without them the panel fetches its own.
+function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pacific/Rarotonga', conditions = null, limitsState: sharedLimits = null }) {
+  const ownConditions = useCookIslandsHarbourWaveConditions(enabled && !conditions);
+  const { loading, error, rows, suitabilityRunStart } = conditions ?? ownConditions;
   const [expandedId, setExpandedId] = useState(null);
-  const limitsState = useHarbourUnloadingLimits(enabled);
+  const ownLimits = useHarbourUnloadingLimits(enabled && !sharedLimits);
+  const limitsState = sharedLimits ?? ownLimits;
   const [editingLimits, setEditingLimits] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
