@@ -33,6 +33,31 @@ export function bestWindow(series) {
   return runs.reduce((best, r) => (!best || r.steps > best.steps ? r : best), null);
 }
 
+// "Least-bad" period, for when no all-Suitable window exists: the run of `minSteps` consecutive available
+// steps with the lowest mean Warning share (then lowest Caution). It answers "when is modelled exposure
+// lowest?", not "when is it safe". `flat` = the Warning share never varies across the series (e.g. 100%
+// throughout), in which case there is no meaningfully better period to point to.
+export function lowestExposureWindow(series, minSteps = 1) {
+  const n = Math.max(1, minSteps);
+  let best = null;
+  for (const run of findRuns(series, () => true)) {
+    const start = series.indexOf(run.start);
+    for (let i = start; i + n - 1 <= series.indexOf(run.end); i += 1) {
+      const win = series.slice(i, i + n);
+      const warning = win.reduce((a, st) => a + st.warning, 0) / n;
+      const caution = win.reduce((a, st) => a + st.caution, 0) / n;
+      if (!best || warning < best.warning - 1e-9 || (Math.abs(warning - best.warning) <= 1e-9 && caution < best.caution)) {
+        best = { start: win[0], end: win[n - 1], steps: n, warning, caution };
+      }
+    }
+  }
+  if (!best) return null;
+  const warnings = series.filter(isAvail).map((st) => st.warning);
+  best.flat = Math.max(...warnings) - Math.min(...warnings) < 0.5;
+  best.highestWarning = Math.max(...warnings);
+  return best;
+}
+
 // Step with the highest Warning share (ties: earliest, then higher Caution).
 export function highestRiskStep(series) {
   return series.filter(isAvail).reduce((best, s) => (

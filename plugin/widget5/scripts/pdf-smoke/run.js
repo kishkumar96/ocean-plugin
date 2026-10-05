@@ -79,13 +79,16 @@ function inspect(name, doc, { pages, mustContain = [], mustNotContain = [], rawM
   }
 }
 
-const meta = { runId: '2026092312', schemaVersion: '1.0.0', forecastStart: new Date(T0 - 60 * H), forecastEnd: new Date(T0 + 168 * H), timestepCount: 229, locations: [], vessels: {} };
+const meta = { runId: '2026092312', schemaVersion: '1.0.0', hindcastHoursBeforeRun: 48, forecastStart: new Date(T0 - 60 * H), forecastEnd: new Date(T0 + 168 * H), timestepCount: 229, locations: [], vessels: {} };
 const stepFor = (i, v, bounds, over = {}) => ({
   timeIndex: i, validTime: T0 + i * H, vessel: v, available: true,
   suitable: v === 'traditional_craft' ? 25 : 60, caution: 25, warning: v === 'traditional_craft' ? 50 : 15,
   counts: { suitable: 60, caution: 25, warning: 15 }, classifiedPoints: 100, eligiblePoints: 100, totalPoints: 100,
   statisticsBasis: bounds ? 'points_in_bounds' : 'full_domain', requestedBounds: bounds, appliedBounds: bounds,
-  domainBounds: { west: -166, south: -22.5, east: -157, north: -8.5 }, ...over,
+  domainBounds: { west: -166, south: -22.5, east: -157, north: -8.5 },
+  // area statistics, as the live per-step response carries them (wave_height_m / wind_speed_kt)
+  wave: { min: 0.2, mean: 1.1, max: i % 40 > 30 ? 2.3 : 1.7 }, wind: { min: 12, mean: 13, max: 14 },
+  ...over,
 });
 const deps = (o = {}) => ({
   fetchMeta: async () => meta,
@@ -102,7 +105,7 @@ const base = { vessel: 'small_craft', timeIndex: 60, bounds: B, scope: 'viewport
   inspect('domain_viewport_7d', await dom({ horizonHours: 168 }), {
     minImage: 100,
     pages: 6,
-    mustContain: [/Model run 2026-09-23 12:00 UTC/, /Scope: Current map view/, /MULTI-VESSEL OUTLOOK/, /SAME CONDITIONS, DIFFERENT VESSELS/, /DAILY FORECAST EVOLUTION/, /FORECAST TREND/, /METHODOLOGY, SCOPE/, /Beyond forecast horizon|Matched:/, /100 of 100 eligible|100 classified of 100 eligible/],
+    mustContain: [/COOK ISLANDS · RAROTONGA — CURRENT MAP VIEW/, /Offshore and coastal model grid only\. Reef passages, lagoons and nearshore waters are not resolved/, /Lowest exposure:/, /Model data window/, /History before run/, /Outlook in this report/, /Report summary rule \(not a vessel threshold\)|report summary rule \(not a vessel threshold\)/, /Peak wave height \(Hs\)/, /Estimated driver/, /Change from previous day/, /Estimated driver: the peak wave height/, /Estimated driver: waves over the|stay below this vessel/, /1\.7 m|2\.3 m/, /Waves/, /share of points by class/, /Warning share, all vessel classes/, /Model run 2026-09-23 12:00 UTC/, /Scope: Current map view/, /MULTI-VESSEL OUTLOOK/, /SAME CONDITIONS, DIFFERENT VESSELS/, /DAILY FORECAST EVOLUTION/, /FORECAST TREND/, /METHODOLOGY, SCOPE/, /Beyond the forecast horizon|step \d{2}:\d{2}/, /100 of 100 eligible|100 classified of 100 eligible/],
   });
   // a bulk outlook that returns only the first few steps of the grid it was asked for
   const truncatedSeries = async (b, { startIndex }) => ({
@@ -113,7 +116,22 @@ const base = { vessel: 'small_craft', timeIndex: 60, bounds: B, scope: 'viewport
     mustContain: [/Not assessed: only \d+% of outlook steps had a model value/, /could not be assessed and are shown as Unavailable/],
     mustNotContain: [/None: no run without Caution or Warning points/],
   });
-  inspect('domain_current_only', await dom({ horizonHours: 0 }), { pages: 2, mustNotContain: [/MULTI-VESSEL OUTLOOK/] });
+  // no all-Suitable window and a Warning share that never changes: says there is no better period
+  const flatWarning = async (b, { startIndex }) => ({
+    vessels: Object.fromEntries(['traditional_craft', 'very_small_motorised_craft', 'small_craft', 'larger_vessels'].map((v) => [v, Array.from({ length: 13 }, (_, k) => ({ ...stepFor(startIndex + k * 6, v, b), suitable: 0, caution: 0, warning: 100 }))])),
+  });
+  inspect('domain_flat_warning', await dom({ horizonHours: 72 }, { fetchSeries: flatWarning }), {
+    pages: 6, mustContain: [/No lower period: Warning stays at 100% throughout/],
+  });
+  inspect('domain_current_only', await dom({ horizonHours: 0 }), { pages: 2, mustNotContain: [/MULTI-VESSEL OUTLOOK/, /custom envelope set on the map is NOT applied/] });
+  // a custom envelope on screen: page 1 says, up front, that the report does not use it
+  inspect('domain_custom_envelope', await dom({ horizonHours: 0, customEnvelope: { maxWaveHeightM: 2, maxWindKt: 20, cautionWaveHeightM: 1, cautionWindKt: 15 } }), {
+    pages: 2, mustContain: [/Thresholds: PRESET for every vessel class\. The custom envelope set on the map is NOT applied/],
+  });
+  // a whole-domain report is headed as such, not as one island
+  inspect('domain_whole_domain_title', await dom({ horizonHours: 0, scope: 'domain', bounds: null }, { fetchStep: async (i, v) => stepFor(i, v, null) }), {
+    pages: 2, mustContain: [/COOK ISLANDS COASTAL WATERS — WHOLE FORECAST DOMAIN/], mustNotContain: [/RAROTONGA/],
+  });
   inspect('domain_scope_mismatch', await dom({ horizonHours: 0 }, { fetchStep: async (i, v) => stepFor(i, v, null) }), {
     pages: 2, mustContain: [/Notice: Statistics scope differs from the request/, /Scope: Whole forecast domain/],
   });

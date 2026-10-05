@@ -68,13 +68,24 @@ describe('ImpactTabPanel', () => {
   it('keeps depth (hazard), counts and values (exposure) and dollars (impact) in their own sections', () => {
     renderPanel();
     const section = (n) => screen.getByText(new RegExp(`^${n} · `)).parentElement.parentElement;
-    expect(within(section(1)).getByText('Deepest flooding at an exposed asset')).toBeInTheDocument();
+    expect(within(section(1)).getByText(/^Deepest flooding at an exposed asset/)).toBeInTheDocument();
     expect(within(section(1)).queryByText('Estimated economic damage')).not.toBeInTheDocument();
     expect(within(section(2)).getByText('Buildings exposed')).toBeInTheDocument();
     expect(within(section(2)).getByText('Total exposed asset value')).toBeInTheDocument();
     expect(within(section(2)).queryByText('Estimated economic damage')).not.toBeInTheDocument();
     expect(within(section(3)).getByText('Estimated economic damage')).toBeInTheDocument();
     expect(within(section(3)).queryByText('Buildings exposed')).not.toBeInTheDocument();
+  });
+
+  it('the hazard depth leaves out port segments, which sample harbour water, not flooding', () => {
+    const feats = [
+      { type: 'Feature', id: 1, geometry: { type: 'Point', coordinates: [0, 0] }, properties: { asset: 'Port', use_type: 'Wharf', details: 'Avatiu', hazard: 9.5, total_loss: 1000, scenario: data.result.blocks[0].scenario } },
+      { type: 'Feature', id: 2, geometry: { type: 'Point', coordinates: [0, 0] }, properties: { asset: 'Building', use_type: 'Residential', hazard: 0.42, total_loss: 50, scenario: data.result.blocks[0].scenario } },
+    ];
+    renderPanel({ assets: { loading: false, error: null, geojson: normalizeImpactAssetsResponse({ features: feats }) } });
+    const row = screen.getByText('Deepest flooding at an exposed asset (excluding ports)').parentElement;
+    expect(row).toHaveTextContent('0.4 m');
+    expect(row).not.toHaveTextContent('9.5 m');
   });
 
   it('expands an asset type to its assets and shows the top damaged assets once per port', () => {

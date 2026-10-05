@@ -12,9 +12,10 @@
 import {
   fetchSuitabilityMeta, fetchVesselStep, fetchBestContrast, fetchOperationalMap, fetchSummarySeries, fetchDomainBoundary, mapWithLimit, ReportAbortError,
 } from './suitabilityReportService';
-import { parseRunId, zonedWallTimeToUtc, ReportExportBlockedError, boundsClose, coverageConfidence } from './reportRules';
+import { recolorMapDataUrl } from './mapRecolor';
+import { parseRunId, zonedWallTimeToUtc, ReportExportBlockedError, boundsClose, BOUNDS_EPS, coverageConfidence, scopePlaceName } from './reportRules';
 import {
-  bestWindow, highestRiskStep, elevatedRuns, recoveryWindows, unavailableRuns, coverageOf,
+  bestWindow, lowestExposureWindow, highestRiskStep, elevatedRuns, recoveryWindows, unavailableRuns, coverageOf,
 } from './seriesAnalysis';
 import { VESSEL_CLASS_OPTIONS } from '../lib/CookIslandsSuitabilityOverlay';
 
@@ -40,22 +41,34 @@ export const LIMITATIONS = [
   'Missing or unassessed times are shown as Unavailable and are never treated as Suitable.',
 ];
 
+// `inner` lies inside `outer` (to the shared extent tolerance) on every edge.
+const boundsWithin = (inner, outer) => !!inner && !!outer
+  && inner.west >= outer.west - BOUNDS_EPS && inner.east <= outer.east + BOUNDS_EPS
+  && inner.south >= outer.south - BOUNDS_EPS && inner.north <= outer.north + BOUNDS_EPS;
+
 // Decides whether the statistics returned really describe the requested scope.
 export function validateScope({ requested, requestedBounds }, steps) {
   const reasons = [];
   const usable = steps.filter(Boolean);
   const basisReported = usable.find((s) => s.statisticsBasis)?.statisticsBasis ?? null;
   const appliedBounds = usable.find((s) => s.appliedBounds)?.appliedBounds ?? null;
+  // A map view reaching past the wave model's domain is clipped to it by the service: the statistics then
+  // cover exactly the part of the view the model has, which is a correct answer to the request, not a
+  // different area. Recognised as such (clippedToDomain) rather than reported as a scope mismatch.
+  let clippedToDomain = false;
   if (requested === 'viewport') {
     if (basisReported !== 'points_in_bounds') reasons.push(`Requested the current map view but the service reported "${basisReported ?? 'no basis'}".`);
-    else if (!boundsClose(requestedBounds, appliedBounds)) reasons.push('The bounds the service applied differ from the map view requested.');
+    else if (!boundsClose(requestedBounds, appliedBounds)) {
+      if (boundsWithin(appliedBounds, requestedBounds)) clippedToDomain = true;
+      else reasons.push('The bounds the service applied differ from the map view requested.');
+    }
   } else if (basisReported && basisReported !== 'full_domain') {
     reasons.push(`Requested the whole domain but the service reported "${basisReported}".`);
   }
   const mismatch = reasons.length > 0;
   let effective = requested;
   if (mismatch) effective = basisReported === 'full_domain' ? 'domain' : (basisReported === 'points_in_bounds' ? 'viewport' : 'unknown');
-  return { requested, effective, requestedBounds: requestedBounds ?? null, appliedBounds, basisReported, mismatch, reasons };
+  return { requested, effective, requestedBounds: requestedBounds ?? null, appliedBounds, basisReported, mismatch, reasons, clippedToDomain };
 }
 
 // Local-noon targets (in the display zone) for the daily evolution page, matched to
@@ -88,7 +101,7 @@ export async function buildDomainReportBundle({
   timeDisplayZone = 'Pacific/Rarotonga', customEnvelope = null, fallbackMapDataUrl = null, signal, onProgress, now = () => new Date(),
 } = {}, deps = {}) {
   const d = {
-    fetchMeta: fetchSuitabilityMeta, fetchStep: fetchVesselStep, fetchContrast: fetchBestContrast, fetchMap: fetchOperationalMap, fetchSeries: fetchSummarySeries, fetchBoundary: fetchDomainBoundary, ...deps,
+    fetchMeta: fetchSuitabilityMeta, fetchStep: fetchVesselStep, fetchContrast: fetchBestContrast, fetchMap: fetchOperationalMap, fetchSeries: fetchSummarySeries, fetchBoundary: fetchDomainBoundary, recolorMap: recolorMapDataUrl, ...deps,
   };
   const warnings = [];
   const limitations = [...LIMITATIONS];
@@ -123,7 +136,14 @@ export async function buildDomainReportBundle({
     warnings.push(`Statistics scope differs from the request: ${scopeInfo.reasons.join(' ')} Figures describe: ${scopeInfo.effective === 'domain' ? 'the whole forecast domain' : scopeInfo.effective}.`);
   }
   const domainBounds = current.find((s) => s?.domainBounds)?.domainBounds ?? null;
-  const mapBounds = scopeInfo.effective === 'viewport' ? reqBounds : domainBounds;
+  // Maps are drawn for the extent the statistics actually describe: for a view clipped to the model
+  // domain that is the clipped extent, so map and figures cover the same area. (Asking for the unclipped
+  // view made the service return the clipped map, which was then rejected as "a different extent" and,
+  // with no screenshot to fall back on, blocked the whole report.)
+  const mapBounds = scopeInfo.effective === 'viewport' ? (scopeInfo.clippedToDomain ? scopeInfo.appliedBounds : reqBounds) : domainBounds;
+  if (scopeInfo.clippedToDomain) {
+    limitations.push('The map view extends beyond the wave model domain; the figures and maps cover only the part of the view inside it.');
+  }
 
   const vessels = {};
   VESSEL_CODES.forEach((code, i) => { vessels[code] = current[i] ?? null; });
@@ -184,6 +204,8 @@ export async function buildDomainReportBundle({
       const bestWithheld = coverageConfidence(coverage.available, coverage.total) === 'insufficient';
       analysis[v] = {
         best: bestWithheld ? null : bestWindow(s), bestWithheld,
+        // Reported only when there is no all-Suitable window; the shortest period worth naming is 6 h.
+        lowest: bestWithheld ? null : lowestExposureWindow(s, Math.max(1, Math.ceil(6 / ((strideSteps * stepMs) / 3600e3)))),
         highest: highestRiskStep(s), elevated: elevatedRuns(s), recovery: recoveryWindows(s), unavailable: unavailableRuns(s), coverage,
       };
     });
@@ -204,6 +226,7 @@ export async function buildDomainReportBundle({
     if (!m) return null;
     if (m.appliedBounds && !boundsClose(m.appliedBounds, mapBounds)) {
       limitations.push('A map was omitted because the service drew a different extent from the one requested.');
+      mapFailure = mapFailure ?? 'the service drew a different extent from the one requested';
       return null;
     }
     // x-classified-cells === 0: the service rendered a PNG but nothing on-mesh
@@ -262,6 +285,19 @@ export async function buildDomainReportBundle({
     }));
   }
 
+  // Service maps get the calmer map-fill palette (see mapRecolor.js); a failure keeps the original, and
+  // an on-screen screenshot fallback is left exactly as captured.
+  const recolor = async (m) => {
+    if (!m?.dataUrl || m.fallback) return m;
+    const out = await swallow(() => d.recolorMap(m.dataUrl));
+    return out ? { ...m, dataUrl: out, recolored: true } : m;
+  };
+  maps.selected = await recolor(maps.selected);
+  if (maps.contrast?.panels) {
+    maps.contrast = { ...maps.contrast, panels: await Promise.all(maps.contrast.panels.map(async (p) => ({ ...p, map: await recolor(p.map) }))) };
+  }
+  maps.daily = await Promise.all(maps.daily.map(async (p) => ({ ...p, map: await recolor(p.map) })));
+
   // ── coverage / provenance ─────────────────────────────────────────────
   const sel = vessels[vessel];
   // Prefer the run the statistics themselves report; flag a disagreement with the run-level metadata.
@@ -285,10 +321,13 @@ export async function buildDomainReportBundle({
       start: validTimeMs, end: timeSeries ? (timeSeries.byVessel[vessel].filter((s) => s.validTime).slice(-1)[0]?.validTime ?? null) : validTimeMs,
       forecastStart: forecastStartMs, forecastEnd: forecastEndMs, horizonHours, hindcastHoursBeforeRun: meta.hindcastHoursBeforeRun ?? null,
     },
-    scope: scopeInfo,
+    // placeName: the island(s) a map-view scope covers, so the report is headed by the area it describes.
+    scope: { ...scopeInfo, placeName: scopePlaceName(scopeInfo) },
     methodology: {
       apiSchemaVersion: meta.schemaVersion, methodologyVersion: current.find((s) => s?.methodologyVersion)?.methodologyVersion ?? meta.methodologyVersion ?? null,
       thresholdSource: customEnvelope ? 'preset (custom on-screen envelope not applied)' : 'preset',
+      // The user had a custom envelope on screen: the report must say, up front, that it does not use it.
+      customEnvelopeNotApplied: Boolean(customEnvelope),
       thresholds: meta.vessels,
     },
     selectedVessel: vessel,

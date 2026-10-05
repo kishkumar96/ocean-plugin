@@ -7,6 +7,7 @@ import { fetchCookIslandsBestDeparture } from '../../services/cookIslandsRouteFo
 import { exportCookIslandsDomainAdvisoryPdf } from '../../utils/CookIslandsDomainAdvisoryPdf';
 import { exportCookIslandsCommsPosterPdf } from '../../utils/CookIslandsCommsPosterPdf';
 import DomainReportDialog from './DomainReportDialog';
+import { normalizeViewBounds } from '../../utils/viewBounds';
 
 const TEXT_MUTED = 'rgba(203, 213, 225, 0.72)';
 
@@ -65,8 +66,13 @@ async function captureVerifiedMapScreenshot(map) {
   let dataUrl = capture();
   if (!dataUrl) return null;
   if (await isUniformImageDataUrl(dataUrl)) {
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    dataUrl = capture();
+    // A WebGL canvas only holds its picture during a render (no preserveDrawingBuffer), so read it from
+    // inside the next 'render' event rather than at an arbitrary later frame, which can read blank.
+    dataUrl = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), 2000);
+      map.once('render', () => { clearTimeout(timer); resolve(capture()); });
+      map.triggerRepaint();
+    });
     if (!dataUrl || await isUniformImageDataUrl(dataUrl)) return null;
   }
   return dataUrl;
@@ -193,7 +199,7 @@ function CookIslandsAdvisoryPanel({
     const map = mapInstance?.current;
     if (!map) return null;
     const b = map.getBounds();
-    return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
+    return normalizeViewBounds({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
   };
   const handleGenerateDomainPdf = useCallback(async ({ kind, vessel, scope, horizonHours }, { signal, onProgress }) => {
     const map = mapInstance?.current;
@@ -295,6 +301,7 @@ function CookIslandsAdvisoryPanel({
         viewportBounds={domainDialogOpen ? currentViewBounds() : null}
         validTime={currentSliderDate}
         timeDisplayZone={timeDisplayZone}
+        customEnvelopeActive={Boolean(mapCustomEnvelope)}
       />
     </div>
   );

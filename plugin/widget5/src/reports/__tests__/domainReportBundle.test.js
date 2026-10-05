@@ -51,6 +51,11 @@ describe('validateScope', () => {
     expect(s.mismatch).toBe(true);
     expect(s.effective).toBe('domain');
   });
+  test('a view clipped to the model domain is a clip, not a mismatch', () => {
+    const clipped = { west: -160, south: -22, east: -159.7, north: -21 }; // inside B on every edge
+    const s = validateScope({ requested: 'viewport', requestedBounds: B }, [stepFor(0, 'x', B, { appliedBounds: clipped })]);
+    expect(s).toMatchObject({ mismatch: false, effective: 'viewport', clippedToDomain: true, appliedBounds: clipped });
+  });
   test('different applied bounds are a mismatch', () => {
     const s = validateScope({ requested: 'viewport', requestedBounds: B }, [stepFor(0, 'x', B, { appliedBounds: { ...B, east: -158 } })]);
     expect(s.mismatch).toBe(true);
@@ -98,6 +103,32 @@ describe('buildDomainReportBundle', () => {
     const badMapDeps = deps({ fetchMap: async () => ({ dataUrl: 'data:x', appliedBounds: { ...B, east: -150 } }) });
     await expect(buildDomainReportBundle({ ...base, horizonHours: 0 }, badMapDeps))
       .rejects.toMatchObject({ name: 'ReportExportBlockedError', message: expect.stringMatching(/report not generated/i) });
+  });
+
+  test('a map view wider than the model domain: map and figures both use the clipped extent, report not blocked', async () => {
+    // As the live service does: anything outside the domain is clipped off, for statistics and maps alike.
+    const DOMAIN = { west: -166.5, south: -22.5, east: -157, north: -8.5 };
+    const clip = (b) => (b ? {
+      west: Math.max(b.west, DOMAIN.west), south: Math.max(b.south, DOMAIN.south),
+      east: Math.min(b.east, DOMAIN.east), north: Math.min(b.north, DOMAIN.north),
+    } : null);
+    const wide = { west: -172.5, south: -24.1, east: -151.2, north: -6.9 };
+    const fetchMap = jest.fn(async (v, i, b) => ({ dataUrl: 'data:image/png;base64,x', appliedBounds: clip(b) }));
+    const b = await buildDomainReportBundle({ ...base, bounds: wide, horizonHours: 0 }, deps({
+      fetchStep: async (i, v, bb) => stepFor(i, v, bb, { appliedBounds: clip(bb) }),
+      fetchMap,
+    }));
+    expect(fetchMap.mock.calls[0][2]).toEqual(DOMAIN);
+    expect(b.maps.selected.dataUrl).toMatch(/^data:image/);
+    expect(b.scope).toMatchObject({ mismatch: false, clippedToDomain: true });
+    expect(b.warnings.join(' ')).not.toMatch(/differs from the request/);
+    expect(b.limitations.join(' ')).toMatch(/extends beyond the wave model domain/);
+  });
+
+  test('a map dropped for its extent names that reason in the blocked-report message', async () => {
+    const badMapDeps = deps({ fetchMap: async () => ({ dataUrl: 'data:x', appliedBounds: { ...B, east: -150 } }) });
+    await expect(buildDomainReportBundle({ ...base, horizonHours: 0 }, badMapDeps))
+      .rejects.toMatchObject({ message: expect.stringMatching(/different extent/) });
   });
 
   test('the same dropped map falls back to an on-screen screenshot when one is supplied', async () => {

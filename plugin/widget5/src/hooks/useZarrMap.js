@@ -407,7 +407,6 @@ export function useZarrMap({
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-left');
     mapInstance.current = map;
-    if (process.env.NODE_ENV === "development") window.__TMP_DEBUG_MAP = map; // TMP-DEBUG remove
 
     const onLoad = () => {
       // Risk points layer
@@ -483,7 +482,8 @@ export function useZarrMap({
           'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
           'text-size': ['interpolate', ['linear'], ['zoom'], 5, 9, 8, 12, 12, 15],
           'text-anchor': 'bottom',
-          'text-offset': [0, -0.3],
+          // Raised clear of the harbour badges, which sit on the island's harbour (often near its centre).
+          'text-offset': [0, -1.25],
           'text-allow-overlap': false,
           'text-ignore-placement': false,
         },
@@ -1622,20 +1622,59 @@ export function useZarrMap({
       harbourPopupRef.current = null;
     }
     if (!harbourPopupRef.current) {
-      harbourPopupRef.current = new maplibregl.Popup({
+      const popup = new maplibregl.Popup({
         closeButton: pin,
         closeOnClick: pin,
         offset: 18,
         maxWidth: '280px',
         className: 'harbour-outlook-popup',
       });
-      harbourPopupRef.current.on('close', () => { harbourPinnedRef.current = false; harbourPopupRef.current = null; });
+      // Only forget the popup if it is still the current one: a stale 'close' must never orphan a live
+      // popup (that left a trail of un-closable popups across the map).
+      popup.on('close', () => {
+        if (harbourPopupRef.current !== popup) return;
+        harbourPinnedRef.current = false;
+        harbourPopupRef.current = null;
+      });
+      harbourPopupRef.current = popup;
     }
     harbourPinnedRef.current = pin;
-    harbourPopupRef.current
-      .setLngLat(feature.geometry.coordinates)
-      .setHTML(harbourPopupHtml(harbour, bundle))
-      .addTo(map);
+    const popup = harbourPopupRef.current;
+    popup.setLngLat(feature.geometry.coordinates).setHTML(harbourPopupHtml(harbour, bundle));
+    // addTo() on an open popup removes it first (firing 'close'), so it is called only to open it --
+    // calling it on every mousemove is what used to drop the reference and stack popups.
+    if (!popup.isOpen()) popup.addTo(map);
+    // Pinned popups link to the coastal-risk point at the same place (when risk markers are on).
+    if (pin && map.getLayer(RISK_CIRCLES_LAYER)) {
+      const riskFeature = map.queryRenderedFeatures(e.point, { layers: [RISK_CIRCLES_LAYER] })[0];
+      const el = harbourPopupRef.current.getElement()?.querySelector('.maplibregl-popup-content');
+      if (riskFeature && el) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Coastal flood risk here →';
+        btn.style.cssText = 'margin-top:8px;width:100%;padding:5px 8px;border-radius:6px;border:1px solid #0e7490;background:#ecfeff;color:#0e7490;font:600 11.5px system-ui,sans-serif;cursor:pointer;';
+        btn.addEventListener('click', () => {
+          harbourPopupRef.current?.remove();
+          onRiskClick({ features: [riskFeature], lngLat: e.lngLat, point: e.point }, { fromHarbour: true });
+        });
+        el.appendChild(btn);
+      }
+    }
+    // The timeline bar floats over the bottom of the map; nudge the map so a pinned popup is not hidden
+    // behind it (or above the top edge).
+    if (pin) {
+      const popupEl = harbourPopupRef.current.getElement();
+      const mapRect = map.getContainer().getBoundingClientRect();
+      const timeline = map.getContainer().parentElement?.querySelector('.ft-root:not(.ft-root--inline)');
+      const bottomLimit = timeline ? timeline.getBoundingClientRect().top - 8 : mapRect.bottom - 8;
+      const rect = popupEl?.getBoundingClientRect();
+      if (rect) {
+        const overflowBottom = rect.bottom - bottomLimit;
+        const overflowTop = mapRect.top + 8 - rect.top;
+        if (overflowBottom > 0) map.panBy([0, overflowBottom], { duration: 300 });
+        else if (overflowTop > 0) map.panBy([0, -overflowTop], { duration: 300 });
+      }
+    }
   }
 
   function clearImpactFocus() {
@@ -1757,9 +1796,14 @@ export function useZarrMap({
   }, []);
 
   // ── event handlers (stable refs, read latest values via cbRef) ────────────
-  function onRiskClick(e) {
+  function onRiskClick(e, { fromHarbour = false } = {}) {
     const feature = e.features?.[0];
     if (!feature) return;
+    // A harbour badge drawn over this point takes the click (the 16 harbours ARE risk points, at the same
+    // coordinates); its popup offers these coastal-risk details as a button instead.
+    const harbourMap = mapInstance.current;
+    if (!fromHarbour && harbourMap?.getLayer(COK_HARBOUR_LAYER)
+      && harbourMap.queryRenderedFeatures(e.point, { layers: [COK_HARBOUR_LAYER] }).length) return;
     const { id, riskLevel, maxTWL, type: pType, island } = feature.properties;
     const point = { id, riskLevel, maxTWL, type: pType, island, lat: e.lngLat.lat, lon: e.lngLat.lng };
     removePinMarker();
@@ -1801,6 +1845,11 @@ export function useZarrMap({
     const map = mapInstance.current;
     const feature = e.features?.[0];
     if (!map || !feature) return;
+    // Under a harbour badge the harbour popup is the one to show (see onRiskClick).
+    if (map.getLayer(COK_HARBOUR_LAYER) && map.queryRenderedFeatures(e.point, { layers: [COK_HARBOUR_LAYER] }).length) {
+      riskHoverPopupRef.current?.remove();
+      return;
+    }
     const { riskLevel, maxTWL, island, type: pType } = feature.properties;
     if (!riskHoverPopupRef.current) {
       riskHoverPopupRef.current = new maplibregl.Popup({

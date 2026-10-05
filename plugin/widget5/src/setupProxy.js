@@ -8,8 +8,10 @@ module.exports = function(app) {
     createProxyMiddleware({
       target: process.env.REACT_APP_COK_API_TARGET || 'https://ocean-zarr.spc.int',
       changeOrigin: true,
-      timeout: 15000,
-      proxyTimeout: 15000,
+      // Same 60 s as production nginx (nginx/sites/widget5.conf): an uncached whole-domain operational map
+      // takes ~40 s to render, so 15 s here failed exports in development that work in production.
+      timeout: 60000,
+      proxyTimeout: 60000,
       pathRewrite: (path) => '/cok' + path,
       on: {
         error: (err, req, res) => {

@@ -72,4 +72,24 @@ describe('DomainReportDialog', () => {
     await waitFor(() => expect(onGenerate).toHaveBeenCalled());
     expect(onGenerate.mock.calls[0][0]).toMatchObject({ kind: 'poster', horizonHours: 72 });
   });
+
+  test('with a custom envelope on the map, generating needs an explicit preset acknowledgement', async () => {
+    const onGenerate = jest.fn(() => Promise.resolve());
+    render(<DomainReportDialog {...base} onGenerate={onGenerate} customEnvelopeActive />);
+    await screen.findByText(/2026-09-23 12:00 UTC/);
+    expect(screen.getByText(/Your map uses a custom envelope\./)).toBeInTheDocument();
+    const generate = screen.getByRole('button', { name: /Generate PDF/ });
+    expect(generate).toBeDisabled();
+    fireEvent.click(screen.getByLabelText('Generate with the preset thresholds'));
+    expect(generate).not.toBeDisabled();
+    fireEvent.click(generate);
+    await waitFor(() => expect(onGenerate).toHaveBeenCalled());
+  });
+
+  test('without a custom envelope there is nothing to acknowledge', async () => {
+    render(<DomainReportDialog {...base} onGenerate={jest.fn(() => Promise.resolve())} />);
+    await screen.findByText(/2026-09-23 12:00 UTC/);
+    expect(screen.queryByText(/custom envelope/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Generate PDF/ })).not.toBeDisabled();
+  });
 });

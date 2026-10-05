@@ -21,9 +21,11 @@ import {
 import { tzLabel } from './timeZoneFormat';
 import { VESSEL_OPERATING_ENVELOPE, VESSEL_CLASS_OPTIONS } from '../lib/CookIslandsSuitabilityOverlay';
 import { buildDomainReportBundle } from '../reports/domainReportBundle';
+import { dailyEvolutionRows, estimateDriver } from '../reports/dailyEvolution';
+import { MAP_FILL_RGB } from '../reports/mapRecolor';
 import { drawBoundaryOverlay, BOUNDARY_CAPTION } from '../reports/mapOverlay';
 import {
-  stepLevel, pctText, scopeLabel, formatLocal, formatUtc, zonedWallTimeToUtc, ELEVATED_WARNING_PERCENT, SOURCE_TEXT,
+  stepLevel, pctText, scopeLabel, formatLocal, formatUtc, zonedWallTimeToUtc, ELEVATED_WARNING_PERCENT, ELEVATED_WARNING_RULE, SOURCE_TEXT,
 } from '../reports/reportRules';
 
 const CW = PAGE_W - 2 * MARGIN; // content width
@@ -119,6 +121,48 @@ function overlayBoundary(doc, bundle, map, imageRect) {
   drawBoundaryOverlay(doc, bundle.domainBoundary, bundle.maps.bounds, imageRect);
 }
 
+// Classified maps are softened with a light white wash so a view that is all one class (a 100% Warning
+// map is common for small craft) reads as a tinted area, not a solid block of alarm red. The strong
+// colours stay for what needs to stand out: the verdict banner, card bars and badges. Map keys use the
+// same tints, so each swatch matches what is on the map.
+const MAP_WASH = 0.3;
+const tint = (rgb, f) => rgb.map((c) => Math.round(c + (255 - c) * f));
+const MAP_LEGEND_WASHED = [[0, 'Suitable'], [1, 'Caution'], [2, 'Warning']].map(([h, label]) => [tint(hazardColor(h), MAP_WASH), label]);
+// Recoloured maps (see reports/mapRecolor.js) carry their own map-fill palette; their key uses it.
+const MAP_LEGEND_FILL = [[0, 'Suitable'], [1, 'Caution'], [2, 'Warning']].map(([h, label]) => [MAP_FILL_RGB[h], label]);
+const mapLegend = (bundle) => (bundle.maps.selected?.recolored ? MAP_LEGEND_FILL : MAP_LEGEND_WASHED);
+
+function drawMap(doc, bundle, map, x, y, w, h, alias) {
+  const r = fitImage(doc, map.dataUrl, x, y, w, h, alias);
+  // A recoloured map already has calm fills; only an original-palette image is washed.
+  if (r && !map.recolored) {
+    try {
+      doc.saveGraphicsState();
+      doc.setGState(new doc.GState({ opacity: MAP_WASH }));
+      setFill(doc, [255, 255, 255]);
+      doc.rect(r.x, r.y, r.w, r.h, 'F');
+    } finally {
+      doc.restoreGraphicsState();
+    }
+  }
+  overlayBoundary(doc, bundle, map, r);
+  return r;
+}
+
+// The area the report describes, in its title: an island's map view is never headed as if it covered
+// the whole Cook Islands.
+function reportTitle(bundle) {
+  if (bundle.scope.effective === 'viewport') {
+    return bundle.scope.placeName
+      ? `COOK ISLANDS · ${bundle.scope.placeName.toUpperCase()} — CURRENT MAP VIEW`
+      : 'COOK ISLANDS COASTAL WATERS — CURRENT MAP VIEW';
+  }
+  return 'COOK ISLANDS COASTAL WATERS — WHOLE FORECAST DOMAIN';
+}
+
+// A 6 h step stripe is wide enough for its class letter, so the ribbon reads without colour too.
+const LEVEL_LETTER = { 0: 'S', 1: 'C', 2: 'W' };
+
 function provenanceLine(bundle) {
   const { local } = ctx(bundle);
   const run = bundle.modelRun.time ? formatUtc(bundle.modelRun.time) : 'not reported';
@@ -128,7 +172,8 @@ function provenanceLine(bundle) {
 function pageHeader(doc, bundle, subtitle, pageNo, pageCount) {
   const { local } = ctx(bundle);
   drawHeaderBand(doc, {
-    title: 'COOK ISLANDS COASTAL WATERS',
+    title: reportTitle(bundle),
+    titleSize: 12.5,
     subtitle,
     rightLine1: `Valid: ${local(bundle.validTime)}`,
     rightLine2: `Page ${pageNo} of ${pageCount}`,
@@ -198,7 +243,21 @@ async function drawPage1(doc, bundle, pageCount) {
     }) + 2;
   }
 
-  const top = HDR_H + 16 + substitutionNoticeH;
+  // Directly under the verdict, before anything else: what this model can and cannot see, and (if the
+  // user had a custom envelope on screen) that this report does not use it.
+  let noticeY = HDR_H + 4 + 9.5 + 2 + substitutionNoticeH;
+  const smallCraft = ['traditional_craft', 'very_small_motorised_craft'].includes(bundle.selectedVessel);
+  noticeY += notice(doc, {
+    x: MARGIN, y: noticeY, w: PAGE_W - 2 * MARGIN, size: 6.8,
+    text: `Offshore and coastal model grid only. Reef passages, lagoons and nearshore waters are not resolved by the wave model; conditions there can differ substantially from these figures.${smallCraft ? ` These are the waters ${selLabel.toLowerCase()} use most.` : ''}`,
+  }) + 2;
+  if (bundle.methodology.customEnvelopeNotApplied) {
+    noticeY += notice(doc, {
+      x: MARGIN, y: noticeY, w: PAGE_W - 2 * MARGIN, size: 6.8,
+      text: 'Thresholds: PRESET for every vessel class. The custom envelope set on the map is NOT applied in this report, so its colours can differ from what you saw on screen.',
+    }) + 2;
+  }
+  const top = noticeY + 1;
   const bottom = contentBottom(doc);
   const mapW = 150;
   const colX = MARGIN + mapW + 6;
@@ -210,8 +269,8 @@ async function drawPage1(doc, bundle, pageCount) {
   const hasMap = Boolean(bundle.maps.selected?.dataUrl);
   const legendH = hasMap ? 7 : 0;
   if (hasMap) {
-    overlayBoundary(doc, bundle, bundle.maps.selected, fitImage(doc, bundle.maps.selected.dataUrl, MARGIN + 2, top + 2, mapW - 4, bottom - top - capH - legendH - 4, 'domain_map'));
-    drawLegendRow(doc, MARGIN + 3, bottom - capH - legendH + 5, [[hazardColor(0), 'Suitable'], [hazardColor(1), 'Caution'], [hazardColor(2), 'Warning']]);
+    drawMap(doc, bundle, bundle.maps.selected, MARGIN + 2, top + 2, mapW - 4, bottom - top - capH - legendH - 4, 'domain_map');
+    drawLegendRow(doc, MARGIN + 3, bottom - capH - legendH + 5, mapLegend(bundle));
   } else {
     placeholderBox(doc, MARGIN + 2, top + 2, mapW - 4, bottom - top - capH - 4, 'Map unavailable — the service did not return a map for this view. Statistics are still shown.');
   }
@@ -273,7 +332,7 @@ function drawPage2(doc, bundle, pageNo, pageCount) {
   setFont(doc, TEXT_MD, 7);
   doc.text(doc.splitTextToSize(
     `Modelled conditions from ${local(bundle.forecastWindow.start)} to ${local(bundle.forecastWindow.end)} (steps every ${formatNumber(ts.strideHours, 0)} h). `
-    + `Each bar step is Suitable (no Caution/Warning points), Caution (some Caution/Warning points) or Warning (>= ${ELEVATED_WARNING_PERCENT}% of points Warning). Grey = Unavailable, never assumed Suitable.`, CW - 116), MARGIN, HDR_H + 6);
+    + `Each bar step is S Suitable (no Caution/Warning points), C Caution (some Caution/Warning points) or W Warning (>= ${ELEVATED_WARNING_PERCENT}% of points Warning; a report summary rule, see methodology). Grey = Unavailable, never assumed Suitable.`, CW - 116), MARGIN, HDR_H + 6);
   drawLegendRow(doc, PAGE_W - MARGIN - 106, HDR_H + 7);
 
   const t0 = bundle.forecastWindow.start;
@@ -302,8 +361,13 @@ function drawPage2(doc, bundle, pageNo, pageCount) {
     series.forEach((s) => {
       if (!Number.isFinite(s.validTime)) return;
       const px = ribX + ((s.validTime - t0) / (t1 - t0 || 1)) * (ribW - stepW);
-      setFill(doc, s.available === false ? NO_DATA_GREY : hazardColor(stepLevel(s.warning, s.caution)));
+      const lvl = s.available === false ? null : stepLevel(s.warning, s.caution);
+      setFill(doc, lvl === null ? NO_DATA_GREY : hazardColor(lvl));
       doc.rect(px, by, stepW + 0.15, 9, 'F');
+      if (stepW >= 2.4 && lvl !== null) {
+        setFont(doc, lvl === 1 ? [70, 45, 0] : [255, 255, 255], 5.2, 'bold');
+        doc.text(LEVEL_LETTER[lvl], px + stepW / 2 + 0.07, by + 5.8, { align: 'center' });
+      }
     });
     drawTimeAxis(doc, bundle, ribX, by + 9.5, ribW, t0, t1);
 
@@ -311,17 +375,29 @@ function drawPage2(doc, bundle, pageNo, pageCount) {
       ['Best window', an.bestWithheld
         ? `Not assessed: only ${pctText(an.coverage.ratio * 100)}% of outlook steps had a model value`
         : (an.best ? spanText(local, an.best.start.validTime, an.best.end.validTime) : 'None: no run without Caution or Warning points')],
+      ['Lowest exposure', lowestText(an, local)],
       ['Highest risk', an.highest && an.highest.warning > 0 ? `${pctText(an.highest.warning)}% Warning at ${local(an.highest.validTime)}` : `No Warning-level points modelled${an.bestWithheld ? ' in the assessed steps' : ''}`],
       ['Recovery', an.recovery.length ? an.recovery.slice(0, 2).map((r) => spanText(local, r.from.validTime, r.to.validTime)).join('; ') : (an.elevated.length ? 'None within the assessed period' : 'No elevated period')],
       ['Unavailable', an.unavailable.length ? an.unavailable.slice(0, 2).map((g) => spanText(local, g.start.validTime, g.end.validTime)).join('; ') : 'None'],
     ];
     facts.forEach(([k, v], fi) => {
-      const fy = y + 7 + fi * 6.4;
+      const fy = y + 7 + fi * 5.6;
       setFont(doc, TEXT_MD, 6.2, 'bold'); doc.text(`${k}:`, factsX, fy);
-      setFont(doc, TEXT_DK, 6.4); doc.text(fitText(doc, v, factsW - 22), factsX + 22, fy);
+      setFont(doc, TEXT_DK, 6.4); doc.text(fitText(doc, v, factsW - 25), factsX + 25, fy);
     });
   });
   pageFooter(doc, bundle);
+}
+
+// When there is no all-Suitable window, the period with the least modelled exposure -- "least bad",
+// never "safe". Said plainly when it is no better than the rest.
+function lowestText(an, local) {
+  if (an.bestWithheld) return 'Not assessed (insufficient coverage)';
+  if (an.best) return 'See best window';
+  const lw = an.lowest;
+  if (!lw) return 'Not available';
+  if (lw.flat) return `No lower period: Warning stays at ${pctText(lw.highestWarning)}% throughout`;
+  return `${spanText(local, lw.start.validTime, lw.end.validTime)} · ${pctText(lw.warning)}% Warning (peak ${pctText(lw.highestWarning)}%)`;
 }
 
 // ── Page 3 — Same conditions, different vessels ─────────────────────────────
@@ -339,16 +415,16 @@ function drawPage3(doc, bundle, pageNo, pageCount) {
     setFont(doc, TEXT_DK, 8.5, 'bold');
     doc.text(`Modelled conditions at ${local(c.validTime)} — the time in this period where vessel classes differ most`, MARGIN, y);
     setFont(doc, TEXT_MD, 6.8);
-    doc.text(doc.splitTextToSize(`Same geographic extent and valid time in every panel. The panels differ only because each vessel class has its own wind and wave thresholds.${bundle.domainBoundary?.length ? ` ${BOUNDARY_CAPTION}` : ''}`, CW - 116), MARGIN, y + 4.6);
-    drawLegendRow(doc, PAGE_W - MARGIN - 106, y + 5.6, [[hazardColor(0), 'Suitable'], [hazardColor(1), 'Caution'], [hazardColor(2), 'Warning']]);
+    doc.text(doc.splitTextToSize(`Same sea state in every panel (same extent, same valid time). The classes differ only because each vessel has its own wave and wind thresholds; the line under each map says which variable crosses them.${bundle.domainBoundary?.length ? ` ${BOUNDARY_CAPTION}` : ''}`, CW - 116), MARGIN, y + 4.6);
+    drawLegendRow(doc, PAGE_W - MARGIN - 106, y + 5.6, mapLegend(bundle));
     y += 12;
     const bottom = contentBottom(doc);
     const gap = 5;
     const pw = (CW - gap * 3) / 4;
     let aspect = 1;
     try { const first = c.panels.find((p) => p.map?.dataUrl); if (first) { const ip = doc.getImageProperties(first.map.dataUrl); aspect = ip.width / ip.height; } } catch { aspect = 1; }
-    const imgH = Math.min(bottom - y - 60, (pw - 4) / (aspect > 0 ? aspect : 1));
-    const ph = 9 + imgH + 46;
+    const imgH = Math.min(bottom - y - 68, (pw - 4) / (aspect > 0 ? aspect : 1));
+    const ph = 9 + imgH + 54;
     c.panels.forEach((p, i) => {
       const px = MARGIN + i * (pw + gap);
       const ok = hasVesselData(p.step);
@@ -356,7 +432,7 @@ function drawPage3(doc, bundle, pageNo, pageCount) {
       card(doc, px, y, pw, ph);
       setFill(doc, ok ? hazardColor(vh) : NO_DATA_GREY); doc.rect(px, y, pw, 7, 'F');
       setFont(doc, TEXT_LT, 8, 'bold'); doc.text(vesselLabel(p.vessel), px + 3, y + 4.9);
-      if (p.map?.dataUrl) overlayBoundary(doc, bundle, p.map, fitImage(doc, p.map.dataUrl, px + 2, y + 9, pw - 4, imgH, `contrast_${p.vessel}`));
+      if (p.map?.dataUrl) drawMap(doc, bundle, p.map, px + 2, y + 9, pw - 4, imgH, `contrast_${p.vessel}`);
       else placeholderBox(doc, px + 2, y + 9, pw - 4, imgH, 'Map unavailable');
       const by = y + 9 + imgH + 4;
       if (ok) {
@@ -369,6 +445,15 @@ function drawPage3(doc, bundle, pageNo, pageCount) {
       if (rule) {
         setFont(doc, hazardText(1), 6.2, 'bold'); doc.text(`Caution: Hs >= ${formatNumber(rule.cautionWaveHeightM)} m or wind >= ${formatNumber(rule.cautionWindKt, 0)} kt`, px + 3, by + 15);
         setFont(doc, hazardText(2), 6.2, 'bold'); doc.text(`Warning: Hs >= ${formatNumber(rule.maxWaveHeightM)} m or wind >= ${formatNumber(rule.maxWindKt, 0)} kt`, px + 3, by + 19.5);
+        // What these thresholds mean for this sea state: which variable crosses them (estimated, as on page 4).
+        const est = ok ? estimateDriver(p.step, rule) : null;
+        if (est) {
+          const why = est.level
+            ? `Estimated driver: ${est.label.toLowerCase()} over the ${est.level} threshold (peak Hs ${formatNumber(p.step.wave?.max)} m, wind ${formatNumber(p.step.wind?.max, 0)} kt)`
+            : `Peak Hs ${formatNumber(p.step.wave?.max)} m and wind ${formatNumber(p.step.wind?.max, 0)} kt stay below this vessel's thresholds`;
+          setFont(doc, TEXT_DK, 6.1);
+          doc.text(doc.splitTextToSize(why, pw - 6).slice(0, 3), px + 3, by + 25.5);
+        }
       }
     });
   }
@@ -379,40 +464,109 @@ function drawPage3(doc, bundle, pageNo, pageCount) {
 
 function drawPage4(doc, bundle, pageNo, pageCount) {
   doc.addPage();
-  pageHeader(doc, bundle, `DAILY FORECAST EVOLUTION — ${vesselLabel(bundle.selectedVessel).toUpperCase()}`, pageNo, pageCount);
+  const vessel = bundle.selectedVessel;
+  pageHeader(doc, bundle, `DAILY FORECAST EVOLUTION — ${vesselLabel(vessel).toUpperCase()}`, pageNo, pageCount);
   const { local } = ctx(bundle);
+  const envelope = VESSEL_OPERATING_ENVELOPE[vessel];
+  const rows = dailyEvolutionRows(bundle.maps.daily, envelope);
   setFont(doc, TEXT_MD, 7);
-  doc.text(doc.splitTextToSize('Modelled conditions at 12:00 local time each day (nearest forecast step shown under every panel). Days beyond the forecast horizon are shown as such, not estimated.', CW - 116), MARGIN, HDR_H + 6);
-  drawLegendRow(doc, PAGE_W - MARGIN - 106, HDR_H + 7, [[hazardColor(0), 'Suitable'], [hazardColor(1), 'Caution'], [hazardColor(2), 'Warning']]);
-  const top = HDR_H + 11;
-  const bottom = contentBottom(doc);
-  const daily = bundle.maps.daily;
-  const cols = 3; const gap = 4;
-  const pw = (CW - gap * (cols - 1)) / cols;
-  const rows = Math.max(1, Math.ceil(daily.length / cols));
-  const ph = (bottom - top - gap * (rows - 1)) / rows;
-  daily.forEach((p, i) => {
-    const px = MARGIN + (i % cols) * (pw + gap);
-    const py = top + Math.floor(i / cols) * (ph + gap);
-    card(doc, px, py, pw, ph);
-    setFont(doc, TEXT_DK, 7.5, 'bold'); doc.text(local(p.targetTime).replace(/ \d{2}:\d{2}.*$/, ''), px + 3, py + 5);
-    const mapH = ph - 21;
-    if (p.beyondHorizon) {
-      placeholderBox(doc, px + 2, py + 8, pw - 4, mapH, 'Beyond forecast horizon');
-      setFont(doc, TEXT_MD, 6.2, 'italic'); doc.text('No forecast available for this time', px + 3, py + ph - 3);
+  doc.text(doc.splitTextToSize('One map and one row per day at 12:00 local time (the nearest forecast step is shown). Peaks are the highest wave height and wind anywhere in the report area at that hour. Days beyond the forecast horizon are shown as such, not estimated.', CW - 116), MARGIN, HDR_H + 6);
+  drawLegendRow(doc, PAGE_W - MARGIN - 106, HDR_H + 7, mapLegend(bundle));
+
+  const dayLabel = (r) => local(r.targetTime).replace(/ \d{2}:\d{2}.*$/, '');
+  const noteH = 8;
+  const bottom = contentBottom(doc) - noteH;
+  const n = Math.max(1, rows.length);
+
+  // ── map strip: one panel per day, as large as the page allows (a tall whole-domain view gets its
+  // height; a wide island view its width), so the spatial pattern is readable, not a thumbnail.
+  const stripTop = HDR_H + 13;
+  const gap = 3;
+  const panelW = (CW - gap * (n - 1)) / n;
+  const tableRowH = 11;
+  const headerH = 8;
+  // The strip takes whatever height the table does not need: three days get large maps, six still fit.
+  const maxStripH = Math.min(125, bottom - stripTop - 6 - headerH - n * tableRowH - 6);
+  // ...but no taller than the maps need: a wide island view gets short cards, not empty space under it.
+  let aspect = null;
+  try { const m = rows.find((r) => r.map?.dataUrl)?.map; if (m) { const ip = doc.getImageProperties(m.dataUrl); aspect = ip.width / ip.height; } } catch { aspect = null; }
+  const stripH = Number.isFinite(aspect) && aspect > 0 ? Math.min(maxStripH, (panelW - 3) / aspect + 9.5) : maxStripH;
+  rows.forEach((r, i) => {
+    const px = MARGIN + i * (panelW + gap);
+    card(doc, px, stripTop, panelW, stripH);
+    const lvl = r.available ? domainHazard(r.warning, r.caution) : null;
+    setFill(doc, lvl === null ? NO_DATA_GREY : hazardColor(lvl));
+    doc.rect(px, stripTop, panelW, 6, 'F');
+    setFont(doc, lvl === 1 ? [60, 40, 0] : TEXT_LT, 7, 'bold');
+    doc.text(fitText(doc, dayLabel(r), panelW - 4), px + 2, stripTop + 4.2);
+    const my = stripTop + 7.5; const mh = stripH - 9.5;
+    if (r.beyondHorizon) placeholderBox(doc, px + 1.5, my, panelW - 3, mh, 'Beyond forecast horizon');
+    else if (r.map?.dataUrl) drawMap(doc, bundle, r.map, px + 1.5, my, panelW - 3, mh, `daily_${i}`);
+    else placeholderBox(doc, px + 1.5, my, panelW - 3, mh, 'Map unavailable');
+  });
+
+  // ── table: the numbers behind each map, one compact row per day
+  const top = stripTop + stripH + 6;
+  const COLS = [
+    { key: 'day', label: 'Day', w: 40 },
+    { key: 'share', label: 'Share of assessed points', w: 84 },
+    { key: 'hs', label: 'Peak wave height (Hs)', w: 31 },
+    { key: 'wind', label: 'Peak wind', w: 22 },
+    { key: 'driver', label: 'Estimated driver', w: 52 },
+  ];
+  COLS.push({ key: 'change', label: 'Change from previous day', w: CW - COLS.reduce((a, c) => a + c.w, 0) });
+  const colX = (key) => COLS.slice(0, COLS.findIndex((c) => c.key === key)).reduce((a, c) => a + c.w, MARGIN);
+  const colW = (key) => COLS.find((c) => c.key === key).w;
+  rect(doc, MARGIN, top, CW, headerH, HEADER_BG);
+  COLS.forEach((c) => { setFont(doc, TEXT_LT, 6.6, 'bold'); doc.text(c.label, colX(c.key) + 2.5, top + 5.2); });
+
+  // Peak value coloured by the vessel threshold it reaches, so the numbers carry their own meaning.
+  const levelOf = (v, caution, warning) => (v === null ? null : v >= warning ? 2 : v >= caution ? 1 : 0);
+
+  rows.forEach((r, i) => {
+    const y = top + headerH + i * tableRowH;
+    rect(doc, MARGIN, y, CW, tableRowH, i % 2 ? [248, 250, 252] : [255, 255, 255]);
+    setDraw(doc, GRID_CLR); doc.setLineWidth(0.15); doc.line(MARGIN, y + tableRowH, MARGIN + CW, y + tableRowH);
+    const mid = y + tableRowH / 2;
+    setFont(doc, TEXT_DK, 7.4, 'bold'); doc.text(dayLabel(r), colX('day') + 2.5, mid - 0.4);
+    if (!r.beyondHorizon && r.matchedTime) { setFont(doc, TEXT_MD, 5.6); doc.text(`step ${local(r.matchedTime).split(' ').slice(-2).join(' ')}`, colX('day') + 2.5, mid + 3.2); }
+
+    if (r.beyondHorizon) {
+      setFont(doc, TEXT_MD, 7, 'italic'); doc.text('Beyond the forecast horizon: no forecast for this day.', colX('share') + 2.5, mid + 1.2);
       return;
     }
-    if (p.map?.dataUrl) overlayBoundary(doc, bundle, p.map, fitImage(doc, p.map.dataUrl, px + 2, py + 8, pw - 4, mapH, `daily_${i}`));
-    else placeholderBox(doc, px + 2, py + 8, pw - 4, mapH, 'Map unavailable');
-    setFont(doc, TEXT_MD, 6); doc.text(`Matched: ${local(p.matchedTime)}`, px + 3, py + ph - 8);
-    const ok = hasVesselData(p.step);
-    setFont(doc, ok ? hazardText(domainHazard(p.step.warning, p.step.caution)) : TEXT_MD, 6.8, 'bold');
-    doc.text(ok ? `${pctText(p.step.suitable)}% Suitable · ${pctText(p.step.caution)}% Caution · ${pctText(p.step.warning)}% Warning` : 'No data', px + 3, py + ph - 3);
+    if (!r.available) {
+      setFont(doc, TEXT_MD, 7, 'italic'); doc.text('No data for this day (not assumed Suitable).', colX('share') + 2.5, mid + 1.2);
+      return;
+    }
+    const sx = colX('share') + 2.5;
+    const barW = 40;
+    drawHazardShareBar(doc, sx, mid - 2, barW, 4, [[0, r.suitable], [1, r.caution], [2, r.warning]]);
+    setFont(doc, hazardText(domainHazard(r.warning, r.caution)), 6.6, 'bold');
+    doc.text(fitText(doc, `${pctText(r.suitable)}% S · ${pctText(r.caution)}% C · ${pctText(r.warning)}% W`, colW('share') - barW - 7), sx + barW + 2.5, mid + 1.2);
+    const hsLvl = envelope ? levelOf(r.peakHsM, envelope.cautionWaveHeightM, envelope.maxWaveHeightM) : null;
+    const windLvl = envelope ? levelOf(r.peakWindKt, envelope.cautionWindKt, envelope.maxWindKt) : null;
+    setFont(doc, hsLvl === null ? TEXT_MD : hazardText(hsLvl), 7.8, 'bold');
+    doc.text(r.peakHsM === null ? '—' : `${formatNumber(r.peakHsM)} m`, colX('hs') + 2.5, mid + 1.2);
+    setFont(doc, windLvl === null ? TEXT_MD : hazardText(windLvl), 7.8, 'bold');
+    doc.text(r.peakWindKt === null ? '—' : `${formatNumber(r.peakWindKt, 0)} kt`, colX('wind') + 2.5, mid + 1.2);
+    setFont(doc, r.driver?.level ? hazardText(r.driver.level === 'warning' ? 2 : 1) : TEXT_MD, 7, 'bold');
+    const driverText = r.driver ? (r.driver.level ? `${r.driver.label} · over ${r.driver.level}` : r.driver.label) : 'Not reported';
+    doc.text(fitText(doc, driverText, colW('driver') - 4), colX('driver') + 2.5, mid + 1.2);
+    setFont(doc, r.change ? (r.change.direction === 'higher' ? hazardText(2) : r.change.direction === 'lower' ? hazardText(0) : TEXT_DK) : TEXT_MD, 7, r.change ? 'bold' : 'normal');
+    doc.text(fitText(doc, r.change ? r.change.text : (!rows.slice(0, i).some((q) => q.available) ? 'First day shown' : '—'), colW('change') - 4), colX('change') + 2.5, mid + 1.2);
   });
+
+  setFont(doc, TEXT_MD, 5.9, 'italic');
+  doc.text(doc.splitTextToSize(`Estimated driver: the peak wave height and wind in the area are compared with the ${vesselLabel(vessel)} thresholds (Caution Hs >= ${formatNumber(envelope?.cautionWaveHeightM)} m or wind >= ${formatNumber(envelope?.cautionWindKt, 0)} kt; Warning Hs >= ${formatNumber(envelope?.maxWaveHeightM)} m or wind >= ${formatNumber(envelope?.maxWindKt, 0)} kt). The service does not report which variable classified each point. Peak values are coloured by the threshold they reach.`, CW), MARGIN, top + headerH + n * tableRowH + 4.5);
   pageFooter(doc, bundle);
 }
 
 // ── Page 5 — Forecast trend ─────────────────────────────────────────────────
+
+// A faint band: it marks the elevated period without competing with the lines.
+const ELEVATED_BG = [253, 239, 240];
+const SELECTED_LINE = [18, 50, 74];
 
 function drawPage5(doc, bundle, pageNo, pageCount) {
   doc.addPage();
@@ -427,19 +581,51 @@ function drawPage5(doc, bundle, pageNo, pageCount) {
   const sideW = PAGE_W - MARGIN - sideX;
 
   card(doc, MARGIN, top, chartCardW, bottom - top);
-  sectionTitle(doc, `Share of assessed model points at Warning level — ${scopeLabel(bundle.scope.effective).toLowerCase()}`, MARGIN + 4, top + 6, { color: TEXT_DK, size: 8 });
+  sectionTitle(doc, `Modelled conditions over the outlook — ${scopeLabel(bundle.scope.effective).toLowerCase()}`, MARGIN + 4, top + 6, { color: TEXT_DK, size: 8 });
   setFont(doc, TEXT_MD, 6.6);
   doc.text(`Forecast period: ${local(bundle.forecastWindow.start)} to ${local(bundle.forecastWindow.end)}`, MARGIN + 4, top + 10.5);
 
-  const cx = MARGIN + 16; const cw = chartCardW - 24; const cy = top + 16; const ch = bottom - top - 46;
+  const cx = MARGIN + 16; const cw = chartCardW - 24;
   const t0 = bundle.forecastWindow.start; const t1 = bundle.forecastWindow.end > t0 ? bundle.forecastWindow.end : t0 + 3600e3;
-  const allWarn = VESSEL_CLASS_OPTIONS.flatMap((v) => ts.byVessel[v.value]).filter((s) => s.available !== false).map((s) => s.warning);
-  const yMax = Math.max(20, Math.ceil(Math.max(0, ...allWarn) / 10) * 10 + 5);
   const X = (t) => cx + ((t - t0) / (t1 - t0)) * cw;
+
+  // Panel A: every class for the selected vessel, stacked to 100% per step, so a move from Caution to
+  // Suitable shows even when the Warning share does not change.
+  const aTop = top + 19; const aH = (bottom - top - 62) * 0.42;
+  setFont(doc, TEXT_DK, 6.8, 'bold'); doc.text(`${vesselLabel(sel)}: share of points by class`, cx, aTop - 2);
+  drawLegendRow(doc, cx + cw - 81, aTop - 2, MAP_LEGEND_FILL);
+  rect(doc, cx, aTop, cw, aH, [252, 253, 254], GRID_CLR, 0.25);
+  const selSeries = ts.byVessel[sel].filter((st) => Number.isFinite(st.validTime));
+  const barW = Math.max(0.6, ((ts.strideHours * 3600e3) / (t1 - t0)) * cw);
+  selSeries.forEach((st) => {
+    const bx = Math.min(cx + cw - barW, X(st.validTime));
+    if (st.available === false) { setFill(doc, [225, 225, 225]); doc.rect(bx, aTop, barW, aH, 'F'); return; }
+    let acc = 0;
+    [[2, st.warning], [1, st.caution], [0, st.suitable]].forEach(([h, v]) => {
+      const share = Math.max(0, Number(v) || 0);
+      if (!share) return;
+      const hh = (Math.min(share, 100 - acc) / 100) * aH;
+      setFill(doc, MAP_FILL_RGB[h]); // large filled areas use the calmer map-fill palette, like the maps
+      doc.rect(bx, aTop + aH - (acc / 100) * aH - hh, barW + 0.1, hh, 'F');
+      acc += share;
+    });
+  });
+  setDraw(doc, GRID_CLR); doc.setLineWidth(0.15);
+  [0, 50, 100].forEach((v) => {
+    const yy = aTop + aH - (v / 100) * aH;
+    doc.line(cx, yy, cx + cw, yy);
+    setFont(doc, TEXT_MD, 5.8); doc.text(`${v}%`, cx - 1.5, yy + 1, { align: 'right' });
+  });
+
+  // Panel B: Warning share for all four vessels (selected one emphasised), against the summary rule.
+  const cy = aTop + aH + 12; const ch = bottom - cy - 30;
+  setFont(doc, TEXT_DK, 6.8, 'bold'); doc.text('Warning share, all vessel classes', cx, cy - 2);
+  const allWarn = VESSEL_CLASS_OPTIONS.flatMap((v) => ts.byVessel[v.value]).filter((st) => st.available !== false).map((st) => st.warning);
+  const yMax = Math.max(20, Math.ceil(Math.max(0, ...allWarn) / 10) * 10 + 5);
   const Y = (v) => cy + ch - (v / yMax) * ch;
 
   rect(doc, cx, cy, cw, ch, [252, 253, 254], GRID_CLR, 0.25);
-  ts.analysis[sel].elevated.forEach((r) => { setFill(doc, [252, 222, 224]); doc.rect(X(r.start.validTime) - 1, cy, Math.max(2, X(r.end.validTime) - X(r.start.validTime) + 2), ch, 'F'); });
+  ts.analysis[sel].elevated.forEach((r) => { setFill(doc, ELEVATED_BG); doc.rect(X(r.start.validTime) - 1, cy, Math.max(2, X(r.end.validTime) - X(r.start.validTime) + 2), ch, 'F'); });
   ts.analysis[sel].unavailable.forEach((g) => { setFill(doc, [225, 225, 225]); doc.rect(X(g.start.validTime) - 1, cy, Math.max(2, X(g.end.validTime) - X(g.start.validTime) + 2), ch, 'F'); });
   setDraw(doc, GRID_CLR); doc.setLineWidth(0.15);
   for (let v = 0; v <= yMax; v += yMax > 40 ? 20 : 10) {
@@ -447,33 +633,37 @@ function drawPage5(doc, bundle, pageNo, pageCount) {
     setFont(doc, TEXT_MD, 6); doc.text(`${v}%`, cx - 1.5, Y(v) + 1, { align: 'right' });
   }
   setDraw(doc, hazardColor(2)); doc.setLineWidth(0.25);
+  doc.setLineDashPattern([1.2, 0.9], 0);
   doc.line(cx, Y(ELEVATED_WARNING_PERCENT), cx + cw, Y(ELEVATED_WARNING_PERCENT));
-  setFont(doc, hazardText(2), 5.6, 'italic'); doc.text(`${ELEVATED_WARNING_PERCENT}% = elevated`, cx + cw - 1, Y(ELEVATED_WARNING_PERCENT) - 1, { align: 'right' });
+  doc.setLineDashPattern([], 0);
+  setFont(doc, hazardText(2), 5.6, 'italic'); doc.text(`${ELEVATED_WARNING_PERCENT}% = elevated (summary rule)`, cx + cw - 1, Y(ELEVATED_WARNING_PERCENT) - 1, { align: 'right' });
 
   const drawSeries = (code, color, lw) => {
     setDraw(doc, color); doc.setLineWidth(lw);
     let prev = null;
-    ts.byVessel[code].forEach((s) => {
-      if (s.available === false || !Number.isFinite(s.validTime)) { prev = null; return; }
-      if (prev) doc.line(X(prev.validTime), Y(prev.warning), X(s.validTime), Y(s.warning));
-      prev = s;
+    ts.byVessel[code].forEach((st) => {
+      if (st.available === false || !Number.isFinite(st.validTime)) { prev = null; return; }
+      if (prev) doc.line(X(prev.validTime), Y(prev.warning), X(st.validTime), Y(st.warning));
+      prev = st;
     });
   };
-  const OTHER = [[150, 160, 170], [120, 130, 200], [200, 150, 90]];
-  VESSEL_CLASS_OPTIONS.filter((v) => v.value !== sel).forEach((v, i) => drawSeries(v.value, OTHER[i % 3], 0.35));
-  drawSeries(sel, [0, 120, 170], 0.9);
+  // The selected vessel is the line to follow; the other three are context, in quiet greys.
+  // Medium grey, light grey and a muted blue-grey: told apart from each other, all quieter than it.
+  const OTHER = [[128, 136, 146], [186, 192, 199], [112, 140, 170]];
+  VESSEL_CLASS_OPTIONS.filter((v) => v.value !== sel).forEach((v, i) => drawSeries(v.value, OTHER[i % 3], 0.5));
+  drawSeries(sel, SELECTED_LINE, 1.4);
   drawTimeAxis(doc, bundle, cx, cy + ch + 0.5, cw, t0, t1);
 
   // legend
   let lx = MARGIN + 6; const ly = cy + ch + 11;
-  setDraw(doc, [0, 120, 170]); doc.setLineWidth(0.9); doc.line(lx, ly, lx + 8, ly);
+  setDraw(doc, SELECTED_LINE); doc.setLineWidth(1.4); doc.line(lx, ly, lx + 8, ly);
   setFont(doc, TEXT_DK, 6.5, 'bold'); doc.text(`${vesselLabel(sel)} (selected)`, lx + 10, ly + 0.9);
   lx += 52;
   VESSEL_CLASS_OPTIONS.filter((v) => v.value !== sel).forEach((v, i) => {
-    setDraw(doc, OTHER[i % 3]); doc.setLineWidth(0.35); doc.line(lx, ly, lx + 6, ly);
+    setDraw(doc, OTHER[i % 3]); doc.setLineWidth(0.5); doc.line(lx, ly, lx + 6, ly);
     setFont(doc, TEXT_MD, 6.3); doc.text(v.label, lx + 7.5, ly + 0.9); lx += 36;
   });
-  rect(doc, MARGIN + 6, ly + 5, 3, 3, [252, 222, 224]); setFont(doc, TEXT_MD, 6.3); doc.text('Elevated period (selected vessel)', MARGIN + 10.5, ly + 7.5);
+  rect(doc, MARGIN + 6, ly + 5, 3, 3, ELEVATED_BG, [230, 190, 192], 0.2); setFont(doc, TEXT_MD, 6.3); doc.text('Elevated period (selected vessel)', MARGIN + 10.5, ly + 7.5);
   rect(doc, MARGIN + 70, ly + 5, 3, 3, [225, 225, 225]); doc.text('Unavailable (gap — not assumed Suitable)', MARGIN + 74.5, ly + 7.5);
 
   // side summary card
@@ -514,7 +704,7 @@ function drawPageMethodology(doc, bundle, pageNo, pageCount) {
   // left: classification + scope
   const para = (t, x, y, w, size = 6.9, color = TEXT_MD) => { setFont(doc, color, size); const lines = doc.splitTextToSize(t, w); doc.text(lines, x, y); return lines.length * (size * 0.42 + 0.6) + 1.5; };
   const cls1 = 'Classification is applied independently at each modelled point using significant wave height (Hs) and sustained 10-metre wind speed. A point is Warning when either parameter meets or exceeds the Warning threshold for the vessel class; Caution when it meets the Caution threshold; Suitable otherwise. Percentages are shares of assessed model points in each category.';
-  const cls2 = `Warning aggregation: a time step is described as "Warning" (elevated) in the outlook and trend pages when at least ${ELEVATED_WARNING_PERCENT}% of assessed points are Warning-level; any smaller Warning share is reported explicitly as a percentage and the step is shown as Caution.`;
+  const cls2 = `Warning aggregation (${ELEVATED_WARNING_RULE.kind.toLowerCase()}, version ${ELEVATED_WARNING_RULE.version}): a time step is described as "Warning" (elevated) in the outlook and trend pages when at least ${ELEVATED_WARNING_RULE.percent}% of assessed points are Warning-level; any smaller Warning share is reported explicitly as a percentage and the step is shown as Caution. ${ELEVATED_WARNING_RULE.basis}`;
   card(doc, MARGIN, top, leftW, bottom - top);
   let y = top + 6;
   sectionTitle(doc, 'HOW SUITABILITY IS CLASSIFIED', MARGIN + 4, y); y += 4.5;
@@ -540,7 +730,12 @@ function drawPageMethodology(doc, bundle, pageNo, pageCount) {
     ['Point coverage', cov ? `${cov.classified} classified of ${cov.eligible ?? '—'} eligible (${cov.total ?? '—'} total)` : 'Unavailable'],
     ['Model run', bundle.modelRun.time ? formatUtc(bundle.modelRun.time) : 'Not reported'],
     ['Valid time', `${local(bundle.validTime)} (${formatUtc(bundle.validTime)})`],
-    ['Forecast period', `${local(bundle.forecastWindow.forecastStart)} – ${local(bundle.forecastWindow.forecastEnd)}${Number.isFinite(bundle.forecastWindow.hindcastHoursBeforeRun) && bundle.forecastWindow.hindcastHoursBeforeRun > 0 ? ` (the first ${Math.round(bundle.forecastWindow.hindcastHoursBeforeRun)} h precede the model run)` : ''}`],
+    // The model data starts before the run (spin-up history); said as three separate facts, so it does
+    // not read as a forecast that starts before it was made.
+    ['Model data window', `${local(bundle.forecastWindow.forecastStart)} – ${local(bundle.forecastWindow.forecastEnd)}`],
+    ...(Number.isFinite(bundle.forecastWindow.hindcastHoursBeforeRun) && bundle.forecastWindow.hindcastHoursBeforeRun > 0
+      ? [['History before run', `${Math.round(bundle.forecastWindow.hindcastHoursBeforeRun)} h of model history precede the run; not used as forecast`]] : []),
+    ['Outlook in this report', bundle.timeSeries ? `${local(bundle.forecastWindow.start)} – ${local(bundle.forecastWindow.end)}` : `${local(bundle.validTime)} only`],
     ['Generated', formatLocal(bundle.generatedAt, bundle.timezone, tzLabel(bundle.timezone))],
     ['Methodology version', bundle.methodology.methodologyVersion ?? `Not reported by the service (API schema ${bundle.methodology.apiSchemaVersion ?? 'unknown'})`],
     ['Thresholds', bundle.methodology.thresholdSource],

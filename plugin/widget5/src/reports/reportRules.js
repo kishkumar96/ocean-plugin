@@ -1,3 +1,4 @@
+import { ISLAND_ZOOM_TARGETS } from '../config/islandConfig';
 // reportRules.js -- editorial and threshold rules shared by every Widget 5 report,
 // so the domain, landing, route and scenario PDFs cannot drift apart on wording
 // or on what counts as "elevated". The rules (also asserted in tests):
@@ -24,9 +25,18 @@ export class ReportExportBlockedError extends Error {
   }
 }
 
-// A time step is "elevated" once at least this share of assessed points is Warning.
-// Same cut-off the domain advisory has always used to escalate its badge.
-export const ELEVATED_WARNING_PERCENT = 20;
+// A time step is "elevated" once at least this share of assessed points is Warning. This is a
+// REPORT SUMMARY RULE, not a vessel threshold: the vessel thresholds (Hs, wind) decide each point;
+// this only decides how a mixed area is summarised in one word. Kept as a documented record so the
+// report can print what it is and where it came from, rather than presenting a bare number that reads
+// like an operational limit. No external authority has set it; change `version` with `percent`.
+export const ELEVATED_WARNING_RULE = {
+  percent: 20,
+  version: 1,
+  kind: 'Report summary rule (not a vessel threshold)',
+  basis: 'Set by the dashboard team for this report; not externally validated. Smaller Warning shares are always printed as numbers, never hidden.',
+};
+export const ELEVATED_WARNING_PERCENT = ELEVATED_WARNING_RULE.percent;
 
 // Minimum available share of samples/steps for a result to support a recommendation.
 export const MIN_COVERAGE = 0.8;
@@ -64,6 +74,24 @@ export const SCOPE_LABELS = {
   domain: 'Whole forecast domain',
 };
 export const scopeLabel = (scope) => SCOPE_LABELS[scope] ?? 'Unknown scope';
+
+// The islands a map-view scope actually covers, by name ("Rarotonga", "Manihiki and Rakahanga"), so a
+// report about one island's waters is never headed as if it covered the whole Cook Islands. null for a
+// whole-domain scope, a view that contains no island, or one spanning more than three.
+export function scopePlaceName(scopeInfo, islands = ISLAND_ZOOM_TARGETS) {
+  if (!scopeInfo || scopeInfo.effective !== 'viewport') return null;
+  const b = scopeInfo.appliedBounds ?? scopeInfo.requestedBounds;
+  if (!b) return null;
+  const names = islands.filter(({ bounds }) => {
+    const [s, w] = bounds.southWest;
+    const [n, e] = bounds.northEast;
+    return w <= b.east && e >= b.west && s <= b.north && n >= b.south;
+  }).map((i) => i.label);
+  if (!names.length) return null;
+  if (names.length === 1) return names[0];
+  if (names.length <= 3) return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return null; // a view over many islands is headed as Cook Islands coastal waters, not as a count
+}
 
 export function pctText(value) {
   const n = Number(value);

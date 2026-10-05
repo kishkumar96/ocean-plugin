@@ -359,10 +359,14 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
   }, [assetsGeojson, selected?.scenario]);
   const assetTypes = useMemo(() => summarizeImpactAssetTypes(assetUnits), [assetUnits]);
   // Hazard as seen by what it touches: the deepest modelled flooding at any exposed asset.
+  // Port assets are left out: wharf, jetty and marina segments sit in the harbour and sample its water
+  // depth (several metres), which is not flooding of the structure -- the same overstatement flagged under
+  // the damage figure. Their own row in Exposure still shows that depth.
   const deepestAssetDepthM = useMemo(() => {
-    const depths = assetUnits.map((u) => u.maxDepth).filter(Number.isFinite);
+    const depths = assetUnits.filter((u) => u.asset !== 'Port').map((u) => u.maxDepth).filter(Number.isFinite);
     return depths.length ? Math.max(...depths) : null;
   }, [assetUnits]);
+  const hasPortUnits = useMemo(() => assetUnits.some((u) => u.asset === 'Port'), [assetUnits]);
   const [topLimit, setTopLimit] = useState(5);
   // Kept by asset type (not window), so the open type stays open when you
   // switch windows, as long as that type is still exposed there.
@@ -517,7 +521,7 @@ function ImpactTabPanel({ data, assets, districts, onRetry, onWindowSelect, onSc
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <MetricRow
             icon={Waves}
-            label="Deepest flooding at an exposed asset"
+            label={hasPortUnits ? 'Deepest flooding at an exposed asset (excluding ports)' : 'Deepest flooding at an exposed asset'}
             value={deepestAssetDepthM === null ? '—' : `${deepestAssetDepthM.toFixed(1)} m`}
             accentColor="#38bdf8"
           />

@@ -16,6 +16,7 @@ const selectStyle = { background: 'rgba(15, 23, 42, 0.9)', color: '#f8fafc', bor
 // The parent supplies `onGenerate(options, { signal, onProgress })`.
 function DomainReportDialog({
   open, onClose, onGenerate, defaultVessel, hasViewport, viewportBounds = null, validTime, timeDisplayZone = 'Pacific/Rarotonga',
+  customEnvelopeActive = false,
 }) {
   const [vessel, setVessel] = useState(defaultVessel);
   const [scope, setScope] = useState(hasViewport ? 'viewport' : 'domain');
@@ -23,6 +24,11 @@ function DomainReportDialog({
   const [kind, setKind] = useState('advisory');
   const [meta, setMeta] = useState(null);
   const [state, setState] = useState({ running: false, progress: null, error: '' });
+  // With a custom envelope on the map, the report (which only has the preset thresholds) would quietly
+  // describe different colours from the ones on screen. Generating then needs an explicit acknowledgement.
+  const [presetAcknowledged, setPresetAcknowledged] = useState(false);
+  useEffect(() => { if (open) setPresetAcknowledged(false); }, [open]);
+  const blockedByCustom = customEnvelopeActive && !presetAcknowledged;
   const abortRef = useRef(null);
 
   useEffect(() => { if (open) { setVessel(defaultVessel); setScope(hasViewport ? 'viewport' : 'domain'); setState({ running: false, progress: null, error: '' }); } }, [open, defaultVessel, hasViewport]);
@@ -96,6 +102,24 @@ function DomainReportDialog({
           <div><strong style={{ color: '#f8fafc' }}>Report:</strong> {isPoster ? '1 page (A3) — map, vessel cards, shared trend; a communications product, not an advisory' : `${pages} pages${horizonHours > 0 ? ' — advisory, outlook, vessel comparison, daily evolution, trend, methodology' : ' — advisory and methodology'}`}</div>
         </div>
 
+        {customEnvelopeActive && (
+          <div role="note" style={{ marginTop: '0.7rem', padding: '0.55rem 0.7rem', borderRadius: 10, background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.45)', fontSize: '0.7rem', lineHeight: 1.45, color: '#fde68a' }}>
+            <strong>Your map uses a custom envelope.</strong> This report can only use the <strong>preset</strong> vessel thresholds, so its
+            colours and percentages can differ from what you see on screen. The report says so on page 1.
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem', color: '#f8fafc', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                id="domain-report-preset-ack"
+                name="domain-report-preset-ack"
+                checked={presetAcknowledged}
+                disabled={state.running}
+                onChange={(e) => setPresetAcknowledged(e.target.checked)}
+              />
+              Generate with the preset thresholds
+            </label>
+          </div>
+        )}
+
         {state.running && (
           <div style={{ marginTop: '0.8rem' }}>
             <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
@@ -110,7 +134,13 @@ function DomainReportDialog({
           {state.running
             ? <button type="button" className="map-display-option__btn" onClick={cancel}>Cancel</button>
             : <button type="button" className="map-display-option__btn" onClick={onClose}>Close</button>}
-          <button type="button" className="map-display-option__btn" onClick={start} disabled={state.running}>
+          <button
+            type="button"
+            className="map-display-option__btn"
+            onClick={start}
+            disabled={state.running || blockedByCustom}
+            title={blockedByCustom ? 'Confirm the preset thresholds above to generate' : undefined}
+          >
             {state.running ? <Loader2 size={13} className="update-spinner" style={{ marginRight: 5, verticalAlign: 'text-bottom' }} /> : <FileDown size={13} style={{ marginRight: 5, verticalAlign: 'text-bottom' }} />}
             {state.running ? 'Preparing…' : 'Generate PDF'}
           </button>

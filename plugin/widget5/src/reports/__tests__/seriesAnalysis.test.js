@@ -31,3 +31,30 @@ describe('seriesAnalysis', () => {
     expect(coverageOf(series)).toEqual({ total: 10, available: 9, ratio: 0.9 });
   });
 });
+
+describe('lowestExposureWindow', () => {
+  // eslint-disable-next-line global-require
+  const { lowestExposureWindow } = require('../seriesAnalysis');
+  const st = (i, warning, caution = 0, available = true) => ({ timeIndex: i, validTime: i * 3600e3, available, warning, caution, suitable: 100 - warning - caution });
+
+  test('picks the run with the lowest mean Warning share, then the lowest Caution', () => {
+    const w = lowestExposureWindow([st(0, 90), st(1, 40, 30), st(2, 40, 10), st(3, 80)], 1);
+    expect(w).toMatchObject({ warning: 40, caution: 10, flat: false, highestWarning: 90 });
+    expect(w.start.timeIndex).toBe(2);
+  });
+
+  test('a multi-step window is judged on its mean and never spans a gap', () => {
+    const series = [st(0, 10), st(1, 90, 0, false), st(2, 20), st(3, 30), st(4, 100)];
+    const w = lowestExposureWindow(series, 2);
+    expect([w.start.timeIndex, w.end.timeIndex]).toEqual([2, 3]); // 0+gap is not contiguous
+    expect(w.warning).toBe(25);
+  });
+
+  test('flat when the Warning share never changes, so there is no better period to name', () => {
+    expect(lowestExposureWindow([st(0, 100), st(1, 100), st(2, 100)], 1)).toMatchObject({ flat: true, highestWarning: 100 });
+  });
+
+  test('null with nothing available', () => {
+    expect(lowestExposureWindow([st(0, 50, 0, false)], 1)).toBeNull();
+  });
+});

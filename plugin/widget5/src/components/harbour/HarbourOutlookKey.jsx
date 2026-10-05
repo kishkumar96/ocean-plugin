@@ -1,6 +1,5 @@
 import React from 'react';
 import { HARBOUR_STATE_COLORS } from '../../lib/harbourOutlookLayer';
-import { unloadingLabel } from '../../config/cookIslandsHarbourLimits';
 
 // A small inline copy of the map badge: fill = now, ring = next 24 h.
 function Badge({ now, next, size = 22 }) {
@@ -17,12 +16,15 @@ function Badge({ now, next, size = 22 }) {
   );
 }
 
-// Map key for the harbour badges on the Forecast map. Worded by the limits' authority (unloadingLabel), so
+// Short rows: the title already says whose limits these are ("provisional limits"), so each row needn't.
+const KEY_LABELS = { 0: 'Within limits', 1: 'Over caution limit', 2: 'Over stop limit' };
+
+// Map key for the harbour badges on the Forecast map. The title names the limits' authority, so
 // provisional limits never read as approved operational guidance.
 export default function HarbourOutlookKey({ bundle }) {
   const basis = bundle?.basis;
   const judged = Boolean(bundle?.judged);
-  const qualifier = basis === 'provisional' ? ' (provisional limits)' : basis === 'draft' ? ' (draft limits)' : '';
+  const qualifier = basis === 'provisional' ? ' · provisional limits' : basis === 'draft' ? ' · draft limits' : '';
   return (
     <div data-testid="harbour-outlook-key">
       <div className="marine-legend-title">Harbour unloading{qualifier}</div>
@@ -32,7 +34,7 @@ export default function HarbourOutlookKey({ bundle }) {
             {[['ok', 0], ['caution', 1], ['stop', 2]].map(([state, verdict]) => (
               <div key={state} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.76rem', color: '#e0f7ff' }}>
                 <span style={{ width: 12, height: 12, borderRadius: '50%', background: HARBOUR_STATE_COLORS[state], border: '1.5px solid rgba(255,255,255,0.3)', flexShrink: 0 }} />
-                {unloadingLabel(verdict, basis)}
+                {KEY_LABELS[verdict]}
               </div>
             ))}
           </div>
