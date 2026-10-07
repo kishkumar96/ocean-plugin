@@ -47,8 +47,6 @@ type Props = {
   onTimeChange?: (time: string | null) => void;
   /** Reports whether the layer is fetching data from S3. */
   onLoadingChange?: (loading: boolean) => void;
-  /** Reports every timestep once the dataset loads (even while hidden). */
-  onTimesLoaded?: (times: string[]) => void;
   /** Play through time automatically (from initialTime, looping back to it). */
   autoplay?: boolean;
   /** Timestep to open on when no initialTime is given (default "latest"). */
@@ -74,7 +72,6 @@ export default function ZarrLayerControl({
   autoplay = false,
   onTimeChange,
   onLoadingChange,
-  onTimesLoaded,
   midMonth = false,
   defaultTime = "latest",
 }: Props) {
@@ -143,7 +140,6 @@ export default function ZarrLayerControl({
             }
             setTimes(t);
             setTime(start);
-            onTimesLoaded?.(t);
           };
         } else {
           // Extras may finish loading after the main layer picked its time.

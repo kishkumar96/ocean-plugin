@@ -5,10 +5,12 @@ import type { ZarrExtra } from "@/components/ZarrLayerControl";
 import type { TimeStep } from "@/lib/time";
 import { withBasePath } from "@/lib/basePath";
 
-// Workbench sections, in order. Each layer names its `group`.
+// Workbench sections, in order. Each layer names its `group`. In an
+// `exclusive` group only one layer is on at a time (radio buttons).
 export const LAYER_GROUPS = [
   { id: "current", title: "Current Conditions" },
   { id: "outlook", title: "Outlook" },
+  { id: "impact", title: "Impact", exclusive: true },
 ] as const;
 
 export type LayerGroupId = (typeof LAYER_GROUPS)[number]["id"];
@@ -30,6 +32,17 @@ export type StoryLayer = {
     }
   | {
       id: string;
+      /**
+       * Countries' EEZs shaded by a status from public/drought.json (its
+       * `layers[droughtKey]`), over the shapes in public/pacific-eez.json.
+       */
+      kind: "eez";
+      /** Shown until drought.json loads (then its layer title is used). */
+      title: string;
+      droughtKey: string;
+    }
+  | {
+      id: string;
       /** Zarr dataset rendered client-side with deck.gl. */
       kind: "zarr";
       title: string;
@@ -37,6 +50,8 @@ export type StoryLayer = {
       legendUrl?: string;
       /** Show the ENSO gauge (public/enso.json) for this layer's month while it's on. */
       ensoGauge?: boolean;
+      /** Show the relative Niño3.4 outlook card (BOM + NOAA RONI) while it's on. */
+      ninoOutlook?: boolean;
       /** Label irregular monthly timesteps as the 15th of their month. */
       midMonth?: boolean;
       /** step "custom": label for each timestep, in order (e.g. "4 weeks"). */
@@ -120,6 +135,27 @@ const CORAL_BLEACHING_OUTLOOK_LEGEND =
   "https://ocean-plotter.spc.int/plotter/GetLegendGraphic?layer_map=19&mode=coral_bleaching&min_color=0&max_color=33&step=2&color=jet&unit=m";
 
 /** Timestep a layer opens on: see StoryLayer.defaultTime. */
+/** Whether a workbench group allows only one layer on at a time. */
+export const isExclusiveGroup = (groupId: string) =>
+  LAYER_GROUPS.some((g) => g.id === groupId && "exclusive" in g && g.exclusive);
+
+/**
+ * `visible` with layer `id` switched on; in an exclusive group, the group's
+ * other layers are switched off.
+ */
+export function showLayer(visible: string[], id: string): string[] {
+  const group = STORY_LAYERS.find((l) => l.id === id)?.group;
+  const others =
+    group && isExclusiveGroup(group)
+      ? new Set(
+          STORY_LAYERS.filter((l) => l.group === group && l.id !== id).map(
+            (l) => l.id,
+          ),
+        )
+      : new Set<string>();
+  return [...visible.filter((v) => v !== id && !others.has(v)), id];
+}
+
 export function layerDefaultTime(layer: StoryLayer): "first" | "latest" {
   return layer.defaultTime ?? (layer.group === "outlook" ? "first" : "latest");
 }
@@ -244,6 +280,7 @@ export const STORY_LAYERS: StoryLayer[] = [
     title: "Seasonal SST Anomaly Outlook",
     // 3-month means stamped with their centre month: shown as season ranges.
     step: "seasonal",
+    ninoOutlook: true,
     // Same scale as the observed SST anomalies: RdBu_r, -4 to 4 °C, step 1.
     legendUrl: SST_ANOMALY_LEGEND,
     zarr: {
@@ -438,5 +475,20 @@ export const STORY_LAYERS: StoryLayer[] = [
         "vertical",
       ),
     ],
+  },
+  // Impact: EEZs shaded by drought status (public/drought.json).
+  {
+    id: "drought-meteorological",
+    group: "impact",
+    kind: "eez",
+    title: "Meteorological Drought",
+    droughtKey: "meteorological",
+  },
+  {
+    id: "drought-agricultural",
+    group: "impact",
+    kind: "eez",
+    title: "Agricultural Drought",
+    droughtKey: "agricultural",
   },
 ];

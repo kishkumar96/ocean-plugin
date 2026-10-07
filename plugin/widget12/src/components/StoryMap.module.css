@@ -120,7 +120,8 @@
 }
 
 .storyCardCenter .title {
-  font-size: 26px;
+  /* Fits "ENSO Outlook - October 2026 to March 2027" on one line. */
+  font-size: 21px;
 }
 
 .storyCardCenter .text {
@@ -130,7 +131,7 @@
 /* Fixed ENSO gauge inside a story card (e.g. the status chapter). */
 .gauge {
   width: 100%;
-  max-width: 260px;
+  max-width: 340px;
   margin: 8px auto 4px;
   text-align: center;
 }
@@ -142,13 +143,51 @@
 
 .note {
   margin-top: 4px;
-  font-size: 13px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
   text-align: center;
-  color: #4b5563;
+  color: #374151;
 }
 
-.note + .note {
-  font-size: 12px;
+/* Chapter stats: a centred row of figure chips under the gauge. */
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 6px 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 96px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #f3f4f6;
+}
+
+.statValue {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1f2328;
+}
+
+.statLabel {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* With several notes, the last one (e.g. sources and issue date) is a quiet
+   caption. */
+.note + .note:last-of-type {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 400;
   color: #6b7280;
 }
 
@@ -296,7 +335,8 @@
 
 .storyChoices {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  /* Narrow enough for three tiles (two stories + Impact) in one row. */
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 14px;
 }
 
@@ -503,7 +543,8 @@
   width: 30px;
   height: 28px;
   background-color: #0065f8;
-  -webkit-mask: url("../../public/COSPPaC_white_crop2.png") center / contain no-repeat;
+  -webkit-mask: url("../../public/COSPPaC_white_crop2.png") center / contain
+    no-repeat;
   mask: url("../../public/COSPPaC_white_crop2.png") center / contain no-repeat;
 }
 

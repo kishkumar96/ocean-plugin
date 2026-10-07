@@ -15,13 +15,21 @@
           "id": "status",
           "layout": "center",
           "title": "ENSO Current status",
-          "body": [
-            "Summary of the current El Niño–Southern Oscillation status, as at {previousMonth}."
-          ],
+          "body": [],
           "gauge": {
+            "scale": "outlook",
             "category": "elNino",
             "label": "El Niño"
           },
+          "stats": [
+            { "label": "Rel. Niño3", "value": "+3.05 °C" },
+            { "label": "Rel. Niño3.4", "value": "+2.19 °C" },
+            { "label": "3-month SOI", "value": "−21.7" }
+          ],
+          "notes": [
+            "September 2026 · 4 of 4 El Niño criteria met",
+            "Adapted from the former BOM ENSO Outlook criteria (not an official BOM status)"
+          ],
           "layers": []
         },
         {
@@ -90,13 +98,16 @@
         {
           "id": "outlook-status",
           "layout": "center",
-          "title": "ENSO Outlook",
-          "body": ["ENSO outlook for {forecastPeriod}."],
+          "title": "ENSO Outlook - {outlookPeriod}",
+          "body": [],
           "gauge": {
-            "scale": "outlook",
             "category": "elNino",
             "label": "El Niño"
           },
+          "notes": [
+            "Oct 2026 – Mar 2027 · El Niño in 6 of 6 months · Niño3.4 +2.3 to +3.7 °C",
+            "BOM ACCESS-S2 (3 Oct 2026) and NOAA CPC RONI (Sep 2026) · Issued 8 Oct 2026"
+          ],
           "layers": []
         },
         {
@@ -155,6 +166,14 @@
           }
         }
       ]
+    }
+  ],
+  "explore": [
+    {
+      "id": "impact",
+      "title": "ENSO – Impact",
+      "description": "Where drought is affecting Pacific Island countries: meteorological and agricultural drought.",
+      "layers": ["drought-meteorological"]
     }
   ]
 }

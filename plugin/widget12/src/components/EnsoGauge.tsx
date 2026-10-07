@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
-import { ENSO_CHART_MONTHS, ENSO_INDICES } from "@/story/ensoIndices";
+import { useEffect, useId, useRef, useState } from "react";
+import {
+  ENSO_CHART_MONTHS,
+  ENSO_INDICES,
+  ENSO_STATUS_INFO,
+} from "@/story/ensoIndices";
 import styles from "./EnsoGauge.module.css";
 import { withBasePath } from "@/lib/basePath";
 
@@ -20,7 +24,7 @@ import { withBasePath } from "@/lib/basePath";
 export type EnsoCategory = "laNina" | "neutral" | "elNino";
 type Category = EnsoCategory;
 type MonthEntry = number | { value?: number; category?: Category };
-type EnsoData = {
+export type EnsoData = {
   thresholds: { laNina: number; elNino: number };
   range: [number, number];
   units?: string;
@@ -87,7 +91,7 @@ function classify(value: number, t: Thresholds): Category {
 
 const cache = new Map<string, Promise<EnsoData>>();
 /** Load (once) an index file from /public. */
-const loadIndex = (url: string) => {
+export const loadIndex = (url: string) => {
   let p = cache.get(url);
   if (!p) {
     p = fetch(url).then((r) => {
@@ -109,6 +113,30 @@ function readMonth(data: EnsoData, month: string) {
   return { value, category };
 }
 
+/** 850 hPa trade wind anomalies (m/s) by "YYYY-MM", from /api/trade-winds. */
+type TradeWinds = {
+  west: Record<string, number>;
+  central: Record<string, number>;
+};
+
+// Trade wind bars: blue for stronger trades (La Niña-like), red for weaker
+// (El Niño-like); lighter for the West Pacific, darker for the Central.
+const TRADE_COLORS = {
+  west: { stronger: "#8fa6c8", weaker: "#d99a9f" },
+  central: {
+    stronger: ENSO_CATEGORY.laNina.color,
+    weaker: ENSO_CATEGORY.elNino.color,
+  },
+};
+
+let tradeWindsCache: Promise<TradeWinds> | null = null;
+/** Load (once) the trade wind anomalies. */
+const loadTradeWinds = () =>
+  (tradeWindsCache ??= fetch(withBasePath("/api/trade-winds")).then((r) => {
+    if (!r.ok) throw new Error(`trade winds: ${r.status}`);
+    return r.json();
+  }));
+
 const monthIndex = (ym: string) =>
   Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7)) - 1;
 const monthKey = (i: number) =>
@@ -122,17 +150,46 @@ const formatMonth = (i: number) =>
   SHORT_MONTH_FMT.format(new Date(Date.UTC(Math.floor(i / 12), i % 12, 1)));
 
 /**
- * ENSO panel for `time`'s month: a dial per index (e.g. SOI - Atmosphere,
- * Niño3.4 - Ocean) and a monthly bar chart per index with that month highlighted.
+ * ENSO panel for `time`'s month: a dial per index (e.g. Atmosphere - SOI,
+ * Ocean - Niño3.4) and a monthly bar chart per index with that month highlighted.
  */
 export default function EnsoGauge({ time }: { time: string | null }) {
   const [indices, setIndices] = useState<(EnsoData | null)[] | null>(null);
+  // Trade winds: undefined while loading, null if they couldn't be loaded.
+  const [tradeWinds, setTradeWinds] = useState<TradeWinds | null>();
   const [open, setOpen] = useState(true);
+  // Info (ⓘ) popup; closes on Escape or a click outside it and its button.
+  const [infoOpen, setInfoOpen] = useState(false);
+  const infoRef = useRef<HTMLDivElement>(null);
+  const infoButtonRef = useRef<HTMLButtonElement>(null);
+  const infoId = useId();
+
+  useEffect(() => {
+    if (!infoOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (infoRef.current?.contains(t) || infoButtonRef.current?.contains(t))
+        return;
+      setInfoOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setInfoOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [infoOpen]);
 
   useEffect(() => {
     Promise.all(
       ENSO_INDICES.map((ix) => loadIndex(ix.url).catch(() => null)),
     ).then(setIndices);
+    loadTradeWinds()
+      .then(setTradeWinds)
+      .catch(() => setTradeWinds(null));
   }, []);
 
   if (!indices || !time) return null;
@@ -163,31 +220,90 @@ export default function EnsoGauge({ time }: { time: string | null }) {
 
   return (
     <aside className={styles.card} aria-label="ENSO status">
-      {/* Header toggles the panel; collapsed it shows the combined state only. */}
-      <button
-        className={styles.header}
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-      >
-        <span className={styles.logo} role="img" aria-label="COSPPaC" />
-        <span className={styles.headerText}>
-          <span className={styles.title}>ENSO status</span>
-          <span className={styles.month}>
-            {MONTH_FMT.format(new Date(time))}
+      {/* Header toggles the panel; collapsed it shows the combined state only.
+          The info button sits between the title and the chevron, so both
+          are their own toggle buttons (buttons can't nest). */}
+      <div className={styles.header}>
+        <button
+          className={styles.headerToggle}
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+        >
+          <span className={styles.logo} role="img" aria-label="COSPPaC" />
+          <span className={styles.headerText}>
+            <span className={styles.title}>ENSO status</span>
+            <span className={styles.month}>
+              {MONTH_FMT.format(new Date(time))}
+            </span>
           </span>
-        </span>
-        {!open && combined && (
-          <span
-            className={styles.headerState}
-            style={{ color: ENSO_CATEGORY[combined].ink }}
-          >
-            {ENSO_CATEGORY[combined].label}
-          </span>
-        )}
-        <span className={`${styles.chevron} ${open ? styles.chevronOpen : ""}`}>
+          {!open && combined && (
+            <span
+              className={styles.headerState}
+              style={{ color: ENSO_CATEGORY[combined].ink }}
+            >
+              {ENSO_CATEGORY[combined].label}
+            </span>
+          )}
+        </button>
+        <button
+          ref={infoButtonRef}
+          className={`${styles.infoButton} ${infoOpen ? styles.infoButtonOn : ""}`}
+          onClick={() => setInfoOpen((o) => !o)}
+          aria-label="About ENSO alert stages"
+          aria-expanded={infoOpen}
+          aria-controls={infoId}
+        >
+          i
+        </button>
+        <button
+          className={`${styles.chevron} ${open ? styles.chevronOpen : ""}`}
+          onClick={() => setOpen((o) => !o)}
+          aria-label={open ? "Collapse ENSO status" : "Expand ENSO status"}
+          aria-expanded={open}
+        >
           ›
-        </span>
-      </button>
+        </button>
+      </div>
+
+      {infoOpen && (
+        <div
+          ref={infoRef}
+          id={infoId}
+          className={styles.infoPopup}
+          role="dialog"
+          aria-label={ENSO_STATUS_INFO.title}
+        >
+          <div className={styles.infoHeader}>
+            <h3 className={styles.infoTitle}>{ENSO_STATUS_INFO.title}</h3>
+            <button
+              className={styles.infoClose}
+              onClick={() => setInfoOpen(false)}
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
+          {ENSO_STATUS_INFO.paragraphs.map((p) => (
+            <p key={p} className={styles.infoText}>
+              {p}
+            </p>
+          ))}
+          <p className={styles.infoSource}>
+            Source:{" "}
+            {ENSO_STATUS_INFO.source.url ? (
+              <a
+                href={ENSO_STATUS_INFO.source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {ENSO_STATUS_INFO.source.label}
+              </a>
+            ) : (
+              ENSO_STATUS_INFO.source.label
+            )}
+          </p>
+        </div>
+      )}
 
       {open && (
         <>
@@ -259,6 +375,62 @@ export default function EnsoGauge({ time }: { time: string | null }) {
               </section>
             );
           })}
+
+          {/* Trade winds under SOI: full-width paired monthly bars over the same
+              months as the index charts above. */}
+          <section className={styles.indexRow}>
+            <p className={styles.indexLabel}>Atmosphere - Trade winds</p>
+            {tradeWinds ? (
+              <>
+                <div className={styles.tradeChart}>
+                  <TradeWindBars
+                    data={tradeWinds}
+                    start={windowStart}
+                    end={windowEnd}
+                    current={current}
+                  />
+                  <div className={styles.chartRange}>
+                    <span>{formatMonth(windowStart)}</span>
+                    <span>{formatMonth(windowEnd)}</span>
+                  </div>
+                </div>
+                <ul className={styles.tradeLegend}>
+                  {(
+                    [
+                      ["West", "west"],
+                      ["Central", "central"],
+                    ] as const
+                  ).map(([label, key]) => (
+                    <li key={key}>
+                      <span
+                        className={styles.tradeSwatch}
+                        style={{
+                          background: `linear-gradient(90deg, ${TRADE_COLORS[key].stronger} 50%, ${TRADE_COLORS[key].weaker} 50%)`,
+                        }}
+                      />
+                      {label}
+                    </li>
+                  ))}
+                  <li>
+                    <span style={{ color: TRADE_COLORS.central.stronger }}>
+                      Stronger
+                    </span>
+                    /
+                    <span style={{ color: TRADE_COLORS.central.weaker }}>
+                      weaker
+                    </span>
+                    &nbsp;trades
+                  </li>
+                </ul>
+              </>
+            ) : (
+              <p className={styles.muted}>
+                {tradeWinds === null
+                  ? "Couldn't load trade winds"
+                  : "Loading trade winds…"}
+              </p>
+            )}
+          </section>
         </>
       )}
     </aside>
@@ -326,6 +498,72 @@ function IndexBars({
         className={styles.bars}
         role="img"
         aria-label={`${label} monthly index`}
+      >
+        <line x1={0} x2={n} y1={H / 2} y2={H / 2} className={styles.zero} />
+        {bars}
+        {current >= start && current <= end && (
+          <line x1={cx} x2={cx} y1={0} y2={H} className={styles.marker} />
+        )}
+      </svg>
+    </div>
+  );
+}
+
+/**
+ * Trade wind anomalies for months [start, end]: a West (left) and Central
+ * (right) bar per month, blue above zero (stronger trades), red below.
+ */
+function TradeWindBars({
+  data,
+  start,
+  end,
+  current,
+}: {
+  data: TradeWinds;
+  start: number;
+  end: number;
+  current: number;
+}) {
+  const n = end - start + 1;
+  const H = 40;
+  // Symmetric scale to the largest anomaly in the window (at least ±2 m/s).
+  let extent = 2;
+  for (let i = start; i <= end; i++) {
+    for (const v of [data.west[monthKey(i)], data.central[monthKey(i)]]) {
+      if (v !== undefined) extent = Math.max(extent, Math.abs(v));
+    }
+  }
+  const y = (v: number) => H / 2 - (v / extent) * (H / 2);
+
+  const bars: React.ReactElement[] = [];
+  for (let i = start; i <= end; i++) {
+    const key = monthKey(i);
+    (["west", "central"] as const).forEach((series, s) => {
+      const v = data[series][key];
+      if (v === undefined) return;
+      bars.push(
+        <rect
+          key={`${series}-${i}`}
+          x={i - start + 0.08 + s * 0.44}
+          width={0.4}
+          y={Math.min(y(v), H / 2)}
+          height={Math.max(Math.abs(y(v) - H / 2), 0.3)}
+          fill={TRADE_COLORS[series][v >= 0 ? "stronger" : "weaker"]}
+          className={i === current ? styles.currentBar : undefined}
+        />,
+      );
+    });
+  }
+  const cx = current - start + 0.5;
+
+  return (
+    <div className={styles.chart}>
+      <svg
+        viewBox={`0 0 ${n} ${H}`}
+        preserveAspectRatio="none"
+        className={styles.bars}
+        role="img"
+        aria-label="Monthly 850 hPa trade wind anomalies, West and Central Pacific"
       >
         <line x1={0} x2={n} y1={H / 2} y2={H / 2} className={styles.zero} />
         {bars}
@@ -564,7 +802,7 @@ export function OutlookDial({
       viewBox="0 0 200 112"
       className={`${styles.dial} ${className ?? ""}`}
       role="img"
-      aria-label={`ENSO Outlook: ${OUTLOOK_CATEGORY[category].label}`}
+      aria-label={`ENSO: ${OUTLOOK_CATEGORY[category].label}`}
     >
       {OUTLOOK_ORDER.map((cat, k) => (
         <g key={cat}>

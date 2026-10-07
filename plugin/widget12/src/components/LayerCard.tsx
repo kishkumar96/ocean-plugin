@@ -26,6 +26,11 @@ type Props = {
   title: string;
   visible: boolean;
   onVisibleChange?: (visible: boolean) => void;
+  /**
+   * Show a radio button in this group instead of a checkbox (one layer on at
+   * a time); clicking the selected one again switches it off.
+   */
+  radioGroup?: string;
   step: TimeStep;
   times: string[];
   time: string | null;
@@ -33,8 +38,11 @@ type Props = {
   legendUrl?: string | null;
   /** step "custom": label for each timestep, in order (e.g. "4 weeks"). */
   stepLabels?: string[];
-  /** Extra legend keys drawn as short coloured lines (e.g. contours). */
-  legendItems?: { label: string; color: string }[];
+  /**
+   * Extra legend keys drawn as short coloured lines (e.g. contours), or as
+   * filled boxes with `box` (e.g. area categories).
+   */
+  legendItems?: { label: string; color: string; box?: boolean }[];
   /** Checkboxes for optional overlays (e.g. species zones), with line swatches. */
   toggles?: {
     title: string;
@@ -68,6 +76,7 @@ export default function LayerCard({
   title,
   visible,
   onVisibleChange,
+  radioGroup,
   step,
   times,
   time,
@@ -96,11 +105,16 @@ export default function LayerCard({
       <div className={styles.titleRow}>
         <label className={styles.titleLabel}>
           <input
-            type="checkbox"
+            type={radioGroup ? "radio" : "checkbox"}
+            name={radioGroup}
             // Stop Firefox restoring a previous page's state over React's.
             autoComplete="off"
             checked={visible}
             onChange={(e) => onVisibleChange?.(e.target.checked)}
+            // A selected radio doesn't fire change when clicked: switch it off.
+            onClick={() => {
+              if (radioGroup && visible) onVisibleChange?.(false);
+            }}
           />
           <span>{title}</span>
         </label>
@@ -175,7 +189,7 @@ export default function LayerCard({
               {legendItems.map((item) => (
                 <li key={item.label}>
                   <span
-                    className={styles.legendLine}
+                    className={item.box ? styles.legendBox : styles.legendLine}
                     style={{ background: item.color }}
                   />
                   {item.label}

@@ -8,6 +8,8 @@ export const THEMES: Record<string, Theme> = {
   current: { color: "#46698c", dark: "#3a5774" },
   // Outlook: dull terracotta.
   outlook: { color: "#9c5f30", dark: "#824e27" },
+  // Impact: dull plum.
+  impact: { color: "#7a5876", dark: "#654862" },
 };
 
 const FALLBACK: Theme = { color: "#5b6573", dark: "#4a535f" };

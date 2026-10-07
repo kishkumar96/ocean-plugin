@@ -27,8 +27,20 @@
   padding: 12px 16px 10px;
   border: none;
   border-radius: 12px 12px 0 0;
+}
+
+/* The clickable title part of the header (the chevron also toggles). */
+.headerToggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  border: none;
   background: none;
   color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
 }
@@ -51,7 +63,8 @@
   width: 30px;
   height: 28px;
   background-color: #0065f8;
-  -webkit-mask: url("../../public/COSPPaC_white_crop2.png") center / contain no-repeat;
+  -webkit-mask: url("../../public/COSPPaC_white_crop2.png") center / contain
+    no-repeat;
   mask: url("../../public/COSPPaC_white_crop2.png") center / contain no-repeat;
 }
 
@@ -68,9 +81,14 @@
 }
 
 .chevron {
+  flex-shrink: 0;
   width: 24px;
   height: 24px;
+  padding: 0;
+  border: none;
   border-radius: 6px;
+  background: none;
+  cursor: pointer;
   font-size: 18px;
   line-height: 24px;
   text-align: center;
@@ -228,4 +246,128 @@
   margin-top: 2px;
   font-size: 10px;
   color: #6b7280;
+}
+
+/* Trade winds row: one full-width chart, taller than the index charts. */
+.tradeChart {
+  margin-top: 4px;
+}
+
+.tradeChart .bars {
+  height: 140px;
+}
+
+.tradeSwatch {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* Key under the trade winds row: series swatches and colour meaning. */
+.tradeLegend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin-top: 6px;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: #4b5563;
+}
+
+.tradeLegend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tradeLegend li span:not(.tradeSwatch) {
+  font-weight: 600;
+}
+
+/* Info (i) button in the header and its popup under the header. */
+.infoButton {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid #2563eb;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #2563eb;
+  font:
+    italic 700 13px/1 Georgia,
+    "Times New Roman",
+    serif;
+  cursor: pointer;
+}
+
+.infoButton:hover,
+.infoButtonOn {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.infoPopup {
+  position: absolute;
+  top: 58px;
+  left: 12px;
+  right: 12px;
+  z-index: 2;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.infoHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.infoTitle {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.infoClose {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #4b5563;
+  font-size: 20px;
+  line-height: 24px;
+  cursor: pointer;
+}
+
+.infoClose:hover {
+  background: #f3f4f6;
+}
+
+.infoText {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #374151;
+}
+
+.infoSource {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.infoSource a {
+  color: #2563eb;
 }

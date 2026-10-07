@@ -2,8 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Map as MaplibreMap } from "maplibre-gl";
-import { STORIES, STORY_HOME, type Chapter } from "@/story/chapters";
-import { LAYER_GROUPS, STORY_LAYERS, layerDefaultTime } from "@/story/layers";
+import {
+  EXPLORE,
+  STORIES,
+  STORY_HOME,
+  type Chapter,
+  type ExploreTile,
+} from "@/story/chapters";
+import {
+  LAYER_GROUPS,
+  STORY_LAYERS,
+  layerDefaultTime,
+  isExclusiveGroup,
+  showLayer,
+} from "@/story/layers";
 import { wmsLayerId } from "@/lib/wmsLayer";
 import { DATA_BEFORE_ID } from "@/lib/referenceLayers";
 import ReferenceLayerToggles from "./ReferenceLayerToggles";
@@ -14,6 +26,8 @@ import EnsoGauge, {
   OutlookDial,
 } from "./EnsoGauge";
 import MapView from "./MapView";
+import NinoOutlook, { loadOutlook, outlookPeriod } from "./NinoOutlook";
+import EezLayerControl from "./EezLayerControl";
 import Workbench from "./Workbench";
 import WmsLayerControl from "./WmsLayerControl";
 import ZarrLayerControl from "./ZarrLayerControl";
@@ -56,8 +70,13 @@ export default function StoryMap() {
   const [layerTimes, setLayerTimes] = useState<Record<string, string | null>>(
     {},
   );
-  // Seasonal SST outlook timesteps (season centre months), for {forecastPeriod}.
-  const [forecastTimes, setForecastTimes] = useState<string[]>([]);
+  // BOM forecast period for {outlookPeriod}, e.g. "October 2026 to March 2027".
+  const [period, setPeriod] = useState<string | null>(null);
+  useEffect(() => {
+    loadOutlook()
+      .then((o) => setPeriod(outlookPeriod(o)))
+      .catch(() => {});
+  }, []);
   // Zarr layers currently fetching from S3, by layer id.
   const [loadingLayers, setLoadingLayers] = useState<string[]>([]);
   const setLayerLoading = (id: string, on: boolean) =>
@@ -97,6 +116,16 @@ export default function StoryMap() {
   const go = (i: number) => pos && goTo(pos.story, i);
 
   const [workbenchOpen, setWorkbenchOpen] = useState(true);
+
+  /** Explore tile: no story; open its workbench group (and any listed layers). */
+  const explore = (tile: ExploreTile) => {
+    setPos(null);
+    setPromptOpen(false);
+    setWorkbenchOpen(true);
+    setOpenGroups((g) => (g.includes(tile.id) ? g : [...g, tile.id]));
+    setVisibleLayers((v) => (tile.layers ?? []).reduce(showLayer, v));
+    window.history.replaceState(null, "", window.location.pathname);
+  };
 
   const exit = () => {
     setPos(null);
@@ -156,12 +185,22 @@ export default function StoryMap() {
   }, [map, story, step, addedCount]);
 
   const toggleLayer = (id: string, on: boolean) =>
-    setVisibleLayers((v) => (on ? [...v, id] : v.filter((x) => x !== id)));
+    setVisibleLayers((v) =>
+      on ? showLayer(v, id) : v.filter((x) => x !== id),
+    );
 
   // ENSO gauge follows the month of the first visible layer that asks for it (SST).
   const ensoLayer = STORY_LAYERS.find(
     (l) => l.kind === "zarr" && l.ensoGauge && visibleLayers.includes(l.id),
   );
+  // Niño3.4 outlook card for the seasonal SST outlook. Both cards sit in the
+  // same place, so the ENSO card wins when both layers are on.
+  const outlookCard =
+    !ensoLayer &&
+    STORY_LAYERS.some(
+      (l) => l.kind === "zarr" && l.ninoOutlook && visibleLayers.includes(l.id),
+    );
+  const sidePanel = !!ensoLayer || outlookCard;
 
   // Hidden layers also load (their metadata) on startup; only shown ones count.
   const mapLoading = loadingLayers.some((id) => visibleLayers.includes(id));
@@ -196,10 +235,12 @@ export default function StoryMap() {
           ×
         </button>
       </header>
-      <h2 className={styles.title}>{chapter.title}</h2>
+      <h2 className={styles.title}>
+        {fillPlaceholders(chapter.title, period)}
+      </h2>
       {chapter.body.map((p) => (
         <p key={p} className={styles.text}>
-          {fillPlaceholders(p, forecastTimes)}
+          {fillPlaceholders(p, period)}
         </p>
       ))}
       {chapter.gauge?.scale === "outlook" ? (
@@ -227,6 +268,16 @@ export default function StoryMap() {
           </div>
         )
       )}
+      {chapter.stats && (
+        <ul className={styles.stats}>
+          {chapter.stats.map((s) => (
+            <li key={s.label} className={styles.stat}>
+              <span className={styles.statValue}>{s.value}</span>
+              <span className={styles.statLabel}>{s.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {chapter.notes?.map((n) => (
         <p key={n} className={styles.note}>
           {n}
@@ -249,7 +300,7 @@ export default function StoryMap() {
               key={c.id}
               className={`${styles.dot} ${i === step ? styles.dotActive : ""}`}
               onClick={() => go(i)}
-              aria-label={`Go to ${c.title}`}
+              aria-label={`Go to ${fillPlaceholders(c.title, period)}`}
               aria-current={i === step ? "step" : undefined}
             />
           ))}
@@ -283,6 +334,7 @@ export default function StoryMap() {
       <MapView onLoad={setMap} />
       <ReferenceLayerToggles map={map} />
       {ensoLayer && <EnsoGauge time={layerTimes[ensoLayer.id] ?? null} />}
+      {outlookCard && <NinoOutlook />}
       {mapLoading && (
         <div
           className={styles.mapLoading}
@@ -323,6 +375,23 @@ export default function StoryMap() {
                     : undefined,
                   autoplay: animating && !!chapter?.layers.includes(layer.id),
                 };
+                if (layer.kind === "eez") {
+                  return (
+                    <EezLayerControl
+                      key={layer.id}
+                      map={map}
+                      title={layer.title}
+                      droughtKey={layer.droughtKey}
+                      visible={common.visible}
+                      onVisibleChange={common.onVisibleChange}
+                      radioGroup={
+                        isExclusiveGroup(layer.group)
+                          ? `layers-${layer.group}`
+                          : undefined
+                      }
+                    />
+                  );
+                }
                 return layer.kind === "zarr" ? (
                   <ZarrLayerControl
                     key={layer.id}
@@ -341,9 +410,6 @@ export default function StoryMap() {
                       setLayerTimes((s) => ({ ...s, [layer.id]: t }))
                     }
                     onLoadingChange={(on) => setLayerLoading(layer.id, on)}
-                    onTimesLoaded={
-                      layer.id === FORECAST_LAYER ? setForecastTimes : undefined
-                    }
                   />
                 ) : (
                   <WmsLayerControl
@@ -361,7 +427,7 @@ export default function StoryMap() {
 
       {centered && (
         <div
-          className={`${styles.center} ${ensoLayer ? styles.besideSidePanel : ""}`}
+          className={`${styles.center} ${sidePanel ? styles.besideSidePanel : ""}`}
         >
           {storyCard}
         </div>
@@ -431,6 +497,36 @@ export default function StoryMap() {
                     </button>
                   );
                 })}
+                {EXPLORE.map((tile) => {
+                  const theme = themeFor(tile.id);
+                  return (
+                    <button
+                      key={tile.id}
+                      className={styles.storyChoice}
+                      style={
+                        {
+                          "--color": theme.color,
+                          "--dark": theme.dark,
+                        } as React.CSSProperties
+                      }
+                      onClick={() => explore(tile)}
+                    >
+                      <span className={styles.choiceBanner}>
+                        <span className={styles.choiceTitle}>{tile.title}</span>
+                      </span>
+                      <span className={styles.choiceBody}>
+                        {tile.description && (
+                          <span className={styles.choiceText}>
+                            {tile.description}
+                          </span>
+                        )}
+                        <span className={styles.choiceMeta}>
+                          <span className={styles.choiceGo}>Explore →</span>
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
               <button
                 className={styles.explore}
@@ -444,7 +540,7 @@ export default function StoryMap() {
       )}
 
       <div
-        className={`${styles.dock} ${ensoLayer ? styles.besideSidePanel : ""}`}
+        className={`${styles.dock} ${sidePanel ? styles.besideSidePanel : ""}`}
       >
         {chapter && step !== null ? (
           !centered && storyCard
@@ -472,6 +568,16 @@ export default function StoryMap() {
                 </button>
               );
             })}
+            {EXPLORE.map((tile) => (
+              <button
+                key={tile.id}
+                className={styles.storyBarButton}
+                style={{ background: themeFor(tile.id).color }}
+                onClick={() => explore(tile)}
+              >
+                {tile.title}
+              </button>
+            ))}
           </nav>
         )}
       </div>
@@ -484,42 +590,23 @@ const MONTH_YEAR_FMT = new Intl.DateTimeFormat("en", {
   year: "numeric",
 });
 
-// Layer whose seasons set the {forecastPeriod} placeholder.
-const FORECAST_LAYER = "seasonal-sst-outlook";
-
-const MONTH_YEAR_UTC_FMT = new Intl.DateTimeFormat("en", {
-  month: "long",
-  year: "numeric",
-  timeZone: "UTC",
-});
-
 /**
- * Story text placeholders:
+ * Story text placeholders (chapter titles and body):
  * - {previousMonth} -> last month, e.g. "September 2026".
- * - {forecastPeriod} -> span of the seasonal SST outlook, e.g. "November 2026
- *   to February 2027" ("the coming months" until loaded).
+ * - {outlookPeriod} -> the BOM ACCESS-S2 forecast period, e.g. "October 2026
+ *   to March 2027". Until it loads (or if it can't), it's dropped along with
+ *   a separator before it ("ENSO Outlook - {outlookPeriod}" -> "ENSO Outlook").
  */
-function fillPlaceholders(text: string, forecastTimes: string[] = []) {
+function fillPlaceholders(text: string, period: string | null = null) {
   const now = new Date();
   const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  return text
-    .replaceAll("{previousMonth}", MONTH_YEAR_FMT.format(previous))
-    .replaceAll("{forecastPeriod}", forecastPeriod(forecastTimes));
-}
-
-/**
- * Seasons are stamped with their centre month: from the first season's start
- * (first − 1) to the last season's centre month.
- */
-function forecastPeriod(times: string[]) {
-  if (!times.length) return "the coming months";
-  const month = (iso: string, shift: number) => {
-    const d = new Date(iso);
-    return MONTH_YEAR_UTC_FMT.format(
-      new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + shift, 1)),
-    );
-  };
-  return `${month(times[0], -1)} to ${month(times[times.length - 1], 0)}`;
+  const filled = text.replaceAll(
+    "{previousMonth}",
+    MONTH_YEAR_FMT.format(previous),
+  );
+  return period
+    ? filled.replaceAll("{outlookPeriod}", period)
+    : filled.replace(/\s*[-–—:]?\s*\{outlookPeriod\}/g, "");
 }
 
 /** Story image, with a placeholder until the file exists in /public. */
