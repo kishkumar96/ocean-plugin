@@ -1,0 +1,231 @@
+.card {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  z-index: 10;
+  width: 460px;
+  max-height: calc(100% - 140px);
+  overflow-y: auto;
+  padding: 14px 16px 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1f2328;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  transform: translateY(-50%);
+}
+
+/* Collapsible header: title + month, combined state when collapsed, chevron. */
+/* Same header as the story cards: SPC pattern band behind it, logo top-left.
+   Negative margins take the band to the card edges. */
+.header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% + 32px);
+  margin: -14px -16px 0;
+  padding: 12px 16px 10px;
+  border: none;
+  border-radius: 12px 12px 0 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("../../public/SPC_Header3.png") left top / auto 100% repeat-x;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.header > * {
+  position: relative;
+}
+
+.logo {
+  flex-shrink: 0;
+  width: 30px;
+  height: 28px;
+  background-color: #0065f8;
+  -webkit-mask: url("../../public/COSPPaC_white_crop2.png") center / contain no-repeat;
+  mask: url("../../public/COSPPaC_white_crop2.png") center / contain no-repeat;
+}
+
+.headerText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.headerState {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.chevron {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 18px;
+  line-height: 24px;
+  text-align: center;
+  color: #1f2328;
+  transition: transform 0.2s ease;
+}
+
+.header:hover .chevron {
+  background: #f3f4f6;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #2563eb;
+}
+
+.month {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dial {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.bandLabel {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.needle {
+  transform-origin: 0 0;
+  transition: transform 0.4s ease;
+}
+
+.needle polygon {
+  fill: #1f2328;
+  stroke: #ffffff;
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+/* Current state, centred under the dial (as in the story's status card). */
+.state {
+  margin-top: 2px;
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.muted {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #6b7280;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .card {
+    display: none;
+  }
+}
+
+/* Combined dial at the top of the panel. */
+.combined {
+  margin-top: 8px;
+  text-align: center;
+}
+
+.combinedDial {
+  width: 100%;
+  max-width: 220px;
+  margin: 2px auto 0;
+}
+
+/* One row per index: dial on the left, bar chart on the right. */
+.indexRow {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.rowBody {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.dialCell,
+.chartCell {
+  min-width: 0;
+}
+
+.dialCell .dial {
+  margin-top: 0;
+}
+
+.indexLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.dialCell .state {
+  font-size: 16px;
+}
+
+/* Monthly bar charts. */
+.chart {
+  margin-top: 0;
+}
+
+.bars {
+  display: block;
+  width: 100%;
+  height: 90px;
+  margin-top: 2px;
+}
+
+.zero {
+  stroke: #d1d5db;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.marker {
+  stroke: #1f2328;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
+}
+
+/* All bars keep their full colour; the current month gets an outline. */
+.currentBar {
+  stroke: #1f2328;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.chartRange {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-size: 10px;
+  color: #6b7280;
+}

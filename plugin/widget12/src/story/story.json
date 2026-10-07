@@ -1,0 +1,160 @@
+{
+  "title": "El Niño in the Pacific - Tracker",
+  "subtitle": "Explore how El Niño is affecting Pacific Island ocean conditions, and what lies ahead.",
+  "defaultCamera": {
+    "center": [-170, 0],
+    "zoom": 2
+  },
+  "stories": [
+    {
+      "id": "current",
+      "title": "ENSO – Current Conditions",
+      "description": "How El Niño is shaping the Pacific right now: sea temperature, sea level, coral heat stress, marine heatwaves and chlorophyll.",
+      "chapters": [
+        {
+          "id": "status",
+          "layout": "center",
+          "title": "ENSO Current status",
+          "body": [
+            "Summary of the current El Niño–Southern Oscillation status, as at {previousMonth}."
+          ],
+          "gauge": {
+            "category": "elNino",
+            "label": "El Niño"
+          },
+          "layers": []
+        },
+        {
+          "id": "monthly-sst",
+          "title": "Monthly sea surface temperature anomalies",
+          "body": [
+            "Anomalies show how much warmer (red) or cooler (blue) the ocean is than its long-term average for that month. During El Niño, a band of warm anomalies stretches along the equator east of the dateline.",
+            "Use the month controls to step back through past events."
+          ],
+          "layers": ["sst-anomaly-monthly"],
+          "times": {
+            "sst-anomaly-monthly": "-10y"
+          }
+        },
+        {
+          "id": "sea-level",
+          "title": "Monthly sea level anomalies",
+          "body": [
+            "Sea level anomalies show how much higher (orange) or lower (purple) the sea surface is than normal, in millimetres. During El Niño, sea levels typically fall in the western Pacific and rise in the east."
+          ],
+          "layers": ["sea-level-anomaly-monthly"],
+          "times": {
+            "sea-level-anomaly-monthly": "-10y"
+          }
+        },
+        {
+          "id": "coral-bleaching",
+          "title": "Coral bleaching alerts",
+          "body": [
+            "Bleaching alerts show reef heat stress from no stress (light blue) to Alert Level 2 (dark red), where severe bleaching and coral death are likely. During El Niño, reefs in the central and eastern Pacific usually see the most bleaching."
+          ],
+          "layers": ["coral-bleaching-monthly"],
+          "times": {
+            "coral-bleaching-monthly": "-10y"
+          }
+        },
+        {
+          "id": "marine-heatwaves",
+          "title": "Marine heatwaves",
+          "body": [
+            "Marine heatwaves are periods of unusually warm ocean temperatures. Categories run from moderate (yellow) to beyond extreme (dark red), and light blue means no heatwave. During El Niño, marine heatwaves are most common in the central and eastern Pacific."
+          ],
+          "layers": ["marine-heatwave-daily"],
+          "times": {
+            "marine-heatwave-daily": "-6m"
+          }
+        },
+        {
+          "id": "chlorophyll",
+          "title": "Chlorophyll",
+          "body": [
+            "Chlorophyll-a concentration is a proxy for phytoplankton biomass, the base of the ocean food web. High values usually point to nutrient-rich water. During El Niño, weaker trade winds reduce upwelling in the central and eastern equatorial Pacific, lowering productivity there. In parts of the western Pacific, such as the Warm Pool, lower sea levels allow more nutrients to mix upward, so chlorophyll can increase. These shifts change where fish are found across the region."
+          ],
+          "layers": ["chlorophyll-monthly"],
+          "times": {
+            "chlorophyll-monthly": "-10y"
+          }
+        }
+      ]
+    },
+    {
+      "id": "outlook",
+      "title": "ENSO – Outlook",
+      "description": "What the coming months may bring for the Pacific, from the ENSO outlook to the ocean conditions that shape fisheries and coastal communities.",
+      "chapters": [
+        {
+          "id": "outlook-status",
+          "layout": "center",
+          "title": "ENSO Outlook",
+          "body": ["ENSO outlook for {forecastPeriod}."],
+          "gauge": {
+            "scale": "outlook",
+            "category": "elNino",
+            "label": "El Niño"
+          },
+          "layers": []
+        },
+        {
+          "id": "seasonal-sst",
+          "title": "Seasonal sea surface temperature outlook",
+          "body": [
+            "The Bureau of Meteorology's ACCESS-S2 model forecasts how much warmer (red) or cooler (blue) than normal the ocean is likely to be over the coming months. Seasonal forecast up to March 2027: expect sea surface temperatures well above normal across the central and eastern equatorial Pacific. The strongest warming, more than +3°C above normal, is centred on Kiribati's Phoenix and Line Islands and stretches east towards South America from November through March. Nauru, western Kiribati and Tuvalu are likely to stay warmer than normal at about +0.8 to +2°C. Palau, FSM, the Marshall Islands, PNG and Solomon Islands should see near-normal to slightly warmer seas. Further south, waters around Fiji, Tonga, Niue, Samoa, the Cook Islands, French Polynesia and Pitcairn are expected to stay mostly near normal, with small cooler patches south of French Polynesia later in the season. New Caledonia, the Tasman Sea and waters around New Zealand are likely to stay warmer than normal at about +1 to +2°C. "
+          ],
+          "layers": ["seasonal-sst-outlook"],
+          "times": {
+            "seasonal-sst-outlook": "first"
+          }
+        },
+        {
+          "id": "seasonal-ssh",
+          "title": "Seasonal sea level outlook",
+          "body": [
+            "ACCESS-S2 also forecasts sea level: orange shows where the sea surface is likely to be higher than normal over the coming seasons, purple where it is likely to be lower. Seasonal forecast up to March 2027: expect sea levels well below normal across the western tropical Pacific. Palau, FSM, the Marshall Islands and northern PNG are likely to be 100 to 300 mm below normal. A second low band builds from December over Solomon Islands, Tuvalu, Tokelau, Wallis and Futuna and Samoa. In contrast, sea levels in Kiribati's Line Islands and the eastern equatorial Pacific are likely to be 100 to 300 mm above normal. Fiji, Tonga, the Cook Islands and French Polynesia should stay near normal. This El Niño-like pattern raises the risk of reef exposure and coral die-off where sea levels are low. In the Line Islands, it raises the risk of coastal flooding"
+          ],
+          "layers": ["seasonal-ssh-outlook"],
+          "times": {
+            "seasonal-ssh-outlook": "first"
+          }
+        },
+        {
+          "id": "coral-bleaching-outlook",
+          "title": "Coral bleaching outlook",
+          "body": [
+            "NOAA Coral Reef Watch forecasts the heat stress coral reefs are likely to face over the next four months, from no stress (light blue) to Alert Level 2 (dark red). Coral bleaching outlook up to January 2027: expect high bleaching risk across the central and eastern equatorial Pacific. Alert Level 2 (severe bleaching likely) is expected over Kiribati, especially the Phoenix and Line Islands, from now through January. The risk spreads west and south over time. From December, Nauru, western Kiribati, Tuvalu, Tokelau and northern Cook Islands move up to Alert Level 1–2. By January, PNG, Solomon Islands and northern Vanuatu reach Watch to Alert Level 1. New Caledonia, Fiji and Tonga should be at Watch level. The Marshall Islands, FSM, Palau, Samoa, the southern Cook Islands and French Polynesia are mostly at No Stress to Watch. Reef monitoring should be stepped up, especially in Kiribati, Tuvalu and Nauru."
+          ],
+          "layers": ["coral-bleaching-outlook"],
+          "times": {
+            "coral-bleaching-outlook": "first"
+          }
+        },
+        {
+          "id": "rainfall-outlook",
+          "title": "Rainfall outlook",
+          "body": [
+            "ACCESS-S2 forecasts how much wetter (teal) or drier (brown) than normal each of the coming months is likely to be, in millimetres. Rainfall outlook up to March 2027: expect a band of much wetter than normal conditions along the central equatorial Pacific, with drier than normal conditions to the west and south. The wettest areas are Kiribati's Phoenix and Line Islands, with more than 200 mm above normal each month and up to 400–480 mm in December and January. Nauru and the Gilbert Islands start very wet in November and December, at 150 to 250 mm above normal, then ease to near normal from January. Tuvalu, Tokelau and the northern Cook Islands become much wetter from January, at about 150 to 250 mm above normal. Northern French Polynesia is also likely to be wetter than normal. In contrast, Palau and FSM are likely to be much drier, at 150 to 250 mm below normal from December, and the Marshall Islands are also drier than normal. Further south, Vanuatu, Fiji, Tonga, Niue, Samoa, Wallis and Futuna and the southern Cook Islands are likely to be drier, at about 50 to 200 mm below normal, and driest from November to January. New Caledonia is likely to be slightly drier. PNG is mostly drier than normal, and Solomon Islands moves from dry in November to near normal or wetter from January. This El Niño pattern raises the risk of drought and water shortages in Palau, FSM, the Marshall Islands and the southwest Pacific. In Kiribati, Tuvalu and Tokelau, it raises the risk of flooding."
+          ],
+          "layers": ["rainfall-outlook"],
+          "times": {
+            "rainfall-outlook": "first"
+          }
+        },
+        {
+          "id": "fisheries",
+          "title": "Fisheries Convergence Zone",
+          "body": [
+            "Skipjack tuna gather along the edge of the Pacific warm pool, roughly where the sea surface is 29 °C (purple). Comparing it with its usual position (green) shows how El Niño shifts tuna fishing grounds east. Outlook up to March 2027: expect the warm pool to stretch right across the equatorial Pacific. Its eastern edge normally sits near 160–170°E, around Nauru and the Gilbert Islands. In the forecast it reaches about 105°W in November and moves out to about 85°W, near South America, by February and March. That is far further east than usual. The warmest water, 30 to 31°C, is centred on Kiribati's Phoenix and Line Islands and extends east to about 110°W. Skipjack fishing grounds are therefore likely to spread east into the Phoenix and Line Islands, Tokelau, the northern Cook Islands and the high seas of the eastern Pacific. To the west, waters around Palau, FSM and the Marshall Islands cool to just below 29°C from December to February, so conditions there are likely to be less favourable for skipjack. Further south, the warm pool edge moves south over time and reaches Samoa and Fiji at about 29.5°C by February and March. Fleets and fisheries managers should expect catches to shift east, away from the western Pacific."
+          ],
+          "layers": ["fisheries-monthly"],
+          "times": {
+            "fisheries-monthly": "-4m"
+          }
+        }
+      ]
+    }
+  ]
+}

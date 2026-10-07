@@ -1,0 +1,25 @@
+.bar {
+  position: absolute;
+  top: 10px;
+  /* Left of MapLibre's zoom/compass controls (29px wide, 10px margin). */
+  right: 52px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1f2328;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+}

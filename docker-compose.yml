@@ -17,6 +17,7 @@ services:
       - plugin-widget4
       - plugin-widget5
       - plugin-widget11
+      - plugin-widget12
       # - plugin-widget6
       # - plugin-widget7
       # - plugin-widget8
@@ -68,6 +69,12 @@ services:
     expose:
       - "80"
     container_name: plugin-widget11
+  plugin-widget12:
+    build: ./plugin/widget12
+    expose:
+      - "3000"
+    container_name: plugin-widget12
+    restart: unless-stopped
   # plugin-widget6:
   #   build: ./plugin/widget6
   #   expose:
