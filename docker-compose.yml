@@ -17,7 +17,7 @@ services:
       - plugin-widget4
       - plugin-widget5
       - plugin-widget11
-      - plugin-widget12
+      # plugin-widget12 left out: nginx resolves it per request (widget12.conf)
       # - plugin-widget6
       # - plugin-widget7
       # - plugin-widget8
