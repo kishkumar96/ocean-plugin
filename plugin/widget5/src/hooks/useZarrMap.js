@@ -1,11 +1,17 @@
 // useZarrMap.js — MapLibre GL map + ZarrOverlay/UgridOverlay management.
 // Replaces: useMapRendering, useWMSCapabilities, useTimeAnimation, useMapInteraction.
 import { useEffect, useRef, useState, useCallback } from 'react';
-import maplibregl from 'maplibre-gl';
+// maplibre-gl v6 ships ESM-only -- a default import no longer resolves.
+import * as maplibregl from 'maplibre-gl';
 import { ZarrOverlay } from '../lib/ZarrOverlay';
 import { UgridOverlay } from '../lib/UgridOverlay';
 import { SfincsRasterOverlay } from '../lib/SfincsRasterOverlay';
 import { SfincsColumnOverlay } from '../lib/SfincsColumnOverlay';
+import { COK_SUITABILITY_CIRCLES_LAYER, COK_ADVISORY_LOCATIONS_LAYER, HAZARD_COLORS } from '../lib/CookIslandsSuitabilityOverlay';
+import { CookIslandsSuitabilityController } from '../lib/CookIslandsSuitabilityController';
+import { haversineNm } from '../services/cookIslandsRouteForecastService';
+import { IMPACT_SECTOR_COLORS, IMPACT_SECTOR_LABELS, DISTRICT_LOSS_COLOR_STOPS } from '../services/cookIslandsImpactService';
+import { fmtUsd } from '../components/impact/impactFormat';
 import { findLayerById } from '../lib/mapLayersConfig';
 import { BASEMAP_LAYER_ID, BASEMAP_OPTIONS } from '../config/basemapConfig';
 import { ISLAND_ZOOM_TARGETS } from '../config/islandConfig';
@@ -14,8 +20,33 @@ import {
   fetchRiskPoints as fetchRiskPointsData,
   getEffectiveRiskLevel,
   ensureRiskThresholdOverridesLoaded,
+  RISK_COLORS,
+  RISK_LABELS,
 } from '../services/riskDataService';
 import { disableTerrain, enableTerrain, hasTerrainDem } from '../lib/terrainMapLibre';
+import { resolveModelRunStart, modelRunAgeHours as modelRunAgeHoursFor, fetchPublishedAt, updateFreshness } from '../utils/modelRunTiming';
+import { legLabelsNearPoint } from '../utils/routeProbeLayout';
+import { registerHarbourIcons, harbourPopupHtml } from '../lib/harbourOutlookLayer';
+
+// maplibre-gl v6's own worker loader does `new Worker(new URL(`./${t}`, e))` with a runtime-
+// built template string -- webpack can't statically resolve that (the "Critical dependency"
+// build warning we silence in craco.config.js), and at runtime the URL it constructs from
+// inside the bundled vendor chunk doesn't resolve to a real script, so the worker never loads
+// ("Worker failed to load. Check that the worker URL is correct.", seen live -- GeoJSON
+// sources, used throughout this file for risk points/advisory locations/impact districts,
+// are what actually dispatch to it, which a plain page-load check never exercises).
+//
+// Pointing webpack's own `new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url)`
+// asset pipeline at the worker file almost works -- webpack does correctly emit and serve it
+// -- but the worker file itself has an unmodified `import ... from "./maplibre-gl-shared.mjs"`
+// (a real relative import, followed only once the *worker* starts executing, not by webpack's
+// own bundler). Emitted alone to a hashed static/media/ path, that sibling never exists next
+// to it, so the worker's own module graph fails to resolve and it never loads. Fix: vendor
+// both files as plain static assets in public/maplibre-gl/ (same convention as the vessel
+// icons and Lato font files elsewhere in this app), where they sit side by side and that
+// relative import resolves exactly as maplibre-gl wrote it. Re-copy both files from
+// node_modules/maplibre-gl/dist/ whenever maplibre-gl itself is upgraded.
+maplibregl.setWorkerUrl(`${process.env.PUBLIC_URL || ''}/maplibre-gl/maplibre-gl-worker.mjs`);
 
 // Satellite/hybrid tiles from ESRI — no key needed
 const ESRI_SAT_STYLE = {
@@ -36,10 +67,120 @@ const ESRI_SAT_STYLE = {
 
 const RISK_SOURCE = 'risk-points-src';
 const RISK_CIRCLES_LAYER = 'risk-circles';
-const RISK_COLORS = { 0: '#3498db', 1: '#f39c12', 2: '#e74c3c' };
+// Gold highlight ring for whichever point is currently selected (its details
+// are showing in the bottom panel) -- distinct from any risk-level color so
+// selection is legible at every risk level, including moderate/red.
+const RISK_SELECTED_STROKE = '#facc15';
 
 const ISLAND_LABELS_SOURCE = 'island-labels-src';
 const ISLAND_LABELS_LAYER = 'island-labels';
+
+const COK_ROUTE_DRAFT_SOURCE = 'cok-route-draft-src';
+const COK_ROUTE_SEGMENTS_SOURCE = 'cok-route-segments-src';
+const COK_ROUTE_DRAFT_LAYER = 'cok-route-draft-line';
+const COK_ROUTE_SEGMENTS_LAYER = 'cok-route-segments';
+const COK_ROUTE_WAYPOINT_COLORS = { origin: '#22c55e', destination: '#ef4444', waypoint: '#38bdf8' };
+
+// RiskScape per-building/per-road impact assets (/cok/impact/latest/assets)
+// -- one shared GeoJSON source (mixed Polygon/LineString/Point geometry, one
+// Feature per asset) split across three layers by MapLibre's own
+// ['geometry-type'] expression, since a single layer type can't paint every
+// geometry kind. Always present (like the route layers above), not tied to
+// selectedLayerId -- Home.jsx toggles visibility/data via impactAssetsVisible/
+// impactAssetsGeojson rather than this hook owning any fetch lifecycle.
+const COK_IMPACT_ASSETS_SOURCE = 'cok-impact-assets-src';
+const COK_IMPACT_ASSETS_FILL_LAYER = 'cok-impact-assets-fill';
+const COK_IMPACT_ASSETS_LINE_HALO_LAYER = 'cok-impact-assets-line-halo';
+const COK_IMPACT_ASSETS_LINE_LAYER = 'cok-impact-assets-line';
+const COK_IMPACT_ASSETS_CIRCLE_LAYER = 'cok-impact-assets-circle';
+// Focus overlay: when a whole asset (e.g. Avatiu Harbour = 100+ RiskScape segments) is picked from the
+// impact list, every one of its features is copied into this source and drawn as a bright cyan
+// outline above the sector-coloured layers, so "what does it count as the port?" is answered on the map.
+const COK_IMPACT_FOCUS_SOURCE = 'cok-impact-focus-src';
+const COK_IMPACT_FOCUS_FILL_LAYER = 'cok-impact-focus-fill';
+const COK_IMPACT_FOCUS_CASING_LAYER = 'cok-impact-focus-casing';
+const COK_IMPACT_FOCUS_LINE_LAYER = 'cok-impact-focus-line';
+const COK_IMPACT_FOCUS_CIRCLE_LAYER = 'cok-impact-focus-circle';
+// The 16 named harbours on the Forecast map (see lib/harbourOutlookLayer.js): an anchor badge per location
+// (fill = unloading verdict now, ring = worst over the next 24 h) plus a name label from island zoom in.
+const COK_HARBOUR_SOURCE = 'cok-harbour-outlook-src';
+const COK_HARBOUR_LAYER = 'cok-harbour-outlook';
+const COK_HARBOUR_LABEL_LAYER = 'cok-harbour-outlook-label';
+const COK_IMPACT_ASSETS_LAYERS = [COK_IMPACT_ASSETS_FILL_LAYER, COK_IMPACT_ASSETS_LINE_HALO_LAYER, COK_IMPACT_ASSETS_LINE_LAYER, COK_IMPACT_ASSETS_CIRCLE_LAYER];
+
+// RiskScape impact-by-district choropleth (/cok/impact/latest/districts/geojson)
+// -- one polygon per (district, scenario), added BEFORE the impact-assets
+// block below (same insertion point, impactAssetsBeforeId) so the district
+// shading sits underneath individual building/road features and the risk
+// markers, not on top of them.
+const COK_IMPACT_DISTRICTS_SOURCE = 'cok-impact-districts-src';
+const COK_IMPACT_DISTRICTS_FILL_LAYER = 'cok-impact-districts-fill';
+const COK_IMPACT_DISTRICTS_OUTLINE_LAYER = 'cok-impact-districts-outline';
+const COK_IMPACT_DISTRICTS_LAYERS = [COK_IMPACT_DISTRICTS_FILL_LAYER, COK_IMPACT_DISTRICTS_OUTLINE_LAYER];
+// Mean High Water Springs reference: the +0.328 m contour line (static) and,
+// under it, the land the forecast floods above that line.
+const COK_MHWS_CONTOUR_SOURCE = 'cok-mhws-contour-src';
+const COK_MHWS_CONTOUR_CASING_LAYER = 'cok-mhws-contour-casing';
+const COK_MHWS_CONTOUR_LINE_LAYER = 'cok-mhws-contour-line';
+const COK_MHWS_CONTOUR_LAYERS = [COK_MHWS_CONTOUR_CASING_LAYER, COK_MHWS_CONTOUR_LINE_LAYER];
+// The other water marks (plain MHWS, +15 and +20 cm), drawn thinner and dashed
+// beneath the working mark so the choice between them can be judged on the map.
+const COK_MHWS_ALT_CASING_LAYER = 'cok-mhws-alt-contour-casing';
+const COK_MHWS_ALT_LINE_LAYER = 'cok-mhws-alt-contour-line';
+const COK_MHWS_ALT_LAYERS = [COK_MHWS_ALT_CASING_LAYER, COK_MHWS_ALT_LINE_LAYER];
+const MHWS_WORKING_FILTER = ['==', ['get', 'kind'], 'working'];
+const MHWS_ALT_FILTER = ['!=', ['get', 'kind'], 'working'];
+// margin_cm -> colour; also used by the legend in ForecastApp.
+export const MHWS_LINE_COLORS = { 0: '#fbbf24', 15: '#86efac', 17.5: '#2dd4bf', 20: '#c4b5fd' };
+const COK_MHWS_FLOOD_SOURCE = 'cok-mhws-flood-src';
+const COK_MHWS_FLOOD_FILL_LAYER = 'cok-mhws-flood-fill';
+const COK_MHWS_FLOOD_OUTLINE_LAYER = 'cok-mhws-flood-outline';
+const COK_MHWS_FLOOD_LAYERS = [COK_MHWS_FLOOD_FILL_LAYER, COK_MHWS_FLOOD_OUTLINE_LAYER];
+
+// MapLibre 'step' expression from DISTRICT_LOSS_COLOR_STOPS (the same
+// source of truth the "By district" table's inline color key uses) --
+// ['step', input, output0, boundary1, output1, boundary2, output2, ...]:
+// output_i applies for boundary_i <= input < boundary_(i+1). The first
+// boundary is a tiny epsilon above zero, not DISTRICT_LOSS_COLOR_STOPS[0]'s
+// own `max` of 0 -- a literal 0 boundary would mean "totalLoss < 0" for the
+// "No modelled damage" bucket, which is never true, so an exact-$0 district
+// would wrongly fall into the "Up to $50k" bucket instead of its own.
+// Every other stop's `max` already IS the correct boundary before the next
+// color, and the final stop (max: Infinity) has no boundary of its own --
+// 'step' has nothing above the last explicit one, so it's just the
+// trailing output.
+function buildDistrictLossColorExpression() {
+  const stops = DISTRICT_LOSS_COLOR_STOPS;
+  const boundaries = [0.005, ...stops.slice(1, -1).map((s) => s.max)];
+  const outputs = stops.slice(1).map((s) => s.color);
+  const steps = boundaries.flatMap((b, i) => [b, outputs[i]]);
+  return ['step', ['get', 'totalLoss'], stops[0].color, ...steps];
+}
+
+// Built once from the single IMPACT_SECTOR_COLORS source of truth (also used
+// by the Impacts tab's own sector donut chart/legend) rather than a second,
+// hand-kept color list -- a building on the map and its slice of that donut
+// always match. MapLibre 'match' expression: [input, label, output, ...,
+// fallback] -- flattening the color map's entries gives exactly that shape.
+function buildImpactSectorColorExpression() {
+  const stops = Object.entries(IMPACT_SECTOR_COLORS).flatMap(([sector, color]) => [sector, color]);
+  return ['match', ['get', 'sector'], ...stops, IMPACT_SECTOR_COLORS.unknown];
+}
+
+// Severity (economic damage ÷ original value, 0-1, computed server-side) drives opacity
+// rather than a second color ramp -- IMPACT_SECTOR_COLORS above already
+// carries the categorical "what kind of asset" signal; layering a
+// continuous "how badly damaged" ramp on the same channel would fight it.
+// A damaged building still reads as its own sector color, just more solid.
+//
+// Floor is 0.45, not near-zero: verified visually against a real cycle's
+// data (most exposed assets carry a real but modest loss_ratio, well under
+// 1.0 -- the worst building in the 2026091406 cycle was ~0.17) -- a lower
+// floor left every asset that isn't near-total damage looking almost
+// invisible against satellite imagery, defeating the point of an "exposed
+// assets" layer (being exposed at all should always read clearly; severity
+// should refine that, not gate whether you can see it).
+const COK_IMPACT_LOSS_RATIO_OPACITY = ['interpolate', ['linear'], ['get', 'lossRatio'], 0, 0.45, 1, 0.85];
 
 const ISLAND_LABEL_FEATURES = {
   type: 'FeatureCollection',
@@ -72,6 +213,47 @@ function parseTimeLabel(label) {
   } catch { return null; }
 }
 
+function emptyFeatureCollection() {
+  return { type: 'FeatureCollection', features: [] };
+}
+
+function routePointsToLineFeature(points = []) {
+  const coords = points
+    .filter((point) => Number.isFinite(point?.lon) && Number.isFinite(point?.lat))
+    .map((point) => [point.lon, point.lat]);
+
+  if (coords.length < 2) return emptyFeatureCollection();
+  return {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }],
+  };
+}
+
+// One LineString feature per scored leg (not the whole route as a single
+// feature) so 'line-color' can key off each leg's own hazardClass property
+// -- a route that gets worse partway through renders as a green-to-red
+// gradient of segments instead of one flat color for the whole line.
+function routeSamplesToSegmentFeatures(result) {
+  const samples = result?.samples;
+  const segments = result?.segments;
+  if (!Array.isArray(samples) || !Array.isArray(segments)) return [];
+  return segments
+    .filter((segment) => segment.available && Number.isFinite(segment.hazard_class))
+    .map((segment) => {
+      const a = samples[segment.from_sample_index];
+      const b = samples[segment.to_sample_index];
+      if (!a || !b || !Number.isFinite(a.lon) || !Number.isFinite(a.lat) || !Number.isFinite(b.lon) || !Number.isFinite(b.lat)) {
+        return null;
+      }
+      return {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: [[a.lon, a.lat], [b.lon, b.lat]] },
+        properties: { hazardClass: segment.hazard_class },
+      };
+    })
+    .filter(Boolean);
+}
+
 export function useZarrMap({
   selectedLayerId,
   sliderIndex,
@@ -87,12 +269,39 @@ export function useZarrMap({
   minVisibleDepth = null,
   inundationRenderMode = 'continuous',
   rangeWindow = null,
+  hazardBlock = null,
+  onHazardBlockStatus = null,
   playSpeedMs = 700,
   terrainEnabled = false,
   terrainConfig = null,
   flood3dEnabled = false,
   flood3dConfig = null,
   flood3dElevScale = null,
+  vesselClass = 'traditional_craft',
+  suitabilityMode = 'preset',
+  customEnvelope = null,
+  routePickMode = false,
+  onRoutePointPick,
+  routePoints = [],
+  routeForecastResult = null,
+  routeProbe = null,
+  impactAssetsGeojson = null,
+  impactAssetsVisible = false,
+  impactAssetsScenario = null,
+  impactExposedHighlight = false,
+  impactDistrictsGeojson = null,
+  impactDistrictsVisible = false,
+  impactDistrictsScenario = null,
+  mhwsContourGeojson = null,
+  mhwsContourVisible = false,
+  mhwsAltContourVisible = false,
+  mhwsFloodGeojson = null,
+  mhwsFloodVisible = false,
+  initialMapView = null,
+  initialBasemapId = 'satellite',
+  harbourOutlookGeojson = null,
+  harbourOutlookBundle = null,
+  harbourOutlookVisible = false,
 }) {
   // mapRef  = DOM container div ref  (used as <div ref={mapRef}>)
   // mapInstance = actual MapLibre map ref (used for fitBounds, getZoom, etc.)
@@ -104,22 +313,59 @@ export function useZarrMap({
   // the overlay's own `didAutoFit`, which is a per-instance flag that starts
   // false again on every layer switch, so the camera snapped to the mesh
   // bounds on *every* switch between wave layers, not just the first load).
-  const autoFitStateRef = useRef({ done: false });
+  const autoFitStateRef = useRef({ done: Boolean(initialMapView) });
   const columnOverlayRef = useRef(null);
   const playIntervalRef = useRef(null);
   const pinMarkerRef = useRef(null);
   const riskLatestReqRef = useRef(0);
+  const riskDetailsReqRef = useRef(0);
   const riskPointsRef = useRef([]);
+  const riskEnabledRef = useRef(riskEnabled);
+  riskEnabledRef.current = riskEnabled;
+  const selectedRiskIdRef = useRef(null);
+  const selectedImpactAssetIdRef = useRef(null);
+  const riskHoverPopupRef = useRef(null);
+  const advisoryHoverPopupRef = useRef(null);
+  const impactAssetPopupRef = useRef(null);
+  const impactFocusPopupRef = useRef(null);
+  const harbourPopupRef = useRef(null);
+  const harbourPinnedRef = useRef(false); // a clicked popup stays until closed; hover ones follow the pointer
+  const harbourBundleRef = useRef(null);
+  harbourBundleRef.current = harbourOutlookBundle;
+  // Read by onLoad so state set before the style loaded is applied once the layers exist.
+  const harbourInitRef = useRef(null);
+  harbourInitRef.current = { geojson: harbourOutlookGeojson, visible: harbourOutlookVisible };
+  // Every flooded asset in the selected window while the "Highlight exposed assets" switch is on (null
+  // when off). The focus source falls back to this, so picking one asset and then clearing it returns to
+  // the whole-set highlight instead of blanking it.
+  const impactExposedRef = useRef(null);
+  const impactDistrictHoverPopupRef = useRef(null);
+  const routeWaypointMarkersRef = useRef([]);
+  const routeLegLabelMarkersRef = useRef([]);
+  const routeProbeMarkersRef = useRef([]);
+  const routeProbeWasActiveRef = useRef(false);
 
   const [timeCount, setTimeCount] = useState(1);
   const [timeLabels, setTimeLabels] = useState([]);
+  // Which selectedLayerId timeLabels actually belongs to. timeLabels is
+  // deliberately NOT cleared on a layer switch (see the overlay-construction
+  // effect's own comment) so currentSliderDate never flickers null -- but that
+  // means a consumer who only checks "timeLabels is non-empty" right after a
+  // switch can silently read the OLD layer's array for a brief window (new
+  // overlay constructed, but its own onTimeChange/getTimeLabels hasn't landed
+  // yet). Set only alongside the real setTimeLabels() call below, so callers
+  // needing "this data is really for my just-selected layer" can compare it
+  // against selectedLayerId instead of trusting non-emptiness alone.
+  const [timeLabelsLayerId, setTimeLabelsLayerId] = useState(null);
+  // When the selected layer's forecast last reached the server (null until known / unavailable).
+  const [publishedAt, setPublishedAt] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [overlayStats, setOverlayStats] = useState(null);
 
   // Keep latest callback params in refs to avoid stale closures in map event listeners
   const cbRef = useRef({});
-  cbRef.current = { setBottomCanvasData, setShowBottomCanvas, inundationCategories, minVisibleDepth, inundationRenderMode, rangeWindow, selectedLayerId, opacity, flood3dElevScale, sliderIndex };
+  cbRef.current = { setBottomCanvasData, setShowBottomCanvas, inundationCategories, minVisibleDepth, inundationRenderMode, rangeWindow, hazardBlock, onHazardBlockStatus, selectedLayerId, opacity, flood3dElevScale, sliderIndex, vesselClass, suitabilityMode, customEnvelope, loading, routePickMode, onRoutePointPick };
 
   const overlayRefR = useRef(overlayRef);
   overlayRefR.current = overlayRef;
@@ -128,13 +374,38 @@ export function useZarrMap({
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return;
 
+    const initialBasemap = BASEMAP_OPTIONS.find((option) => option.id === initialBasemapId)
+      ?? BASEMAP_OPTIONS[0];
+    const initialBounds = initialMapView?.bounds;
     const map = new maplibregl.Map({
       container: mapRef.current,
-      style: ESRI_SAT_STYLE,
-      center: [-159.78, -21.24],
-      zoom: 8,
+      style: initialBasemapId === 'satellite' ? ESRI_SAT_STYLE : {
+        version: 8,
+        sources: { [BASEMAP_LAYER_ID]: initialBasemap.source },
+        layers: [{ id: BASEMAP_LAYER_ID, type: 'raster', source: BASEMAP_LAYER_ID }],
+      },
+      center: initialMapView?.center ?? [-159.78, -21.24],
+      zoom: initialMapView?.zoom ?? 8,
+      bearing: initialMapView?.bearing ?? 0,
+      pitch: initialMapView?.pitch ?? 0,
+      ...(Array.isArray(initialBounds) && initialBounds.length === 4
+        ? {
+            bounds: [
+              [initialBounds[0], initialBounds[1]],
+              [initialBounds[2], initialBounds[3]],
+            ],
+            fitBoundsOptions: { padding: 0, animate: false },
+          }
+        : {}),
       maxPitch: 60,
       attributionControl: true,
+      // Without this, WebGL clears the drawing buffer after each paint, so
+      // map.getCanvas().toDataURL() (used by the PDF advisory exporters to
+      // capture a real map image) returns a blank/black frame instead of
+      // whatever was actually on screen -- a real cost (disables the
+      // browser's implicit-clear optimization) worth paying only because a
+      // PDF export happens rarely, not on every frame.
+      preserveDrawingBuffer: true,
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-left');
     mapInstance.current = map;
@@ -145,18 +416,58 @@ export function useZarrMap({
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       });
+      // Shared condition expressions for the risk-circles paint spec below.
+      const RISK_IS_SELECTED = ['boolean', ['feature-state', 'selected'], false];
+      const RISK_IS_REPRESENTATIVE = ['==', ['get', 'type'], 'representative'];
       map.addLayer({
         id: RISK_CIRCLES_LAYER,
         type: 'circle',
         source: RISK_SOURCE,
         paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 5, 12, 7, 14, 9],
+          // Selected point renders larger than either the representative or
+          // detailed base size, so the highlight is legible at any zoom.
+          //
+          // The MapLibre style spec allows at most one zoom-based
+          // step/interpolate subexpression per property, and only as a
+          // *top-level* expression (or nested one level inside a top-level
+          // step/interpolate's own stop values) -- a 'case' picking between
+          // three separate ['interpolate', ..., ['zoom'], ...] branches, or
+          // multiplying an interpolate's result by a 'case'-selected factor,
+          // both fail addLayer() validation and throw, silently aborting the
+          // rest of this onLoad() closure (so risk points AND everything
+          // registered after this addLayer call -- island labels, route
+          // layers, click handlers, doRefreshRisk() -- never ran). Verified
+          // against the real validator (@maplibre/maplibre-gl-style-spec's
+          // validateStyleMin) before landing this, not just by inspection.
+          // The single valid shape: one top-level interpolate-by-zoom whose
+          // *stop values* are themselves data-driven 'case' expressions.
+          'circle-radius': [
+            'interpolate', ['linear'], ['zoom'],
+            8, ['case', RISK_IS_SELECTED, 9, RISK_IS_REPRESENTATIVE, 6, 5],
+            12, ['case', RISK_IS_SELECTED, 11, RISK_IS_REPRESENTATIVE, 8, 7],
+            14, ['case', RISK_IS_SELECTED, 14, RISK_IS_REPRESENTATIVE, 10, 9],
+          ],
           'circle-color': [
             'match', ['get', 'riskLevel'],
             0, RISK_COLORS[0], 1, RISK_COLORS[1], 2, RISK_COLORS[2], RISK_COLORS[0],
           ],
-          'circle-stroke-width': 1.5,
-          'circle-stroke-color': '#ffffff',
+          // Representative points (one marker standing in for a whole island at
+          // low zoom -- see selectRepresentativePoints in riskDataService.js)
+          // get a thicker stroke than individually-clickable detailed points,
+          // so the two strategies read as visually distinct rather than only
+          // differing in how many markers happen to be on screen. No zoom
+          // dependence here, so a plain 'case' (unlike circle-radius above) is fine.
+          'circle-stroke-width': [
+            'case',
+            RISK_IS_SELECTED, 3,
+            RISK_IS_REPRESENTATIVE, 2.5,
+            1.5,
+          ],
+          'circle-stroke-color': [
+            'case',
+            RISK_IS_SELECTED, RISK_SELECTED_STROKE,
+            '#ffffff',
+          ],
           'circle-opacity': 0.75,
         },
       });
@@ -173,7 +484,8 @@ export function useZarrMap({
           'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
           'text-size': ['interpolate', ['linear'], ['zoom'], 5, 9, 8, 12, 12, 15],
           'text-anchor': 'bottom',
-          'text-offset': [0, -0.3],
+          // Raised clear of the harbour badges, which sit on the island's harbour (often near its centre).
+          'text-offset': [0, -1.25],
           'text-allow-overlap': false,
           'text-ignore-placement': false,
         },
@@ -185,9 +497,384 @@ export function useZarrMap({
         },
       });
 
+      // Route draft/forecast layers -- always present (not tied to the
+      // selected wave layer, unlike the suitability overlay's own sources),
+      // since a route can be drawn regardless of which forecast layer is
+      // currently displayed underneath it.
+      map.addSource(COK_ROUTE_DRAFT_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addSource(COK_ROUTE_SEGMENTS_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addLayer({
+        id: COK_ROUTE_SEGMENTS_LAYER,
+        type: 'line',
+        source: COK_ROUTE_SEGMENTS_SOURCE,
+        paint: {
+          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 12, 6, 14, 8],
+          'line-color': [
+            'match', ['get', 'hazardClass'],
+            0, HAZARD_COLORS[0], 1, HAZARD_COLORS[1], 2, HAZARD_COLORS[2], '#94a3b8',
+          ],
+          'line-opacity': 0.92,
+        },
+      });
+      map.addLayer({
+        id: COK_ROUTE_DRAFT_LAYER,
+        type: 'line',
+        source: COK_ROUTE_DRAFT_SOURCE,
+        paint: {
+          'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 12, 4, 14, 5],
+          'line-color': '#e0f2fe',
+          'line-dasharray': [2, 1.2],
+          'line-opacity': 0.9,
+        },
+      });
+
+      // RiskScape impact assets (buildings/roads/points) -- inserted below
+      // risk-circles (which already exists at this point in onLoad) so the
+      // coastal-risk markers stay on top and clickable rather than getting
+      // buried under building fills.
+      const impactAssetsBeforeId = map.getLayer(RISK_CIRCLES_LAYER) ? RISK_CIRCLES_LAYER : undefined;
+
+      // RiskScape impact by district (choropleth) -- added at the SAME
+      // beforeId as the impact-assets layers below, but before them in
+      // source order, so it ends up underneath: MapLibre inserts each new
+      // layer immediately below beforeId, so the assets layers added after
+      // this one land between this fill layer and beforeId, i.e. above it.
+      map.addSource(COK_IMPACT_DISTRICTS_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addLayer({
+        id: COK_IMPACT_DISTRICTS_FILL_LAYER,
+        type: 'fill',
+        source: COK_IMPACT_DISTRICTS_SOURCE,
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-color': buildDistrictLossColorExpression(),
+          // Flatter than the impact-assets fill above (0.45-0.85) -- a
+          // whole-district polygon covers far more screen area than a
+          // single building, so the same opacity used there would bury
+          // satellite imagery and every building/road/risk marker
+          // rendered on top of it.
+          'fill-opacity': 0.28, // lighter so district shading does not bury roofs and roads
+        },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_IMPACT_DISTRICTS_OUTLINE_LAYER,
+        type: 'line',
+        source: COK_IMPACT_DISTRICTS_SOURCE,
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': 'rgba(15, 23, 42, 0.55)',
+          'line-width': 0.6,
+        },
+      }, impactAssetsBeforeId);
+
+      // MHWS reference layers -- added straight after the district layers and
+      // before the assets (same beforeId), so they read as a tide-reference
+      // ground under the RiskScape assets and coastal-risk markers. Sky blue =
+      // land flooded above MHWS (drawn first, underneath); the MHWS contour
+      // line goes on top of it. The depth raster is inserted below all of these
+      // (see SfincsRasterOverlay), so the reference stays visible over it.
+      map.addSource(COK_MHWS_FLOOD_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addLayer({
+        id: COK_MHWS_FLOOD_FILL_LAYER,
+        type: 'fill',
+        source: COK_MHWS_FLOOD_SOURCE,
+        layout: { visibility: 'none' },
+        // Blue, and translucent enough that buildings/wharves stay visible through it: the
+        // polygon is traced from a coarse model grid, so it is an approximate extent.
+        paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.38 },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_MHWS_FLOOD_OUTLINE_LAYER,
+        type: 'line',
+        source: COK_MHWS_FLOOD_SOURCE,
+        layout: { visibility: 'none', 'line-join': 'round' },
+        paint: {
+          'line-color': '#bfdbfe',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 13, 1.0, 17, 1.6],
+          'line-opacity': 0.9,
+        },
+      }, impactAssetsBeforeId);
+      // The contour: a dark casing under a bright line so it holds against
+      // both satellite imagery and the depth raster, thickening with zoom.
+      map.addSource(COK_MHWS_CONTOUR_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addLayer({
+        id: COK_MHWS_CONTOUR_CASING_LAYER,
+        type: 'line',
+        source: COK_MHWS_CONTOUR_SOURCE,
+        filter: MHWS_WORKING_FILTER,
+        layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#042f2e',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 2.2, 13, 3.6, 17, 5.6],
+          'line-opacity': 0.7,
+        },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_MHWS_CONTOUR_LINE_LAYER,
+        type: 'line',
+        source: COK_MHWS_CONTOUR_SOURCE,
+        filter: MHWS_WORKING_FILTER,
+        layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#2dd4bf',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1, 13, 1.8, 17, 3],
+          'line-opacity': 1,
+        },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_MHWS_ALT_CASING_LAYER,
+        type: 'line',
+        source: COK_MHWS_CONTOUR_SOURCE,
+        filter: MHWS_ALT_FILTER,
+        layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#0b1220',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.6, 13, 2.6, 17, 4],
+          'line-opacity': 0.55,
+        },
+      }, COK_MHWS_CONTOUR_CASING_LAYER);
+      map.addLayer({
+        id: COK_MHWS_ALT_LINE_LAYER,
+        type: 'line',
+        source: COK_MHWS_CONTOUR_SOURCE,
+        filter: MHWS_ALT_FILTER,
+        layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'butt' },
+        paint: {
+          'line-color': ['match', ['get', 'margin_cm'], 0, MHWS_LINE_COLORS[0], 15, MHWS_LINE_COLORS[15], 20, MHWS_LINE_COLORS[20], '#e2e8f0'],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.8, 13, 1.3, 17, 2],
+          'line-dasharray': [3, 2],
+          'line-opacity': 0.95,
+        },
+      }, COK_MHWS_CONTOUR_CASING_LAYER);
+
+      const impactSectorColorExpr = buildImpactSectorColorExpression();
+      const IMPACT_ASSET_SELECTED = ['boolean', ['feature-state', 'selected'], false];
+      // generateId: true so setFeatureState()-based selection (see
+      // flyToImpactAsset below) has a stable id per feature to key off of --
+      // the GeoJSON itself has none, and feature-state is keyed by
+      // source+id, not tied to a particular setData() snapshot.
+      map.addSource(COK_IMPACT_ASSETS_SOURCE, { type: 'geojson', data: emptyFeatureCollection(), generateId: true });
+      // 'Polygon' OR 'MultiPolygon' -- ['geometry-type'] returns the literal
+      // GeoJSON type string, it does NOT fold Multi* into its singular form.
+      // A plain ['==', ..., 'Polygon'] silently dropped every MultiPolygon
+      // feature from all three impact-asset layers (fill here, and the
+      // scenario-filter effect below repeats this same filter) -- checked
+      // live against a real cycle's block01: 29 of 265 features (mostly
+      // larger building footprints RiskScape represents as multi-part
+      // polygons) never rendered anywhere, not hidden by opacity/color like
+      // the line/circle contrast issue above, just never selected at all.
+      const IMPACT_POLYGON_FILTER = ['any', ['==', ['geometry-type'], 'Polygon'], ['==', ['geometry-type'], 'MultiPolygon']];
+      // Same Multi*-inclusive reasoning as the polygon filter above, applied to lines and
+      // points too -- the line/circle layers below (and the scenario-filter effect's own
+      // geomFilters map) previously checked only the singular type, which would silently
+      // drop every MultiLineString (disconnected road segments -- common in real road-network
+      // data) or MultiPoint feature RiskScape ever returns, exactly the way the polygon case
+      // already documented was happening for buildings.
+      const IMPACT_LINE_FILTER = ['any', ['==', ['geometry-type'], 'LineString'], ['==', ['geometry-type'], 'MultiLineString']];
+      const IMPACT_POINT_FILTER = ['any', ['==', ['geometry-type'], 'Point'], ['==', ['geometry-type'], 'MultiPoint']];
+      map.addLayer({
+        id: COK_IMPACT_ASSETS_FILL_LAYER,
+        type: 'fill',
+        source: COK_IMPACT_ASSETS_SOURCE,
+        filter: IMPACT_POLYGON_FILTER,
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-color': impactSectorColorExpr,
+          'fill-opacity': COK_IMPACT_LOSS_RATIO_OPACITY,
+          'fill-outline-color': ['case', IMPACT_ASSET_SELECTED, '#38bdf8', 'rgba(15, 23, 42, 0.55)'],
+        },
+      }, impactAssetsBeforeId);
+      const IMPACT_LINE_WIDTH = [
+        'interpolate', ['linear'], ['zoom'],
+        10, ['case', IMPACT_ASSET_SELECTED, 5, 2],
+        14, ['case', IMPACT_ASSET_SELECTED, 9, 5],
+      ];
+      // Dark casing under the colored road line -- see
+      // COK_IMPACT_ASSETS_LINE_HALO_LAYER's own comment above for why this
+      // exists (roads crossing the inundation raster were losing all
+      // contrast against it). Wider than the line it sits under and at a
+      // flat, high opacity regardless of severity/selection -- its only job
+      // is to guarantee an edge exists, not to carry any of its own signal.
+      map.addLayer({
+        id: COK_IMPACT_ASSETS_LINE_HALO_LAYER,
+        type: 'line',
+        source: COK_IMPACT_ASSETS_SOURCE,
+        filter: IMPACT_LINE_FILTER,
+        layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#0f172a',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 9],
+          'line-opacity': 0.85,
+        },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_IMPACT_ASSETS_LINE_LAYER,
+        type: 'line',
+        source: COK_IMPACT_ASSETS_SOURCE,
+        filter: IMPACT_LINE_FILTER,
+        layout: { visibility: 'none' },
+        paint: {
+          // Roads colored by flood severity (lossRatio), not sector, unlike
+          // the fill/circle layers below -- a road's economic "sector" isn't
+          // the useful signal for evacuation-route planning, how badly it's
+          // flooded is. Reuses the same 3-tier teal/amber/red scale as
+          // HAZARD_COLORS/vessel suitability elsewhere in the app rather
+          // than inventing a new palette for the same concept.
+          'line-color': [
+            'interpolate', ['linear'], ['get', 'lossRatio'],
+            0, HAZARD_COLORS[0], 0.35, HAZARD_COLORS[1], 0.65, HAZARD_COLORS[2],
+          ],
+          // One top-level interpolate-by-zoom whose *stop values* are
+          // data-driven 'case' expressions -- not a 'case' wrapping two
+          // separate top-level interpolates (that shape fails addLayer()'s
+          // validator with "Only one zoom-based step/interpolate
+          // subexpression may be used", which silently aborted the rest of
+          // this onLoad() closure -- confirmed live. Same fix, same root
+          // cause the RISK_CIRCLES_LAYER 'circle-radius' comment above
+          // already documents; missed applying it here the first time.
+          'line-width': IMPACT_LINE_WIDTH,
+          // Flat, not lossRatio-driven -- color already carries severity (see
+          // above); tying opacity to the same value too made a "Low" road's
+          // already-similar-hued teal fade toward transparent, which is what
+          // made it disappear against the raster even with the halo. Fill/
+          // circle already only vary color by category, not severity, so
+          // this brings the line layer's opacity policy in line with them.
+          'line-opacity': 0.95,
+        },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_IMPACT_ASSETS_CIRCLE_LAYER,
+        type: 'circle',
+        source: COK_IMPACT_ASSETS_SOURCE,
+        filter: IMPACT_POINT_FILTER,
+        layout: { visibility: 'none' },
+        paint: {
+          'circle-radius': [
+            'interpolate', ['linear'], ['zoom'],
+            10, ['case', IMPACT_ASSET_SELECTED, 7, 4],
+            14, ['case', IMPACT_ASSET_SELECTED, 12, 8],
+          ],
+          'circle-color': impactSectorColorExpr,
+          // Flat, not lossRatio-driven -- same reasoning as the line layer's
+          // own opacity above; a small marker faded toward 0.45 opacity was
+          // easy to lose entirely against busy satellite imagery.
+          'circle-opacity': 0.9,
+          'circle-stroke-width': ['case', IMPACT_ASSET_SELECTED, 3, 1.5],
+          'circle-stroke-color': ['case', IMPACT_ASSET_SELECTED, '#38bdf8', '#ffffff'],
+        },
+      }, impactAssetsBeforeId);
+
+      map.addSource(COK_IMPACT_FOCUS_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addLayer({
+        id: COK_IMPACT_FOCUS_FILL_LAYER,
+        type: 'fill',
+        source: COK_IMPACT_FOCUS_SOURCE,
+        filter: IMPACT_POLYGON_FILTER,
+        paint: { 'fill-color': '#38bdf8', 'fill-opacity': 0.28, 'fill-outline-color': '#38bdf8' },
+      }, impactAssetsBeforeId);
+      // Polygon edges too, so a footprint is outlined as clearly as a wharf line.
+      map.addLayer({
+        id: COK_IMPACT_FOCUS_CASING_LAYER,
+        type: 'line',
+        source: COK_IMPACT_FOCUS_SOURCE,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#0f172a', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 5, 17, 9], 'line-opacity': 0.85 },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_IMPACT_FOCUS_LINE_LAYER,
+        type: 'line',
+        source: COK_IMPACT_FOCUS_SOURCE,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#38bdf8', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 17, 5] },
+      }, impactAssetsBeforeId);
+      map.addLayer({
+        id: COK_IMPACT_FOCUS_CIRCLE_LAYER,
+        type: 'circle',
+        source: COK_IMPACT_FOCUS_SOURCE,
+        filter: IMPACT_POINT_FILTER,
+        paint: { 'circle-radius': 9, 'circle-color': 'rgba(56,189,248,0.25)', 'circle-stroke-width': 3, 'circle-stroke-color': '#38bdf8' },
+      }, impactAssetsBeforeId);
+
       map.on('click', RISK_CIRCLES_LAYER, onRiskClick);
       map.on('mouseenter', RISK_CIRCLES_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', RISK_CIRCLES_LAYER, () => { map.getCanvas().style.cursor = ''; });
+      map.on('mousemove', RISK_CIRCLES_LAYER, onRiskHover);
+      map.on('mouseleave', RISK_CIRCLES_LAYER, () => {
+        map.getCanvas().style.cursor = '';
+        riskHoverPopupRef.current?.remove();
+      });
+      for (const layerId of COK_IMPACT_ASSETS_LAYERS) {
+        map.on('click', layerId, onImpactAssetClick);
+        map.on('mouseenter', layerId, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = ''; });
+      }
+      // Hover only (no click-through) -- a district polygon covers a huge
+      // area, so a click handler here would fight with whatever's on top of
+      // it (buildings, risk markers) far more than the assets layers above
+      // ever do, for a feature (district totals) already fully visible in
+      // the Impacts tab's own table.
+      map.on('mousemove', COK_IMPACT_DISTRICTS_FILL_LAYER, onImpactDistrictHover);
+      map.on('mouseleave', COK_IMPACT_DISTRICTS_FILL_LAYER, () => {
+        impactDistrictHoverPopupRef.current?.remove();
+      });
+      map.on('click', COK_SUITABILITY_CIRCLES_LAYER, onSuitabilityClick);
+      map.on('mouseenter', COK_SUITABILITY_CIRCLES_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', COK_SUITABILITY_CIRCLES_LAYER, () => { map.getCanvas().style.cursor = ''; });
+      map.on('click', COK_ADVISORY_LOCATIONS_LAYER, onAdvisoryLocationClick);
+      map.on('mouseenter', COK_ADVISORY_LOCATIONS_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mousemove', COK_ADVISORY_LOCATIONS_LAYER, onAdvisoryLocationHover);
+      map.on('mouseleave', COK_ADVISORY_LOCATIONS_LAYER, () => {
+        map.getCanvas().style.cursor = '';
+        advisoryHoverPopupRef.current?.remove();
+      });
+      // Harbour outlook: added last so it draws above the risk markers and every overlay (those all
+      // insert themselves below 'risk-circles').
+      registerHarbourIcons(map);
+      const harbourInit = harbourInitRef.current;
+      const harbourVisibility = harbourInit?.visible ? 'visible' : 'none';
+      map.addSource(COK_HARBOUR_SOURCE, { type: 'geojson', data: harbourInit?.geojson?.features ? harbourInit.geojson : emptyFeatureCollection() });
+      map.addLayer({
+        id: COK_HARBOUR_LAYER,
+        type: 'symbol',
+        source: COK_HARBOUR_SOURCE,
+        layout: {
+          visibility: harbourVisibility,
+          'icon-image': ['get', 'icon'],
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.62, 8, 0.85, 12, 1],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          'symbol-sort-key': ['get', 'sortKey'],
+          'symbol-z-order': 'source',
+        },
+      });
+      map.addLayer({
+        id: COK_HARBOUR_LABEL_LAYER,
+        type: 'symbol',
+        source: COK_HARBOUR_SOURCE,
+        minzoom: 7,
+        layout: {
+          visibility: harbourVisibility,
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 7, 11, 12, 13],
+          'text-anchor': 'left',
+          'text-offset': [1.35, 0],
+          'text-optional': true,
+          'text-max-width': 12,
+        },
+        paint: {
+          'text-color': '#f8fafc',
+          'text-halo-color': 'rgba(2, 6, 23, 0.9)',
+          'text-halo-width': 1.6,
+          'text-halo-blur': 0.4,
+        },
+      });
+      map.on('mouseenter', COK_HARBOUR_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mousemove', COK_HARBOUR_LAYER, (e) => { if (!harbourPinnedRef.current) showHarbourPopup(e, false); });
+      map.on('mouseleave', COK_HARBOUR_LAYER, () => {
+        map.getCanvas().style.cursor = '';
+        if (!harbourPinnedRef.current) harbourPopupRef.current?.remove();
+      });
+      map.on('click', COK_HARBOUR_LAYER, (e) => showHarbourPopup(e, true));
+
       map.on('moveend', doRefreshRisk);
       map.on('zoomend', doRefreshRisk);
       doRefreshRisk();
@@ -198,13 +885,15 @@ export function useZarrMap({
     // adding a layer only needs the style itself to be parsed, which is ready
     // much earlier. Waiting on 'load' let UgridOverlay's first render (which
     // targets beforeId: 'risk-circles') fire before this layer existed, sending
-    // deck.gl's MapboxOverlay into a permanently-stuck add/move failure loop.
+    // deck.gl's MapLibreOverlay into a permanently-stuck add/move failure loop.
     if (map.isStyleLoaded()) onLoad(); else map.once('style.load', onLoad);
 
     map.on('click', onMapClick);
 
     return () => {
       map.off('click', onMapClick);
+      advisoryHoverPopupRef.current?.remove();
+      impactDistrictHoverPopupRef.current?.remove();
       map.remove();
       mapInstance.current = null;
     };
@@ -250,11 +939,12 @@ export function useZarrMap({
 
     // Construction is deferred one frame past prev.destroy(). UgridOverlay (and
     // SfincsColumnOverlay, constructed by a sibling effect below) both use deck.gl's
-    // *interleaved* MapboxOverlay, which shares ONE Deck instance per map, cached on
-    // map.__deck (see @deck.gl/mapbox/deck-utils.js getDeckInstance/removeDeckInstance).
+    // *interleaved* MapLibreOverlay, which shares ONE Deck instance per map, cached in a
+    // module-scoped WeakMap keyed on the map (see @deck.gl/maplibre/deck-utils.js
+    // getMapLibreDeckInstance/removeMapLibreDeckInstance).
     // Removing an interleaved overlay unconditionally finalizes and nulls that shared
     // instance, even if a sibling interleaved overlay is still relying on it — and
-    // MapboxOverlay's own layer sync (resolveLayers) runs synchronously off whatever
+    // MapLibreOverlay's own layer sync (resolveLayerGroups) runs synchronously off whatever
     // that reference currently is. Giving the previous overlay's teardown a full
     // render frame before the next one starts inserting layers (with beforeId:
     // 'risk-circles') avoids that hazard; this is the source of the intermittent
@@ -272,12 +962,27 @@ export function useZarrMap({
             inundationCategories: cbRef.current.inundationCategories,
             minVisibleDepth: cbRef.current.minVisibleDepth,
             inundationRenderMode: cbRef.current.inundationRenderMode,
+            hazardBlock: cbRef.current.hazardBlock,
           })
-        : new ZarrOverlay(map, { ...layerCfg, opacity, thresholds });
+        : layerCfg.sourceType === 'cok-suitability'
+        ? new CookIslandsSuitabilityController(map, {
+            ...layerCfg,
+            opacity,
+            vesselClass: cbRef.current.vesselClass,
+            suitabilityMode: cbRef.current.suitabilityMode,
+            customEnvelope: cbRef.current.customEnvelope,
+          })
+        : new ZarrOverlay(map, {
+            ...layerCfg,
+            opacity,
+            thresholds,
+            skipAutoFit: Boolean(initialMapView),
+          });
 
       ov.onTimeChange = (_label, _idx, maxIdx) => setTimeCount(maxIdx + 1);
       ov.onLoadingChange = setLoading;
       ov.onErrorChange = setError;
+      ov.onHazardBlockStatus = (status) => cbRef.current.onHazardBlockStatus?.(status);
       ov.onStatsChange = (min, max, units, extra = {}) => {
         setOverlayStats({
           min,
@@ -322,9 +1027,29 @@ export function useZarrMap({
     const ov = overlayRef.current;
     if (ov && typeof ov.getTimeLabels === 'function') {
       const labels = ov.getTimeLabels();
-      if (labels.length > 0) setTimeLabels(labels);
+      if (labels.length > 0) {
+        setTimeLabels(labels);
+        // cbRef.current.selectedLayerId (not the selectedLayerId this effect
+        // would otherwise close over) so a layer switch that lands between
+        // renders still tags these labels with whichever layer was actually
+        // selected at the moment getTimeLabels() ran.
+        setTimeLabelsLayerId(cbRef.current.selectedLayerId);
+      }
     }
   }, [timeCount]);
+
+  // Last update time of the layer whose time labels are showing. Re-checked every 10 min so a
+  // page left open notices a new run (or the lack of one) without a reload.
+  useEffect(() => {
+    const url = findLayerById(timeLabelsLayerId)?.publishedAtUrl;
+    setPublishedAt(null);
+    if (!url) return undefined;
+    let cancelled = false;
+    const load = () => fetchPublishedAt(url).then((d) => { if (!cancelled) setPublishedAt(d); });
+    load();
+    const timer = setInterval(load, 10 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [timeLabelsLayerId, timeLabels[0]]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── slider → overlay ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -345,13 +1070,340 @@ export function useZarrMap({
     if (ov && typeof ov.setThresholds === 'function') ov.setThresholds(thresholds);
   }, [thresholds]);
 
+  // ── vessel class (CookIslandsSuitabilityController) ───────────────────────
+  useEffect(() => {
+    const ov = overlayRef.current;
+    if (ov && typeof ov.setVesselClass === 'function') ov.setVesselClass(vesselClass);
+  }, [vesselClass]);
+
+  // ── suitability Preset/Custom mode + custom envelope ──────────────────────
+  // customEnvelope is the effective envelope object (vessel preset merged
+  // with any user overrides) once Custom mode has been enabled at least
+  // once -- null/undefined before that, in which case setEnvelope just gets
+  // {} and CookIslandsSuitabilityDynamicOverlay falls back to the vessel's
+  // own preset, so Custom mode always starts identical to Preset until the
+  // user actually moves a slider.
+  useEffect(() => {
+    const ov = overlayRef.current;
+    if (!ov || typeof ov.setMode !== 'function') return;
+    ov.setMode(suitabilityMode);
+    ov.setEnvelope(vesselClass, suitabilityMode === 'custom' ? (customEnvelope || {}) : {});
+  }, [vesselClass, suitabilityMode, customEnvelope]);
+
+  // ── route pick-mode cursor ─────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (map) map.getCanvas().style.cursor = routePickMode ? 'crosshair' : '';
+  }, [routePickMode]);
+
+  // ── route draft / forecast rendering ──────────────────────────────────────
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const draftSource = map.getSource(COK_ROUTE_DRAFT_SOURCE);
+    const segmentSource = map.getSource(COK_ROUTE_SEGMENTS_SOURCE);
+    if (!draftSource || !segmentSource) return; // route layers not added yet (style still loading)
+
+    draftSource.setData(routePointsToLineFeature(routePoints));
+    segmentSource.setData({ type: 'FeatureCollection', features: routeSamplesToSegmentFeatures(routeForecastResult) });
+
+    routeWaypointMarkersRef.current.forEach((marker) => marker.remove());
+    routeWaypointMarkersRef.current = [];
+    routeLegLabelMarkersRef.current.forEach((marker) => marker.remove());
+    routeLegLabelMarkersRef.current = [];
+
+    const validPoints = routePoints.filter((p) => Number.isFinite(p?.lon) && Number.isFinite(p?.lat));
+
+    validPoints.forEach((point, index) => {
+      const kind = index === 0 ? 'origin' : index === validPoints.length - 1 ? 'destination' : 'waypoint';
+      const el = document.createElement('div');
+      el.textContent = String(index + 1);
+      el.style.cssText = `
+        width: 22px; height: 22px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font: 700 11px system-ui, sans-serif; color: #fff;
+        background: ${COK_ROUTE_WAYPOINT_COLORS[kind]};
+        border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+      `;
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([point.lon, point.lat])
+        .addTo(map);
+      routeWaypointMarkersRef.current.push(marker);
+    });
+
+    // Per-leg distance labels at each segment's midpoint, computed
+    // client-side from the raw waypoints so labels appear immediately while
+    // drawing, before a forecast has actually been run.
+    for (let i = 0; i < validPoints.length - 1; i += 1) {
+      const a = validPoints[i];
+      const b = validPoints[i + 1];
+      const nm = haversineNm(a, b);
+      const midLon = (a.lon + b.lon) / 2;
+      const midLat = (a.lat + b.lat) / 2;
+      const el = document.createElement('div');
+      el.className = 'cok-route-leg-label';
+      el.textContent = `${nm.toFixed(1)} nm`;
+      el.style.cssText = `
+        padding: 2px 6px; border-radius: 4px;
+        font: 700 10px system-ui, sans-serif; color: #f8fafc;
+        background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(255,255,255,0.25);
+        white-space: nowrap; pointer-events: none;
+      `;
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([midLon, midLat])
+        .addTo(map);
+      routeLegLabelMarkersRef.current.push(marker);
+    }
+  }, [routePoints, routeForecastResult]);
+
+  // ── route probe: what the midpoint wave chart points at ───────────────────
+  // A pulsing ring at the route midpoint while that chart is open, and a boat dot that follows
+  // the hovered time along the route (only while the time is inside the voyage). Plain DOM
+  // markers like the waypoint ones above; rebuilt on change (two tiny elements).
+  useEffect(() => {
+    const map = mapInstance.current;
+    routeProbeMarkersRef.current.forEach((marker) => marker.remove());
+    routeProbeMarkersRef.current = [];
+    // Put every leg-distance label back where it belongs; collisions are re-nudged below.
+    routeLegLabelMarkersRef.current.forEach((marker) => marker.setOffset([0, 0]));
+    if (!map || !routeProbe) { routeProbeWasActiveRef.current = false; return; }
+
+    // Labels sit BESIDE the marker, not under it: the per-leg distance labels are centred on a
+    // leg's midpoint, which on a two-leg crossing is almost exactly the route midpoint.
+    const label = (text, color) => {
+      const el = document.createElement('div');
+      el.textContent = text;
+      el.style.cssText = `
+        position: absolute; left: calc(100% + 6px); top: 50%; transform: translateY(-50%);
+        padding: 1px 6px; border-radius: 4px; white-space: nowrap; pointer-events: none;
+        font: 700 10px system-ui, sans-serif; color: #f8fafc;
+        background: rgba(15, 23, 42, 0.85); border: 1px solid ${color};
+      `;
+      return el;
+    };
+    const add = (point, el) => {
+      routeProbeMarkersRef.current.push(new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([point.lon, point.lat]).addTo(map));
+    };
+
+    const { midpoint, vessel } = routeProbe;
+    // The results sheet is laid over the bottom of the map, so the route (and with it the
+    // midpoint) can sit entirely underneath it. The first time the probe appears, fit the route
+    // into the part of the map the sheet leaves visible. Only on that transition: re-fitting on
+    // every hover would make the map jump around under the mouse.
+    if (!routeProbeWasActiveRef.current) {
+      const pts = routePoints.filter((p) => Number.isFinite(p?.lon) && Number.isFinite(p?.lat));
+      if (pts.length >= 2) {
+        const mapRect = map.getContainer().getBoundingClientRect();
+        const sheetTop = document.querySelector('.bottom-offcanvas')?.getBoundingClientRect?.().top;
+        const covered = Number.isFinite(sheetTop) ? Math.max(0, mapRect.bottom - sheetTop) : 0;
+        const lons = pts.map((p) => p.lon);
+        const lats = pts.map((p) => p.lat);
+        map.fitBounds(
+          [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+          { padding: { top: 50, left: 50, right: 50, bottom: covered + 40 }, animate: true, maxZoom: 14 },
+        );
+      }
+    }
+    routeProbeWasActiveRef.current = true;
+    // A leg-distance label centred where a probe marker sits would be covered by it (on a two-leg
+    // crossing the long leg's midpoint is almost exactly the route midpoint). Nudge it just below
+    // the marker instead of hiding it, so the distance stays readable.
+    [midpoint, vessel].forEach((probePoint) => {
+      legLabelsNearPoint(routePoints, probePoint).forEach((legIndex) => {
+        routeLegLabelMarkersRef.current[legIndex]?.setOffset([0, 26]);
+      });
+    });
+    if (midpoint && Number.isFinite(midpoint.lon) && Number.isFinite(midpoint.lat)) {
+      const el = document.createElement('div');
+      el.className = 'cok-route-probe-midpoint';
+      el.style.cssText = `
+        position: relative; width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box;
+        border: 3px solid #f472b6; background: rgba(244, 114, 182, 0.18);
+        box-shadow: 0 0 0 4px rgba(244, 114, 182, 0.25), 0 1px 6px rgba(0,0,0,0.5);
+      `;
+      el.appendChild(label('Midpoint', '#f472b6'));
+      add(midpoint, el);
+    }
+    if (vessel && Number.isFinite(vessel.lon) && Number.isFinite(vessel.lat)) {
+      const el = document.createElement('div');
+      el.className = 'cok-route-probe-vessel';
+      el.style.cssText = `
+        position: relative; width: 16px; height: 16px; border-radius: 50%; box-sizing: border-box;
+        border: 3px solid #38bdf8; background: #ffffff; box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.35), 0 1px 5px rgba(0,0,0,0.55);
+      `;
+      el.appendChild(label(vessel.label ? `Boat · ${vessel.label}` : 'Boat', '#38bdf8'));
+      add(vessel, el);
+    }
+  }, [routeProbe, routePoints]);
+
+  // ── RiskScape impact assets (data / visibility / scenario filter) ────────
+  // Three independent effects rather than one, matching how opacity/
+  // thresholds/vesselClass above are each their own effect -- Home.jsx
+  // updates these three props on different triggers (data once per tab
+  // visit, visibility on every tab switch, scenario on every window chip
+  // click), and there's no reason a scenario-only change should redo the
+  // (larger) setData call or vice versa.
+  useEffect(() => {
+    const map = mapInstance.current;
+    const src = map?.getSource(COK_IMPACT_ASSETS_SOURCE);
+    if (!src) return; // layers not added yet (style still loading)
+    src.setData(impactAssetsGeojson && Array.isArray(impactAssetsGeojson.features)
+      ? impactAssetsGeojson
+      : emptyFeatureCollection());
+  }, [impactAssetsGeojson]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const visibility = impactAssetsVisible ? 'visible' : 'none';
+    if (!impactAssetsVisible) clearImpactFocus();
+    for (const layerId of COK_IMPACT_ASSETS_LAYERS) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+  }, [impactAssetsVisible]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    // null/undefined scenario (data still loading, or fetched with no
+    // ?scenario= filter) shows every window's assets overlaid rather than
+    // hiding the layer outright -- a reasonable default, and avoids a
+    // flash-to-empty between "assets fetched" and "which window is selected"
+    // landing on the same render.
+    clearImpactFocus(); // a focused asset belongs to the previous window
+    const scenarioFilter = impactAssetsScenario ? ['==', ['get', 'scenario'], impactAssetsScenario] : true;
+    // Values are arrays, not single strings -- ['geometry-type'] returns the literal GeoJSON
+    // type, never folding e.g. MultiPolygon into 'Polygon' or MultiLineString into
+    // 'LineString', so every layer needs both its singular and Multi* form listed or the
+    // matching features get excluded here on every window change even after the initial
+    // addLayer filters above were fixed to include them (IMPACT_POLYGON_FILTER /
+    // IMPACT_LINE_FILTER / IMPACT_POINT_FILTER).
+    const geomFilters = {
+      [COK_IMPACT_ASSETS_FILL_LAYER]: ['Polygon', 'MultiPolygon'],
+      [COK_IMPACT_ASSETS_LINE_HALO_LAYER]: ['LineString', 'MultiLineString'],
+      [COK_IMPACT_ASSETS_LINE_LAYER]: ['LineString', 'MultiLineString'],
+      [COK_IMPACT_ASSETS_CIRCLE_LAYER]: ['Point', 'MultiPoint'],
+    };
+    for (const [layerId, geomTypes] of Object.entries(geomFilters)) {
+      if (map.getLayer(layerId)) {
+        const geomFilter = geomTypes.length === 1
+          ? ['==', ['geometry-type'], geomTypes[0]]
+          : ['any', ...geomTypes.map((t) => ['==', ['geometry-type'], t])];
+        map.setFilter(layerId, ['all', geomFilter, scenarioFilter]);
+      }
+    }
+  }, [impactAssetsScenario]);
+
+  // "Highlight exposed assets": outline every asset the selected window floods (any loss, population rows
+  // are people not assets), so the affected buildings and infrastructure read at a glance.
+  useEffect(() => {
+    const map = mapInstance.current;
+    const on = impactExposedHighlight && impactAssetsVisible;
+    const features = on && Array.isArray(impactAssetsGeojson?.features)
+      ? impactAssetsGeojson.features.filter((f) => (
+        f?.geometry && f.properties?.asset !== 'Population' && (f.properties?.totalLoss ?? 0) > 0
+        && (!impactAssetsScenario || f.properties?.scenario === impactAssetsScenario)
+      ))
+      : null;
+    impactExposedRef.current = features;
+    if (map?.getSource?.(COK_IMPACT_FOCUS_SOURCE)) clearImpactFocus();
+  }, [impactExposedHighlight, impactAssetsVisible, impactAssetsGeojson, impactAssetsScenario]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── harbour outlook (data / visibility) ─────────────────────────────────
+  useEffect(() => {
+    const src = mapInstance.current?.getSource?.(COK_HARBOUR_SOURCE);
+    if (!src) return;
+    src.setData(harbourOutlookGeojson && Array.isArray(harbourOutlookGeojson.features) ? harbourOutlookGeojson : emptyFeatureCollection());
+  }, [harbourOutlookGeojson]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const visibility = harbourOutlookVisible ? 'visible' : 'none';
+    for (const layerId of [COK_HARBOUR_LAYER, COK_HARBOUR_LABEL_LAYER]) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+    if (!harbourOutlookVisible) harbourPopupRef.current?.remove();
+  }, [harbourOutlookVisible]);
+
+  // ── RiskScape impact by district (data / visibility / scenario filter) ───
+  // Same three-effects split and same scenario-filter fallback (show every
+  // window when no scenario is selected yet) as the impact-assets block
+  // above -- see its own comments for the reasoning, unchanged here.
+  useEffect(() => {
+    const map = mapInstance.current;
+    const src = map?.getSource(COK_IMPACT_DISTRICTS_SOURCE);
+    if (!src) return;
+    src.setData(impactDistrictsGeojson && Array.isArray(impactDistrictsGeojson.features)
+      ? impactDistrictsGeojson
+      : emptyFeatureCollection());
+  }, [impactDistrictsGeojson]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const visibility = impactDistrictsVisible ? 'visible' : 'none';
+    for (const layerId of COK_IMPACT_DISTRICTS_LAYERS) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+  }, [impactDistrictsVisible]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const scenarioFilter = impactDistrictsScenario ? ['==', ['get', 'scenario'], impactDistrictsScenario] : true;
+    for (const layerId of COK_IMPACT_DISTRICTS_LAYERS) {
+      if (map.getLayer(layerId)) map.setFilter(layerId, scenarioFilter);
+    }
+  }, [impactDistrictsScenario]);
+
+  // ── MHWS reference layers (data / visibility) ─────────────────────────────
+  useEffect(() => {
+    const src = mapInstance.current?.getSource(COK_MHWS_CONTOUR_SOURCE);
+    if (!src) return;
+    src.setData(mhwsContourGeojson && Array.isArray(mhwsContourGeojson.features) ? mhwsContourGeojson : emptyFeatureCollection());
+  }, [mhwsContourGeojson]);
+
+  useEffect(() => {
+    const src = mapInstance.current?.getSource(COK_MHWS_FLOOD_SOURCE);
+    if (!src) return;
+    src.setData(mhwsFloodGeojson && Array.isArray(mhwsFloodGeojson.features) ? mhwsFloodGeojson : emptyFeatureCollection());
+  }, [mhwsFloodGeojson]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const visibility = mhwsContourVisible ? 'visible' : 'none';
+    for (const layerId of COK_MHWS_CONTOUR_LAYERS) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+  }, [mhwsContourVisible]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const visibility = mhwsAltContourVisible ? 'visible' : 'none';
+    for (const layerId of COK_MHWS_ALT_LAYERS) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+  }, [mhwsAltContourVisible]);
+
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+    const visibility = mhwsFloodVisible ? 'visible' : 'none';
+    for (const layerId of COK_MHWS_FLOOD_LAYERS) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+  }, [mhwsFloodVisible]);
+
   // ── sfincs config (rangeWindow / inundationCategories / minVisibleDepth) ──
   useEffect(() => {
     const ov = overlayRef.current;
     if (ov instanceof SfincsRasterOverlay) {
-      ov.updateConfig({ rangeWindow, inundationCategories, minVisibleDepth, inundationRenderMode });
+      ov.updateConfig({ rangeWindow, hazardBlock, inundationCategories, minVisibleDepth, inundationRenderMode });
     }
-  }, [rangeWindow, inundationCategories, minVisibleDepth, inundationRenderMode]);
+  }, [rangeWindow, hazardBlock, inundationCategories, minVisibleDepth, inundationRenderMode]);
 
   // ── optional MapLibre terrain ────────────────────────────────────────────
   useEffect(() => {
@@ -410,8 +1462,8 @@ export function useZarrMap({
     if (!flood3dEnabled || !isSfincs || !map) return;
 
     // Deferred one frame past the destroy above for the same reason as the main
-    // overlay-lifecycle effect: this is also an interleaved deck.gl MapboxOverlay
-    // sharing the map's single cached Deck instance (map.__deck) with UgridOverlay.
+    // overlay-lifecycle effect: this is also an interleaved deck.gl MapLibreOverlay
+    // sharing the map's single cached Deck instance with UgridOverlay.
     let cancelled = false;
     const rafId = requestAnimationFrame(() => {
       if (cancelled) return;
@@ -459,17 +1511,57 @@ export function useZarrMap({
   }, [flood3dElevScale]);
 
   // ── playback ──────────────────────────────────────────────────────────────
+  // Load-aware instead of a fixed setInterval: a frame stays on screen for at
+  // least playSpeedMs (so fast-loading layers don't flash by faster than
+  // intended), but won't advance to the next one until the current overlay's
+  // load actually finishes -- checked via cbRef.current.loading, which is
+  // written synchronously every render (see cbRef.current assignment above)
+  // so this reads the live value instead of the stale one a plain setInterval
+  // closure would have captured. Layers whose per-frame fetch (e.g. Cook
+  // Islands vessel suitability's wider-domain raster tiles) routinely takes
+  // longer than a single playSpeedMs interval used to fall behind silently,
+  // with frames rendering late while the slider had already moved on --
+  // visible stutter with no actual cause visible in any one component.
+  // MAX_FRAME_WAIT_MS bounds this: a load that's hung or erroring shouldn't
+  // freeze playback indefinitely, so a frame gives up waiting and advances
+  // anyway past that ceiling.
   useEffect(() => {
-    if (playIntervalRef.current) { clearInterval(playIntervalRef.current); playIntervalRef.current = null; }
+    if (playIntervalRef.current) { clearTimeout(playIntervalRef.current); playIntervalRef.current = null; }
     if (!isPlaying) return;
-    playIntervalRef.current = setInterval(() => {
+
+    let cancelled = false;
+    const MIN_FRAME_MS = playSpeedMs;
+    const MAX_FRAME_WAIT_MS = Math.max(playSpeedMs * 4, 4000);
+    const POLL_MS = 50;
+
+    const advance = () => {
       setSliderIndex((prev) => {
         const next = prev + 1;
         if (next >= timeCount) { setIsPlaying(false); return prev; }
         return next;
       });
-    }, playSpeedMs);
-    return () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current); };
+    };
+
+    const scheduleFrame = () => {
+      if (cancelled) return;
+      const frameStart = Date.now();
+      const tick = () => {
+        if (cancelled) return;
+        const elapsed = Date.now() - frameStart;
+        const readyToAdvance = elapsed >= MIN_FRAME_MS
+          && (!cbRef.current.loading || elapsed >= MAX_FRAME_WAIT_MS);
+        if (readyToAdvance) {
+          advance();
+          playIntervalRef.current = setTimeout(scheduleFrame, 0);
+          return;
+        }
+        playIntervalRef.current = setTimeout(tick, POLL_MS);
+      };
+      playIntervalRef.current = setTimeout(tick, MIN_FRAME_MS);
+    };
+
+    scheduleFrame();
+    return () => { cancelled = true; if (playIntervalRef.current) clearTimeout(playIntervalRef.current); };
   }, [isPlaying, timeCount, setSliderIndex, setIsPlaying, playSpeedMs]);
 
   // ── risk points ───────────────────────────────────────────────────────────
@@ -480,22 +1572,197 @@ export function useZarrMap({
         .filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
         .map((p) => ({
           type: 'Feature',
+          // Top-level feature id (not just a `properties.id`) is required for
+          // map.setFeatureState()/['feature-state', ...] paint expressions --
+          // that's how the selected-marker highlight below survives a setData()
+          // refresh (feature-state is keyed by source+id, not tied to one
+          // particular data snapshot, as long as ids stay stable across refetches).
+          id: p.id,
           geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-          properties: { id: p.id, riskLevel: getEffectiveRiskLevel(p), maxTWL: p.maxTWL ?? null, type: p.type ?? '' },
+          properties: { id: p.id, riskLevel: getEffectiveRiskLevel(p), maxTWL: p.maxTWL ?? null, type: p.type ?? '', island: p.island ?? '' },
         })),
     };
+  }
+
+  // Moves the gold selection ring from whichever point had it to `id` (or just
+  // clears it if `id` is null). Feature-state, not a property in the GeoJSON
+  // itself, so re-fetching/re-coloring markers elsewhere never has to know
+  // about selection.
+  function setSelectedRiskPoint(id) {
+    const map = mapInstance.current;
+    if (!map) return;
+    const prevId = selectedRiskIdRef.current;
+    if (prevId != null && prevId !== id) {
+      map.setFeatureState({ source: RISK_SOURCE, id: prevId }, { selected: false });
+    }
+    if (id != null) {
+      map.setFeatureState({ source: RISK_SOURCE, id }, { selected: true });
+    }
+    selectedRiskIdRef.current = id;
+  }
+
+  // Cheap centroid, not a true geometric one -- fine for flyTo/highlight
+  // purposes on the small building/road/point footprints these features
+  // actually have (a real polygon centroid library would be overkill here).
+  function impactAssetCenter(geometry) {
+    if (!geometry) return null;
+    const { type, coordinates } = geometry;
+    if (type === 'Point') return coordinates;
+    const ring = type === 'LineString' ? coordinates
+      : type === 'Polygon' ? coordinates[0]
+      : type === 'MultiPolygon' ? coordinates[0]?.[0]
+      : null;
+    if (!Array.isArray(ring) || ring.length === 0) return null;
+    const [sumLon, sumLat] = ring.reduce(([lon, lat], [x, y]) => [lon + x, lat + y], [0, 0]);
+    return [sumLon / ring.length, sumLat / ring.length];
+  }
+
+  // Selecting a building/road/point from the impact-assets category list
+  // (CookIslandsImpactPanel's accordion) flies the map to it and gives it
+  // the same feature-state selection ring risk-circles use, via
+  // IMPACT_ASSET_SELECTED in the layer paint above -- mirrors
+  // setSelectedRiskPoint below, just for the impact-assets source instead
+  // of risk points.
+  // One popup for both hover (follows the pointer, closes on leave) and click (pinned until closed).
+  function showHarbourPopup(e, pin) {
+    const map = mapInstance.current;
+    const feature = e.features?.[0];
+    if (!map || !feature) return;
+    const id = feature.properties?.riskPointId;
+    const bundle = harbourBundleRef.current;
+    const harbour = bundle?.harbours?.find((h) => String(h.riskPointId) === String(id));
+    if (!harbour) return;
+    if (pin) {
+      harbourPopupRef.current?.remove();
+      harbourPopupRef.current = null;
+    }
+    if (!harbourPopupRef.current) {
+      const popup = new maplibregl.Popup({
+        closeButton: pin,
+        closeOnClick: pin,
+        offset: 18,
+        maxWidth: '280px',
+        className: 'harbour-outlook-popup',
+      });
+      // Only forget the popup if it is still the current one: a stale 'close' must never orphan a live
+      // popup (that left a trail of un-closable popups across the map).
+      popup.on('close', () => {
+        if (harbourPopupRef.current !== popup) return;
+        harbourPinnedRef.current = false;
+        harbourPopupRef.current = null;
+      });
+      harbourPopupRef.current = popup;
+    }
+    harbourPinnedRef.current = pin;
+    const popup = harbourPopupRef.current;
+    popup.setLngLat(feature.geometry.coordinates).setHTML(harbourPopupHtml(harbour, bundle));
+    // addTo() on an open popup removes it first (firing 'close'), so it is called only to open it --
+    // calling it on every mousemove is what used to drop the reference and stack popups.
+    if (!popup.isOpen()) popup.addTo(map);
+    // Pinned popups link to the coastal-risk point at the same place (when risk markers are on).
+    if (pin && map.getLayer(RISK_CIRCLES_LAYER)) {
+      const riskFeature = map.queryRenderedFeatures(e.point, { layers: [RISK_CIRCLES_LAYER] })[0];
+      const el = harbourPopupRef.current.getElement()?.querySelector('.maplibregl-popup-content');
+      if (riskFeature && el) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Coastal flood risk here →';
+        btn.style.cssText = 'margin-top:8px;width:100%;padding:5px 8px;border-radius:6px;border:1px solid #0e7490;background:#ecfeff;color:#0e7490;font:600 11.5px system-ui,sans-serif;cursor:pointer;';
+        btn.addEventListener('click', () => {
+          harbourPopupRef.current?.remove();
+          onRiskClick({ features: [riskFeature], lngLat: e.lngLat, point: e.point }, { fromHarbour: true });
+        });
+        el.appendChild(btn);
+      }
+    }
+    // The timeline bar floats over the bottom of the map; nudge the map so a pinned popup is not hidden
+    // behind it (or above the top edge).
+    if (pin) {
+      const popupEl = harbourPopupRef.current.getElement();
+      const mapRect = map.getContainer().getBoundingClientRect();
+      const timeline = map.getContainer().parentElement?.querySelector('.ft-root:not(.ft-root--inline)');
+      const bottomLimit = timeline ? timeline.getBoundingClientRect().top - 8 : mapRect.bottom - 8;
+      const rect = popupEl?.getBoundingClientRect();
+      if (rect) {
+        const overflowBottom = rect.bottom - bottomLimit;
+        const overflowTop = mapRect.top + 8 - rect.top;
+        if (overflowBottom > 0) map.panBy([0, overflowBottom], { duration: 300 });
+        else if (overflowTop > 0) map.panBy([0, -overflowTop], { duration: 300 });
+      }
+    }
+  }
+
+  function clearImpactFocus() {
+    const map = mapInstance.current;
+    map?.getSource?.(COK_IMPACT_FOCUS_SOURCE)?.setData(
+      impactExposedRef.current ? { type: 'FeatureCollection', features: impactExposedRef.current } : emptyFeatureCollection(),
+    );
+    impactFocusPopupRef.current?.remove();
+  }
+
+  // Bounds of every coordinate in the given features, [[w, s], [e, n]], or null when none.
+  function impactFeaturesBounds(features) {
+    let w = Infinity; let s = Infinity; let e = -Infinity; let n = -Infinity;
+    const visit = (c) => {
+      if (typeof c?.[0] === 'number') {
+        w = Math.min(w, c[0]); e = Math.max(e, c[0]); s = Math.min(s, c[1]); n = Math.max(n, c[1]);
+      } else if (Array.isArray(c)) c.forEach(visit);
+    };
+    features.forEach((f) => visit(f?.geometry?.coordinates));
+    return Number.isFinite(w) ? [[w, s], [e, n]] : null;
+  }
+
+  // `focus` ({ features, label }) is the whole real-world asset behind the picked row: every segment is
+  // outlined and the view fits all of them, instead of zooming to the single worst segment.
+  function flyToImpactAsset(feature, focus = null) {
+    const map = mapInstance.current;
+    if (!map || !feature) return;
+    const prevId = selectedImpactAssetIdRef.current;
+    if (prevId != null && prevId !== feature.id) {
+      map.setFeatureState({ source: COK_IMPACT_ASSETS_SOURCE, id: prevId }, { selected: false });
+    }
+    if (feature.id != null) {
+      map.setFeatureState({ source: COK_IMPACT_ASSETS_SOURCE, id: feature.id }, { selected: true });
+    }
+    selectedImpactAssetIdRef.current = feature.id ?? null;
+
+    const segments = Array.isArray(focus?.features) && focus.features.length > 1 ? focus.features : null;
+    clearImpactFocus();
+    if (segments) {
+      map.getSource(COK_IMPACT_FOCUS_SOURCE)?.setData({ type: 'FeatureCollection', features: segments });
+      const bounds = impactFeaturesBounds(segments);
+      if (bounds) {
+        map.fitBounds(bounds, { padding: 70, maxZoom: 17, duration: 800 });
+        if (focus.label) {
+          if (!impactFocusPopupRef.current) {
+            impactFocusPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8, maxWidth: '240px', className: 'impact-asset-popup' });
+          }
+          const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+          impactFocusPopupRef.current
+            .setLngLat([(bounds[0][0] + bounds[1][0]) / 2, bounds[1][1]])
+            .setHTML(`<div style="font:600 12px/1.4 system-ui,sans-serif;color:#0f172a;"><b>${esc(focus.label)}</b><div style="font-weight:400;opacity:.75;">${segments.length} mapped segments counted as this asset</div></div>`)
+            .addTo(map);
+        }
+        return;
+      }
+    }
+    const center = impactAssetCenter(feature.geometry);
+    if (center) map.flyTo({ center, zoom: Math.max(map.getZoom(), 17) });
   }
 
   function doRefreshRisk() {
     const map = mapInstance.current;
     if (!map) return;
+    // A refresh that started while risk points were on can finish after they were switched off (e.g.
+    // on entering the Impacts tab); it must not draw them again.
+    if (!riskEnabledRef.current) return;
     const reqId = ++riskLatestReqRef.current;
     const bnds = map.getBounds();
     const bbox = [bnds.getWest(), bnds.getSouth(), bnds.getEast(), bnds.getNorth()].join(',');
     const zoom = map.getZoom();
     fetchRiskPointsData({ zoom, bbox })
       .then((payload) => {
-        if (riskLatestReqRef.current !== reqId) return;
+        if (riskLatestReqRef.current !== reqId || !riskEnabledRef.current) return;
         const pts = Array.isArray(payload?.points) ? payload.points : [];
         riskPointsRef.current = pts;
         const src = map.getSource?.(RISK_SOURCE);
@@ -523,6 +1790,8 @@ export function useZarrMap({
     if (!riskEnabled) {
       const src = map.getSource?.(RISK_SOURCE);
       if (src) src.setData({ type: 'FeatureCollection', features: [] });
+      riskHoverPopupRef.current?.remove();
+      selectedRiskIdRef.current = null;
       return;
     }
     if (map.loaded()) doRefreshRisk(); else map.once('load', doRefreshRisk);
@@ -542,31 +1811,244 @@ export function useZarrMap({
   }, []);
 
   // ── event handlers (stable refs, read latest values via cbRef) ────────────
-  function onRiskClick(e) {
+  function onRiskClick(e, { fromHarbour = false } = {}) {
     const feature = e.features?.[0];
     if (!feature) return;
-    const { id, riskLevel, maxTWL, type: pType } = feature.properties;
-    const point = { id, riskLevel, maxTWL, type: pType, lat: e.lngLat.lat, lon: e.lngLat.lng };
+    // A harbour badge drawn over this point takes the click (the 16 harbours ARE risk points, at the same
+    // coordinates); its popup offers these coastal-risk details as a button instead.
+    const harbourMap = mapInstance.current;
+    if (!fromHarbour && harbourMap?.getLayer(COK_HARBOUR_LAYER)
+      && harbourMap.queryRenderedFeatures(e.point, { layers: [COK_HARBOUR_LAYER] }).length) return;
+    const { id, riskLevel, maxTWL, type: pType, island } = feature.properties;
+    const point = { id, riskLevel, maxTWL, type: pType, island, lat: e.lngLat.lat, lon: e.lngLat.lng };
     removePinMarker();
-    cbRef.current.setBottomCanvasData({ mode: 'risk', point, status: 'loading' });
-    cbRef.current.setShowBottomCanvas(true);
-    fetchRiskDetails(id)
-      .then((details) => {
-        cbRef.current.setBottomCanvasData({ mode: 'risk', point, details, status: 'success' });
-        cbRef.current.setShowBottomCanvas(true);
-      })
-      .catch((err) => {
-        console.error('[useZarrMap] Risk point details fetch failed:', err);
-        cbRef.current.setBottomCanvasData({ mode: 'risk', point, status: 'error', error: err.message });
-        cbRef.current.setShowBottomCanvas(true);
+    setSelectedRiskPoint(id);
+
+    // Two clicks in quick succession fire two independent fetches; without a
+    // request-id guard, whichever one happens to resolve *last* wins the
+    // panel, not whichever was clicked last — a slow first request can land
+    // after a fast second one and silently replace the panel the user is now
+    // looking at with the previous point's (stale) details. Re-used by the
+    // panel's own retry action below, so a manual retry participates in the
+    // same guard as a real re-click.
+    const loadDetails = () => {
+      const reqId = ++riskDetailsReqRef.current;
+      cbRef.current.setBottomCanvasData({ mode: 'risk', point, status: 'loading' });
+      cbRef.current.setShowBottomCanvas(true);
+      fetchRiskDetails(id)
+        .then((details) => {
+          if (riskDetailsReqRef.current !== reqId) return;
+          cbRef.current.setBottomCanvasData({ mode: 'risk', point, details, status: 'success' });
+          cbRef.current.setShowBottomCanvas(true);
+        })
+        .catch((err) => {
+          if (riskDetailsReqRef.current !== reqId) return;
+          console.error('[useZarrMap] Risk point details fetch failed:', err);
+          cbRef.current.setBottomCanvasData({ mode: 'risk', point, status: 'error', error: err.message, onRetry: loadDetails });
+          cbRef.current.setShowBottomCanvas(true);
+        });
+    };
+
+    loadDetails();
+  }
+
+  // Lightweight hover tooltip -- separate from onRiskClick's full detail fetch
+  // (no network round trip; everything shown is already on the point's GeoJSON
+  // properties) so a user can scan risk levels across many points before
+  // committing to a click.
+  function onRiskHover(e) {
+    const map = mapInstance.current;
+    const feature = e.features?.[0];
+    if (!map || !feature) return;
+    // Under a harbour badge the harbour popup is the one to show (see onRiskClick).
+    if (map.getLayer(COK_HARBOUR_LAYER) && map.queryRenderedFeatures(e.point, { layers: [COK_HARBOUR_LAYER] }).length) {
+      riskHoverPopupRef.current?.remove();
+      return;
+    }
+    const { riskLevel, maxTWL, island, type: pType } = feature.properties;
+    if (!riskHoverPopupRef.current) {
+      riskHoverPopupRef.current = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 12,
+        className: 'risk-hover-popup',
       });
+    }
+    const label = RISK_LABELS[riskLevel] ?? RISK_LABELS[0];
+    const color = RISK_COLORS[riskLevel] ?? RISK_COLORS[0];
+    const twlText = Number.isFinite(Number(maxTWL)) ? `${Number(maxTWL).toFixed(2)} m` : 'N/A';
+    const html = `
+      <div style="font:600 12px/1.4 system-ui, sans-serif; color:#0f172a;">
+        ${island ? `<div style="font-weight:700;">${island}</div>` : ''}
+        <div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:5px;"></span>${label}</div>
+        <div style="font-weight:400;opacity:0.75;">Forecast max TWL: ${twlText}</div>
+        ${pType === 'representative' ? '<div style="font-weight:400;opacity:0.65;font-style:italic;">Representative point &mdash; zoom in for detail</div>' : ''}
+      </div>`;
+    riskHoverPopupRef.current.setLngLat(e.lngLat).setHTML(html).addTo(map);
+  }
+
+  // Every field this needs is already on the clicked feature's own GeoJSON
+  // properties (step11_marine_suitability.py bakes hazard_class/action_label/
+  // etc. in at pipeline time) -- unlike onRiskClick above, no backend
+  // round-trip is needed to populate the detail panel.
+  function onSuitabilityClick(e) {
+    const feature = e.features?.[0];
+    if (!feature) return;
+    const point = { ...feature.properties, lat: e.lngLat.lat, lon: e.lngLat.lng };
+    removePinMarker();
+    cbRef.current.setBottomCanvasData({ mode: 'suitability', point });
+    cbRef.current.setShowBottomCanvas(true);
+  }
+
+  // Named advisory locations carry the same per-feature properties as the
+  // plain forereef points, plus name/island/type -- but since the advice
+  // endpoint returns all 4 vessel classes per location per timestep (unlike
+  // the plain points layer, which this map only ever renders one vessel
+  // class of at a time), getAdvisoryGroup() pulls the other 3 readings from
+  // the overlay's already-fetched cache so the panel can show a full
+  // vessel comparison instead of just the one that happens to be selected.
+  function onAdvisoryLocationHover(e) {
+    const map = mapInstance.current;
+    const feature = e.features?.[0];
+    if (!map || !feature) return;
+    const { name, type } = feature.properties;
+    if (!advisoryHoverPopupRef.current) {
+      advisoryHoverPopupRef.current = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 14,
+      });
+    }
+    const kind = type === 'fishing_ground' ? 'Fishing ground' : 'Landing site / harbour';
+    // Explicit dark text: the popup's default white background sits under the
+    // dark theme's inherited white text, which made setText() render blank.
+    const content = document.createElement('div');
+    content.style.cssText = 'font:600 12px/1.4 system-ui, sans-serif; color:#0f172a;';
+    content.textContent = `${name || 'Named location'} · ${kind}`;
+    advisoryHoverPopupRef.current
+      .setLngLat(e.lngLat)
+      .setDOMContent(content)
+      .addTo(map);
+  }
+
+  // Same lazy-popup-ref pattern as onAdvisoryLocationHover above. Deliberately
+  // no click handler (see the mousemove registration's own comment) -- this
+  // is the map's only affordance for district totals, so it has to work on
+  // touch too, which is why mousemove (not mouseenter, which touch never
+  // fires) drives it, matching onAdvisoryLocationHover's own choice.
+  function onImpactDistrictHover(e) {
+    const map = mapInstance.current;
+    const feature = e.features?.[0];
+    if (!map || !feature) return;
+    const p = feature.properties ?? {};
+    const totalLoss = Number(p.totalLoss);
+    const totalExposedBuildings = Number(p.totalExposedBuildings);
+    if (!impactDistrictHoverPopupRef.current) {
+      impactDistrictHoverPopupRef.current = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 10,
+      });
+    }
+    const content = document.createElement('div');
+    content.style.cssText = 'font:600 12px/1.5 system-ui, sans-serif; color:#0f172a; min-width:150px;';
+    content.innerHTML = `
+      <div style="font-weight:700; margin-bottom:3px; text-transform:capitalize;">${p.districtName || 'District'}</div>
+      <div>Est. economic damage: <b>${fmtUsd(totalLoss)}</b></div>
+      ${Number.isFinite(totalExposedBuildings) && totalExposedBuildings > 0
+        ? `<div style="font-weight:400; opacity:0.75;">${totalExposedBuildings.toLocaleString()} buildings exposed</div>`
+        : ''}
+    `;
+    impactDistrictHoverPopupRef.current
+      .setLngLat(e.lngLat)
+      .setDOMContent(content)
+      .addTo(map);
+  }
+
+  function onAdvisoryLocationClick(e) {
+    const feature = e.features?.[0];
+    if (!feature) return;
+    const point = { ...feature.properties, lat: e.lngLat.lat, lon: e.lngLat.lng };
+    const locationGroup = overlayRef.current?.getAdvisoryGroup?.(point.name) ?? null;
+    removePinMarker();
+    cbRef.current.setBottomCanvasData({ mode: 'suitability', point, locationGroup });
+    cbRef.current.setShowBottomCanvas(true);
+  }
+
+  // Click-to-inspect popup (not routed through setBottomCanvasData like
+  // onSuitabilityClick/onAdvisoryLocationClick above) -- every field needed
+  // is already on the clicked feature's own properties (no backend
+  // round-trip), and a single asset's detail is a small enough surface that
+  // a dismissible popup at the click point reads better than displacing the
+  // whole map with a bottom sheet for what's ultimately a "what is this one
+  // building" lookup.
+  function onImpactAssetClick(e) {
+    const map = mapInstance.current;
+    const feature = e.features?.[0];
+    if (!map || !feature) return;
+    const p = feature.properties || {};
+    const sector = p.sector || 'unknown';
+    const sectorColor = IMPACT_SECTOR_COLORS[sector] ?? IMPACT_SECTOR_COLORS.unknown;
+    const sectorLabel = IMPACT_SECTOR_LABELS[sector] ?? IMPACT_SECTOR_LABELS.unknown;
+    const totalLoss = Number(p.totalLoss);
+    const originalValue = Number(p.originalValue);
+    const lossRatio = Number(p.lossRatio);
+    const sizeM2 = Number(p.sizeM2);
+
+    if (!impactAssetPopupRef.current) {
+      impactAssetPopupRef.current = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: true,
+        offset: 10,
+        maxWidth: '260px',
+        className: 'impact-asset-popup',
+      });
+    }
+    const html = `
+      <div style="font:600 12px/1.5 system-ui, sans-serif; color:#0f172a; min-width:170px;">
+        <div style="font-weight:700; margin-bottom:3px;">${p.details || p.useType || 'Impact asset'}</div>
+        <div style="display:flex; align-items:center; gap:5px; margin-bottom:5px; font-weight:400; opacity:0.8;">
+          <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${sectorColor}; flex-shrink:0;"></span>
+          ${sectorLabel}
+        </div>
+        <div>Est. economic damage: <b>${fmtUsd(totalLoss)}</b></div>
+        <div style="font-weight:400; opacity:0.75;">
+          Value: ${fmtUsd(originalValue)}${Number.isFinite(lossRatio) ? ` &middot; ${(lossRatio * 100).toFixed(0)}% economic damage` : ''}
+        </div>
+        ${Number.isFinite(sizeM2) ? `<div style="font-weight:400; opacity:0.6;">${sizeM2.toFixed(0)} m&sup2;</div>` : ''}
+      </div>`;
+    impactAssetPopupRef.current.setLngLat(e.lngLat).setHTML(html).addTo(map);
   }
 
   function onMapClick(e) {
     const map = mapInstance.current;
     if (!map) return;
-    // Skip if clicking a risk point
-    const feats = map.queryRenderedFeatures(e.point, { layers: [RISK_CIRCLES_LAYER] });
+
+    // Route pick-mode short-circuits all normal click behavior below --
+    // risk points, suitability points, the transient timeseries pin, etc.
+    // Defaults to false/undefined everywhere it isn't explicitly enabled,
+    // so this is a no-op for every existing flow when the feature is unused.
+    const { routePickMode: routeMode, onRoutePointPick: pickRoute } = cbRef.current;
+    if (routeMode) {
+      pickRoute?.(e.lngLat.lng, e.lngLat.lat);
+      return;
+    }
+
+    // Skip if clicking a risk point or a vessel-suitability point -- both
+    // have their own dedicated click handlers registered above. Unlike
+    // RISK_CIRCLES_LAYER (added once at map init, never removed),
+    // COK_SUITABILITY_CIRCLES_LAYER only exists while that overlay is the
+    // active layer -- queryRenderedFeatures throws if asked about a layer
+    // that isn't currently on the map's style, so it's only included here
+    // when actually present.
+    // COK_IMPACT_ASSETS_LAYERS are always present (like RISK_CIRCLES_LAYER),
+    // just usually hidden -- included unconditionally rather than behind a
+    // getLayer() guard for that reason, unlike the two below.
+    const clickableLayers = [RISK_CIRCLES_LAYER, ...COK_IMPACT_ASSETS_LAYERS];
+    if (map.getLayer(COK_HARBOUR_LAYER)) clickableLayers.push(COK_HARBOUR_LAYER);
+    if (map.getLayer(COK_SUITABILITY_CIRCLES_LAYER)) clickableLayers.push(COK_SUITABILITY_CIRCLES_LAYER);
+    if (map.getLayer(COK_ADVISORY_LOCATIONS_LAYER)) clickableLayers.push(COK_ADVISORY_LOCATIONS_LAYER);
+    const feats = map.queryRenderedFeatures(e.point, { layers: clickableLayers });
     if (feats.length > 0) return;
 
     const ov = overlayRef.current;
@@ -574,6 +2056,23 @@ export function useZarrMap({
     const { setBottomCanvasData: setCB, setShowBottomCanvas: setSC, inundationCategories: cats, rangeWindow: rw, selectedLayerId: currentLayerId } = cbRef.current;
     const layerCfg = findLayerById(currentLayerId);
     if (!layerCfg) return;
+
+    // Vessel suitability has no point timeseries: its overlays resolve
+    // getTimeseriesAtPoint() to null, which the generic path below reports as
+    // "No data at this location" in the bottom canvas. Preset mode's clickable
+    // markers are handled above. Custom mode has no markers, so a click on its
+    // canvas opens the same suitability panel for the grid cell under the
+    // cursor (null on land/outside the grid, and always null in Preset mode,
+    // where a click on bare tiles is not an inspect action).
+    if (layerCfg.sourceType === 'cok-suitability') {
+      const customPoint = ov.getCustomPointAt?.(e.lngLat.lng, e.lngLat.lat);
+      if (customPoint) {
+        addPinMarker(e.lngLat.lng, e.lngLat.lat, map);
+        setCB({ mode: 'suitability', point: customPoint });
+        setSC(true);
+      }
+      return;
+    }
 
     const { lng, lat } = e.lngLat;
     addPinMarker(lng, lat, map);
@@ -684,21 +2183,48 @@ export function useZarrMap({
   // because the bucket doesn't serve Cache-Control headers. Fix: add
   // "Cache-Control: public, max-age=3600" to the Wasabi bucket policy for the
   // spc-zarr-file bucket — chunks are immutable per model run.
+  //
+  // Cook Islands suitability's own timeLabels[0] (forecast_start) is not the
+  // pipeline cycle's init time -- every cycle's summary carries a fixed
+  // 48h hindcast/spin-up window before its own init (verified across 9
+  // consecutive cycles' cok_suitability_summary.json: forecast_start is
+  // always exactly cycle_init - 48h; see also
+  // step11_marine_suitability.py's _load_mesh_fields docstring, which notes
+  // wind_and_waves.nc's own time axis already carries this same ~48h of
+  // hindcast/spin-up hours that SWAN_UGRID.nc's mesh drops). Treating
+  // timeLabels[0] as "now" the way every other layer's modelRunStart does
+  // would make this layer's modelRunAgeHours >= 48h and therefore isStale
+  // permanently true, even seconds after a fresh cycle publishes.
+  // (The offset itself, and why, live in utils/modelRunTiming.js: modelRunStart below is
+  // the real model run's start for every layer, so the age printed in the PDFs and the
+  // one behind the stale banner can never disagree.)
   const availableTimestamps = timeLabels.map(parseTimeLabel).filter(Boolean);
-  const modelRunStart = availableTimestamps[0] ?? null;
-  const modelRunAgeHours = modelRunStart
-    ? (Date.now() - modelRunStart.getTime()) / 3_600_000
-    : null;
+  const modelRunStart = resolveModelRunStart(availableTimestamps[0], timeLabelsLayerId);
+  const modelRunAgeHours = modelRunAgeHoursFor(modelRunStart);
+  const updateAgeHours = modelRunAgeHoursFor(publishedAt);
+  const freshness = updateFreshness(updateAgeHours, modelRunAgeHours);
   const capTime = {
     loading,
     availableTimestamps,
+    // The selectedLayerId that availableTimestamps actually belongs to — see
+    // timeLabelsLayerId's own comment. A consumer that needs "this data is
+    // really for the layer I just selected" (not a stale leftover from the
+    // previous one) should compare this against selectedLayerId rather than
+    // trusting availableTimestamps.length alone.
+    layerId: timeLabelsLayerId,
     stepHours: 1,
     warmupSkipped: false,
     warmupDays: 0,
     modelRunStart,
     modelRunAgeHours,
-    // True when data is older than 30 h — indicates a missed pipeline run
-    isStale: modelRunAgeHours !== null && modelRunAgeHours > 30,
+    // When this forecast reached the server, and hours since. This, not modelRunAgeHours, is
+    // what tells a forecaster whether the system is running (see utils/modelRunTiming.js).
+    updatedAt: publishedAt,
+    updateAgeHours,
+    freshness: freshness.state,
+    // 'not-updated' (runs missed) or 'old-model-data' (updates, but no newer GFS cycle)
+    staleReason: freshness.reason,
+    isStale: freshness.state === 'stale',
   };
 
   const currentSliderDate = timeLabels[sliderIndex] ? parseTimeLabel(timeLabels[sliderIndex]) : null;
@@ -718,6 +2244,8 @@ export function useZarrMap({
     removePinMarker,
     setShowContours: (enabled) => { overlayRef.current?.setShowContours?.(enabled); },
     refreshRiskMarkerColors,
+    flyToImpactAsset,
+    setVesselClass: (vc) => { overlayRef.current?.setVesselClass?.(vc); },
   };
 }
 

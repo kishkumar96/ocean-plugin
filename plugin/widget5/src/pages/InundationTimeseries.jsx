@@ -1,4 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { computeFloodedHours } from '../utils/floodDuration';
+import { buildChartPrintHtml, escapeHtml } from '../utils/chartPrintHtml';
 import Plot from 'react-plotly.js';
 import Plotly from 'plotly.js/dist/plotly';
 import { classifyDepth } from '../config/inundationThresholds';
@@ -126,7 +128,7 @@ function StatCard({ label, value, subtext, color, isDarkMode, live }) {
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-function InundationTimeseries({ timeseries, categories, rangeWindow, isDarkMode, currentSliderDate, onTimeSelect }) {
+function InundationTimeseries({ timeseries, categories, rangeWindow, isDarkMode, currentSliderDate, onTimeSelect, lat = null, lng = null }) {
   const [plotHeight, setPlotHeight] = useState(220);
   const [showThresholdLabels, setShowThresholdLabels] = useState(false);
   const chartRef = useRef(null);
@@ -259,11 +261,7 @@ function InundationTimeseries({ timeseries, categories, rangeWindow, isDarkMode,
       ? (maxCatIdx - 1) / (total - 2)
       : 0;
 
-    let floodedHours = 0;
-    if (activeTimeseries.length > 1) {
-      const dtH = (new Date(activeTimeseries[1].time) - new Date(activeTimeseries[0].time)) / 3.6e6;
-      floodedHours = depths.filter(d => d > floodThresholdM).length * dtH;
-    }
+    const floodedHours = computeFloodedHours(activeTimeseries, floodThresholdM);
 
     return { maxDepth, maxCat, maxCatIdx, maxCatStyle, severityT, floodedHours };
   }, [activeTimeseries, realCategories, floodThresholdM]);
@@ -276,31 +274,33 @@ function InundationTimeseries({ timeseries, categories, rangeWindow, isDarkMode,
       const statsHtml = stats
         ? `<p style="margin:4px 0;font-size:13px;color:#334155">
             Peak depth: <strong>${stats.maxDepth.toFixed(2)} m</strong>
-            &nbsp;·&nbsp; Category: <strong>${stats.maxCat?.label ?? 'N/A'}</strong>
+            &nbsp;·&nbsp; Category: <strong>${escapeHtml(stats.maxCat?.label ?? 'N/A')}</strong>
             &nbsp;·&nbsp; Flood duration: <strong>${stats.floodedHours < 1
               ? `${Math.round(stats.floodedHours * 60)} min`
               : `${Math.round(stats.floodedHours)} h`}</strong>
            </p>`
         : '';
-      win.document.write(`<!DOCTYPE html><html><head>
-        <title>Point Inundation Forecast</title>
-        <style>
-          body { margin: 20px; font-family: Inter, system-ui, sans-serif; color: #0f172a; }
-          h2 { margin: 0 0 4px; font-size: 16px; }
-          img { max-width: 100%; margin-top: 12px; display: block; }
-          .footer { margin-top: 12px; font-size: 11px; color: #94a3b8; }
-          @media print { body { margin: 0; } }
-        </style>
-      </head><body>
-        <h2>Point Inundation Forecast</h2>
-        ${statsHtml}
-        <img src="${svgDataUrl}" alt="Inundation timeseries chart" />
-        <div class="footer">Generated ${new Date().toLocaleString('en-NZ', { timeZone: 'UTC' })} UTC &nbsp;·&nbsp; Source: SFINCS zarr</div>
-        <script>window.onload = function() { window.print(); };</script>
-      </body></html>`);
+      const series = Array.isArray(activeTimeseries) ? activeTimeseries : [];
+      const fmt = (t) => { const d = new Date(t); return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 16).replace('T', ' ') : null; };
+      const span = series.length ? `${fmt(series[0].time)} to ${fmt(series[series.length - 1].time)} UTC` : null;
+      win.document.write(buildChartPrintHtml({
+        title: 'Point Inundation Forecast',
+        svgDataUrl,
+        alt: 'Inundation timeseries chart',
+        stats: statsHtml,
+        meta: [
+          ['Location (lat, lon)', Number.isFinite(lat) && Number.isFinite(lng) ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : null],
+          ['Forecast valid', span],
+          ['Times shown in', 'UTC'],
+          ['Flood threshold', `${floodThresholdM.toFixed(2)} m depth (flood duration = time above this)`],
+          ['Model run', 'Not reported for this point series'],
+          ['Source', 'SFINCS hydrodynamic model forecast (max depth), sampled at the clicked point'],
+        ],
+        disclaimer: 'Model guidance, not observed flooding. Depths are modelled and can differ from conditions on the ground; confirm with official warnings.',
+      }));
       win.document.close();
     });
-  }, [stats]);
+  }, [stats, activeTimeseries, floodThresholdM, lat, lng]);
 
   // Live "at cursor"
   const nowEntry = useMemo(() => closestEntry(activeTimeseries, currentSliderDate), [activeTimeseries, currentSliderDate]);

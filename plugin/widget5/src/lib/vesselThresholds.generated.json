@@ -1,0 +1,26 @@
+{
+  "traditional_craft": {
+    "cautionWindKt": 10,
+    "maxWindKt": 12,
+    "cautionWaveHeightM": 0.5,
+    "maxWaveHeightM": 1.0
+  },
+  "very_small_motorised_craft": {
+    "cautionWindKt": 12,
+    "maxWindKt": 15,
+    "cautionWaveHeightM": 1.0,
+    "maxWaveHeightM": 1.5
+  },
+  "small_craft": {
+    "cautionWindKt": 15,
+    "maxWindKt": 20,
+    "cautionWaveHeightM": 1.5,
+    "maxWaveHeightM": 2.0
+  },
+  "larger_vessels": {
+    "cautionWindKt": 20,
+    "maxWindKt": 25,
+    "cautionWaveHeightM": 2.5,
+    "maxWaveHeightM": 3.0
+  }
+}

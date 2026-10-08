@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { BASEMAP_OPTIONS, DEFAULT_BASEMAP_ID } from '../config/basemapConfig';
 import './BasemapSwitcher.css';
 
@@ -13,12 +13,9 @@ const POSITION_STYLES = {
   'bottom-right': { bottom: '80px', right: '15px' },
 };
 
-const BasemapSwitcher = ({ mapInstance, setBasemap, position = 'top-left' }) => {
-  const [activeId, setActiveId] = useState(DEFAULT_BASEMAP_ID);
-
+const BasemapSwitcher = ({ mapInstance, setBasemap, activeId = DEFAULT_BASEMAP_ID, position = 'top-left' }) => {
   const handleSelect = (id) => {
     if (id === activeId) return;
-    setActiveId(id);
     setBasemap?.(id);
   };
 

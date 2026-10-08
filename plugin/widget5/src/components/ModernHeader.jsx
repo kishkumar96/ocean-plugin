@@ -1,18 +1,53 @@
 import React from 'react';
+import { AlertCircle, Check, Share2 } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 import { formatZoned } from '../utils/timeZoneFormat';
+import { modelRunAgeHours, updateFreshness, formatAge } from '../utils/modelRunTiming';
 
-const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga' }) => {
+// What the status dot says about the FORECAST, not about the connection: how old the model run is.
+const FRESHNESS = {
+  current: { color: '#10b981', glow: 'rgba(16, 185, 129, 0.6)', word: 'Current' },
+  aging: { color: '#f59e0b', glow: 'rgba(245, 158, 11, 0.6)', word: 'Aging' },
+  stale: { color: '#ef4444', glow: 'rgba(239, 68, 68, 0.6)', word: 'Stale' },
+  unknown: { color: '#94a3b8', glow: 'rgba(148, 163, 184, 0.5)', word: 'Forecast run unknown' },
+};
+
+const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga', onShareView, modelRunStart = null, updatedAt = null }) => {
   const [currentTime, setCurrentTime] = React.useState(new Date());
+  const [shareStatus, setShareStatus] = React.useState('idle');
+  const shareResetTimerRef = React.useRef(null);
 
   React.useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(shareResetTimerRef.current);
+    };
   }, []);
 
   const formatDateTime = (date) => formatZoned(date, timeDisplayZone, { second: '2-digit' });
+
+  const handleShare = async () => {
+    if (!onShareView || shareStatus === 'working') return;
+    setShareStatus('working');
+    const result = await onShareView();
+    setShareStatus(result?.ok ? 'copied' : 'error');
+    clearTimeout(shareResetTimerRef.current);
+    shareResetTimerRef.current = setTimeout(() => setShareStatus('idle'), 3500);
+  };
+
+  const ShareIcon = shareStatus === 'copied'
+    ? Check
+    : shareStatus === 'error'
+      ? AlertCircle
+      : Share2;
+  const shareLabel = shareStatus === 'copied'
+    ? 'Link copied'
+    : shareStatus === 'error'
+      ? 'Could not copy link'
+      : 'Copy shareable view link';
 
   return (
     <nav className="modern-header" style={{
@@ -70,27 +105,58 @@ const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga' }) => {
         alignItems: 'center',
         gap: '20px'
       }}>
+        {onShareView && (
+          <div className="modern-header__share-wrap">
+            <button
+              type="button"
+              className={`modern-header__share-btn modern-header__share-btn--${shareStatus}`}
+              onClick={handleShare}
+              disabled={shareStatus === 'working'}
+              title={shareLabel}
+              aria-label={shareLabel}
+            >
+              <ShareIcon size={17} aria-hidden="true" />
+            </button>
+            <span className="modern-header__share-status" aria-live="polite">
+              {shareStatus === 'copied' || shareStatus === 'error' ? shareLabel : ''}
+            </span>
+          </div>
+        )}
         <ThemeToggle />
 
-        {/* Connection Status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            backgroundColor: '#10b981',
-            boxShadow: '0 0 6px rgba(16, 185, 129, 0.6)',
-            animation: 'pulse 2s infinite'
-          }}></div>
-          <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)' }}>Live</span>
-          <span style={{ 
-            fontSize: '0.8rem', 
-            color: 'rgba(255,255,255,0.5)',
-            marginLeft: '10px'
-          }}>
-            {formatDateTime(currentTime)}
-          </span>
-        </div>
+        {/* Forecast status: when the forecast last updated (not a "live" connection light) */}
+        {(() => {
+          const now = currentTime.getTime();
+          const runAgeHours = modelRunAgeHours(modelRunStart, now);
+          const updateAgeHours = modelRunAgeHours(updatedAt, now);
+          const { state } = updateFreshness(updateAgeHours, runAgeHours);
+          const f = FRESHNESS[state];
+          const fmt = (d) => (d instanceof Date && Number.isFinite(d.getTime())
+            ? formatZoned(d, timeDisplayZone, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+            : null);
+          const updated = fmt(updatedAt);
+          const modelData = fmt(modelRunStart);
+          // Lead with the update time; the model init time is ~16 h earlier even for a fresh
+          // forecast, so as an "age" it reads like downtime that never happened.
+          const tip = [
+            updated && `Forecast updated ${updated} (${formatAge(updateAgeHours)} ago). The system updates every 6 h.`,
+            modelData && `Model data: GFS cycle ${modelData}.`,
+          ].filter(Boolean).join(' ') || 'The update time of the selected layer is not known.';
+          let text = f.word;
+          if (updated) text = <>Updated {updated} · {formatAge(updateAgeHours)} ago · <b style={{ color: f.color }}>{f.word}</b></>;
+          else if (modelData) text = <>Model data {modelData} · <b style={{ color: f.color }}>{f.word}</b></>;
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} role="status" data-testid="forecast-status" title={tip}>
+              <div aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: f.color, boxShadow: `0 0 6px ${f.glow}` }} />
+              <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.78)' }}>
+                {text}
+              </span>
+              <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', marginLeft: '10px' }}>
+                {formatDateTime(currentTime)}
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Add the pulse animation as a style tag */}
