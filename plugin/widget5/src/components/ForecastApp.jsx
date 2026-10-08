@@ -40,6 +40,7 @@ import CookIslandsSuitabilityReadinessCard from './suitability/CookIslandsSuitab
 import CookIslandsHarbourWaveConditionsPanel from './harbour/CookIslandsHarbourWaveConditionsPanel';
 import HarbourOutlookKey from './harbour/HarbourOutlookKey';
 import { formatZoned } from '../utils/timeZoneFormat';
+import { IMPACT_ENABLED } from '../config/featureFlags';
 
 
 const ForecastApp = ({
@@ -198,7 +199,9 @@ const ForecastApp = ({
   // at all). Home.jsx uses this to decide whether the RiskScape impact
   // assets map layer should be visible, so it only ever shows while the
   // panel a user could actually be looking at is the one describing it.
-  const impactsVisible = isDesktopPanel && rightPanelTab === 'impacts';
+  // The impact *surface* (figures, impact map layers and key). With IMPACT_ENABLED off the tab
+  // still exists as plain "Inundation", but nothing impact-related shows or is fetched.
+  const impactsVisible = IMPACT_ENABLED && isDesktopPanel && rightPanelTab === 'impacts';
   useEffect(() => {
     onImpactsVisibleChange?.(impactsVisible);
   }, [impactsVisible, onImpactsVisibleChange]);
@@ -909,8 +912,8 @@ const ForecastApp = ({
                 className={`right-panel-tab${rightPanelTab === 'impacts' ? ' right-panel-tab--active' : ''}`}
                 onClick={() => handleRightPanelTabChange('impacts')}
               >
-                Inundation &amp; Impacts
-                {impactModelStatus && (
+                {IMPACT_ENABLED ? <>Inundation &amp; Impacts</> : 'Inundation'}
+                {IMPACT_ENABLED && impactModelStatus && (
                   <span
                     className="right-panel-tab__dot"
                     title={MODEL_STATUS[impactModelStatus]?.label}
@@ -929,6 +932,7 @@ const ForecastApp = ({
               aria-labelledby="right-panel-tab-impacts"
             >
               {/* The answer first: impact summary and window, then everything that configures the map. */}
+              {IMPACT_ENABLED && (
               <ControlGroup
                 icon={<FancyIcon icon={DollarSign} animationType="pulse" color="#E63946" />}
                 title="Flood Impacts"
@@ -958,14 +962,17 @@ const ForecastApp = ({
                   timeDisplayZone={timeDisplayZone}
                 />
               </ControlGroup>
+              )}
 
               <CollapsibleSection
                 title="Map settings"
                 icon={<FancyIcon icon={Settings} animationType="spin" color="#9c27b0" />}
                 summary="layers, time window, depth bands, opacity"
                 storageKey="cok.impactMapSettings.v1"
+                // Without the impact block above, these settings are the whole tab.
+                defaultOpen={!IMPACT_ENABLED}
               >
-                <ImpactLayerSwitches activeLayers={activeLayers} setActiveLayers={setActiveLayers} />
+                {IMPACT_ENABLED && <ImpactLayerSwitches activeLayers={activeLayers} setActiveLayers={setActiveLayers} />}
                 {inundationControlGroups}
                 {forecastTimeGroup}
               <ControlGroup
@@ -1315,7 +1322,7 @@ const ForecastApp = ({
             controls (see "Flood Impacts" above) whenever the inundation layer
             is selected. Below 1024px there's no side column for that, so this
             keeps the click-to-open-bottom-sheet control. */}
-        {!isDesktopPanel && (
+        {IMPACT_ENABLED && !isDesktopPanel && (
           <ControlGroup
             icon={<FancyIcon icon={DollarSign} animationType="pulse" color="#E63946" />}
             title="Impact Assessment"

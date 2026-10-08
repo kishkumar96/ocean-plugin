@@ -40,6 +40,7 @@ import { findIslandZoomTarget } from '../config/islandConfig';
 import { COOK_ISLANDS_PRESET_ROUTES, presetRouteBounds, shouldConfirmRouteReplacement } from '../config/cookIslandsPresetRoutes';
 import { createAppShareUrl, readAppShareState } from '../domain/share/appStateSnapshot';
 import { defaultSliderIndex } from '../utils/forecastTime';
+import { IMPACT_ENABLED } from '../config/featureFlags';
 
 const widgetContainerStyle = {
   position: 'fixed',
@@ -739,7 +740,7 @@ function CookIslandsForecast() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { loadImpact(); }, [loadImpact]);
+  useEffect(() => { if (IMPACT_ENABLED) loadImpact(); }, [loadImpact]);
 
   // Whether the desktop Inundation & Impacts tab is the one currently on
   // screen (lifted up from ForecastApp.jsx's own rightPanelTab state via
