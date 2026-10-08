@@ -63,7 +63,12 @@
 
 .marine-legend {
   position: absolute;
-  bottom: 152px;   /* clear the ForecastTimeline overlay (~120px tall + 16px gap + 16px margin) */
+  /* Clear the ForecastTimeline overlay: its actual rendered height (published
+     as --ft-height by that component, since it grows when the stale-forecast
+     chip appears) plus its own 16px bottom margin and a 16px gap. Falls back
+     to the old fixed guess if --ft-height hasn't been set yet (first paint,
+     or the timeline isn't mounted in floating mode). */
+  bottom: calc(var(--ft-height, 120px) + 32px);
   right: 20px;
   z-index: 999;
   pointer-events: auto; /* Enable clicks on legend */
@@ -88,6 +93,37 @@
 
   /* Ensure legend is always visible and proportional */
   max-height: 80vh;
+}
+
+
+/* Keep coexisting right-side legends in one responsive dock. The dock uses
+   each legend's actual width, avoiding fixed offsets and height guesses. */
+.marine-legend-group {
+  position: absolute;
+  right: 20px;
+  bottom: 152px;
+  z-index: 999;
+  display: flex;
+  flex-wrap: wrap; /* on a narrow map the legends wrap into rows instead of running off/over each other */
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px 10px;
+  max-width: calc(100% - 40px);
+  pointer-events: none;
+}
+
+
+.marine-legend-group > .marine-legend {
+  position: relative;
+  inset: auto;
+  flex: 0 0 auto;
+  pointer-events: auto;
+}
+
+.marine-legend-group > .marine-legend--district {
+  width: 190px;
+  min-width: 190px;
+  max-width: 190px;
 }
 
 /* Map section container query support */
@@ -192,6 +228,16 @@
 .marine-legend-info:hover .marine-legend-info__tooltip,
 .marine-legend-info:focus .marine-legend-info__tooltip {
   display: block;
+}
+
+/* The default tooltip pops out to the LEFT of the ⓘ icon (right: calc(100% + 8px)),
+   which only has room for a legend anchored near the right edge of the map (the
+   wave/inundation legend this pattern was designed for). A legend anchored near the
+   left edge instead (e.g. the Coastal Risk legend) needs it flipped, or the tooltip
+   runs off the left side of the viewport and gets clipped. */
+.marine-legend--left .marine-legend-info__tooltip {
+  right: auto;
+  left: calc(100% + 8px);
 }
 
 .marine-legend-toggle {
@@ -371,6 +417,24 @@
 
 /* Mobile-First Responsive Design */
 @media (max-width: 768px) {
+  .marine-legend-group {
+    right: 15px;
+    bottom: 15px;
+    gap: 8px;
+    max-width: calc(100% - 30px);
+  }
+
+  .marine-legend-group > .marine-legend {
+    min-width: 0;
+    max-width: calc((100vw - 38px) / 2);
+  }
+
+  .marine-legend-group > .marine-legend--district {
+    width: min(170px, calc((100vw - 38px) / 2));
+    min-width: min(170px, calc((100vw - 38px) / 2));
+    max-width: min(170px, calc((100vw - 38px) / 2));
+  }
+
   .marine-legend {
     bottom: 15px;
     right: 15px;
@@ -410,6 +474,23 @@
 }
 
 @media (max-width: 480px) {
+  .marine-legend-group {
+    right: 10px;
+    bottom: 10px;
+    gap: 6px;
+    max-width: calc(100% - 20px);
+  }
+
+  .marine-legend-group > .marine-legend {
+    max-width: calc((100vw - 26px) / 2);
+  }
+
+  .marine-legend-group > .marine-legend--district {
+    width: min(160px, calc((100vw - 26px) / 2));
+    min-width: min(160px, calc((100vw - 26px) / 2));
+    max-width: min(160px, calc((100vw - 26px) / 2));
+  }
+
   .marine-legend {
     bottom: 10px;
     right: 10px;
@@ -1163,6 +1244,53 @@
   position: relative;
 }
 
+/* Right-panel tabs ([Forecast] [Inundation & Impacts]) — desktop (>=1024px) only,
+   see isDesktopPanel in ForecastApp.jsx. Sits inside .controls-panel above
+   .forecast-controls so it scrolls with the rest of the column rather than
+   floating separately. */
+.right-panel-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.65rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.right-panel-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.right-panel-tab:hover {
+  color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.right-panel-tab--active {
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.14);
+  border-color: rgba(56, 189, 248, 0.6);
+}
+
+.right-panel-tab__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .control-group {
   margin-bottom: 0.25rem;
 }
@@ -1716,9 +1844,9 @@
   grid-template-columns: 1fr 1fr;
   gap: 0.35rem;
   padding: 0.22rem;
-  background: rgba(6, 18, 32, 0.58);
-  border: 1px solid rgba(100, 180, 220, 0.2);
-  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.3);
+  border: none;
+  border-radius: 8px;
 }
 
 .map-display-option__btn {
@@ -1755,6 +1883,86 @@
   font-size: 0.74rem;
   line-height: 1.35;
   color: rgba(180, 200, 230, 0.58);
+}
+
+/* A visible tertiary action, not fine print -- the plain-text
+   .map-display-option__btn (transparent background, no border until hover)
+   reads as a caption rather than a tool you can act on for something as
+   consequential as discarding a user's custom envelope edits. */
+.envelope-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 0.9rem;
+}
+
+.envelope-actions__buttons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.envelope-reset-btn,
+.envelope-save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(210, 228, 255, 0.85);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.envelope-save-btn {
+  background: #2a9d8f;
+  border-color: #2a9d8f;
+  color: #fff;
+}
+
+/* Restore is the secondary action: outline only. */
+.envelope-reset-btn {
+  background: transparent;
+}
+
+.envelope-reset-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.26);
+  color: #e8f4ff;
+}
+
+.envelope-save-btn:hover:not(:disabled) {
+  background: #33b3a3;
+  border-color: #33b3a3;
+}
+
+.envelope-reset-btn:disabled,
+.envelope-save-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.envelope-reset-btn svg,
+.envelope-save-btn svg {
+  flex-shrink: 0;
+}
+
+.envelope-actions__status {
+  color: #a9c0d8;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.envelope-actions__status--error {
+  color: #ff9b9b;
 }
 
 .data-info {
@@ -2274,13 +2482,15 @@
   .main-container {
     /* Single column stacked layout — the missing rule that caused map to collapse to 0px */
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr 280px;
+    grid-template-rows: 1fr min(46dvh, 380px);
     gap: 0.25rem;
     padding: 0.25rem;
   }
 
   .controls-panel {
-    height: 260px;
+    /* Taller than the old 260px: at that height only the first heading was visible, so the primary
+       controls (vessel class, tools) sat below the fold. Capped so the map keeps the top half. */
+    height: min(46dvh, 360px);
     padding: 0.5rem;
   }
   
@@ -3127,6 +3337,71 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.modern-header__share-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.modern-header__share-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.modern-header__share-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.38);
+  color: #ffffff;
+}
+
+.modern-header__share-btn:focus-visible {
+  outline: 2px solid #7dd3fc;
+  outline-offset: 2px;
+}
+
+.modern-header__share-btn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.modern-header__share-btn--copied {
+  color: #86efac;
+  border-color: rgba(134, 239, 172, 0.55);
+}
+
+.modern-header__share-btn--error {
+  color: #fca5a5;
+  border-color: rgba(252, 165, 165, 0.55);
+}
+
+.modern-header__share-status {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: max-content;
+  padding: 0.3rem 0.45rem;
+  border-radius: 4px;
+  background: rgba(7, 18, 34, 0.94);
+  color: #e8f4ff;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.modern-header__share-status:empty {
+  display: none;
+}
+
 body:not(.dark-mode) .modern-header {
   background: linear-gradient(135deg, #023e8a 0%, #0353a4 35%, #0369a1 65%, #045f93 100%);
   box-shadow: 0 2px 16px rgba(0, 40, 100, 0.28);
@@ -3429,4 +3704,21 @@ body:not(.dark-mode) .next-btn:disabled {
   background: #f8fafc;
   border-color: rgba(0, 119, 182, 0.2);
   color: #94a3b8;
+}
+
+
+/* Phones: the page header and legends were taking a quarter of the screen. One-line title, no
+   subtitle, and no separate Coastal Risk legend (the points speak for themselves at this size). */
+@media (max-width: 600px) {
+  .modern-header__title {
+    font-size: 1rem !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 62vw;
+  }
+  .modern-header__title + p { display: none; }
+  .marine-legend--left { display: none; }
+  .marine-legend { padding: 0.4rem 0.55rem; }
+  .marine-legend-title { font-size: 0.62rem; }
 }

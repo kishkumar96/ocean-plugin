@@ -1,5 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import './ForecastTimeline.css';
+import { leadHours, formatLead, formatAge } from '../utils/modelRunTiming';
+import { formatZoned } from '../utils/timeZoneFormat';
 
 const SPEED_OPTIONS = [
   { label: '0.5×', ms: 1400 },
@@ -20,6 +22,20 @@ function formatThumbLabel(date, tz) {
     hour12: false,
   }).format(date);
   return `${formatted} ${tzLabel}`;
+}
+
+const STALE_TIME_FORMAT = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false };
+
+// Says what forecasters need to know: when the forecast last updated. The model run's init time
+// is deliberately not shown as an age -- a healthy forecast is ~16 h past it when it publishes.
+function staleMessage(capTime, timeZone) {
+  if (capTime.staleReason === 'not-updated' && capTime.updatedAt) {
+    return `⚠ Forecast has not updated for ${formatAge(capTime.updateAgeHours)} — last update ${formatZoned(capTime.updatedAt, timeZone, STALE_TIME_FORMAT)}`;
+  }
+  if (capTime.modelRunStart) {
+    return `⚠ Forecast may be outdated — no newer model data since ${formatZoned(capTime.modelRunStart, timeZone, STALE_TIME_FORMAT)}`;
+  }
+  return '⚠ Forecast may be outdated';
 }
 
 export default function ForecastTimeline({
@@ -77,7 +93,11 @@ export default function ForecastTimeline({
     });
   }, [capTime?.availableTimestamps, timeDisplayZone]);
 
-  const thumbLabel = formatThumbLabel(currentSliderDate, timeDisplayZone);
+  // Forecast lead time beside the clock time ("+19 h"): hours since the model run started. Omitted when
+  // the run start is unknown, and when the slider is on a step before it (the suitability hindcast).
+  const lead = leadHours(currentSliderDate, capTime?.modelRunStart);
+  const leadText = lead !== null && lead >= 0 ? ` · ${formatLead(lead)}` : '';
+  const thumbLabel = `${formatThumbLabel(currentSliderDate, timeDisplayZone)}${leadText}`;
   const loading = !!capTime?.loading;
   // capTime.loading is the same flag the active overlay flips true→false on
   // *every* timestep fetch, including each Play advance (see UgridOverlay.js
@@ -88,12 +108,33 @@ export default function ForecastTimeline({
   // where a brief disable is expected rather than a repeating flash.
   const isDisabled = disabled || (loading && !isPlaying);
 
+  // The floating (non-inline) form is absolutely positioned over the map at a
+  // fixed bottom offset, and its height varies with content -- most notably
+  // the stale-forecast chip above, which only renders sometimes. Other
+  // floating overlays sharing the map corner (e.g. .marine-legend) used to
+  // reserve space for us via a hardcoded pixel guess that didn't account for
+  // the chip, so they'd overlap us whenever it appeared (see ForecastApp.css's
+  // --ft-height consumer). Publish our real rendered height as a CSS custom
+  // property on our container instead, so anything reserving clearance above
+  // us tracks it exactly rather than guessing.
+  const rootRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    const container = el?.parentElement;
+    if (!el || !container || inline) return undefined;
+    const sync = () => container.style.setProperty('--ft-height', `${el.offsetHeight}px`);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [inline]);
+
   return (
-    <div className={`ft-root${inline ? ' ft-root--inline' : ''}`} aria-label="Forecast timeline">
+    <div ref={rootRef} className={`ft-root${inline ? ' ft-root--inline' : ''}`} aria-label="Forecast timeline">
       {/* Stale forecast chip */}
       {capTime?.isStale && (
         <div className="ft-stale-chip" role="alert">
-          ⚠ Forecast data may be outdated — model run is {Math.round(capTime.modelRunAgeHours)}h old
+          {staleMessage(capTime, timeDisplayZone)}
         </div>
       )}
 

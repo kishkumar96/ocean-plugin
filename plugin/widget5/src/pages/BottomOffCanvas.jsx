@@ -6,6 +6,10 @@ import { getCookForecastWmsDirectUrl } from "../config/threddsConfig";
 import Tabular from "./tabular.js";
 import Timeseries from "./timeseries.js";
 import RiskDetailsPanel from "../components/risk/RiskDetailsPanel";
+import CookIslandsSuitabilityDetailsPanel from "../components/suitability/CookIslandsSuitabilityDetailsPanel";
+import CookIslandsRouteForecastPanel from "../components/route/CookIslandsRouteForecastPanel";
+import CookIslandsImpactPanel from "../components/impact/CookIslandsImpactPanel";
+import CookIslandsLandingAreaComparisonPanel from "../components/suitability/CookIslandsLandingAreaComparisonPanel";
 import InundationTimeseries from "./InundationTimeseries";
 import { formatZoned } from "../utils/timeZoneFormat";
 
@@ -129,12 +133,19 @@ function getMaxPanelHeight() {
   return Math.max(DEFAULT_MIN_HEIGHT, Math.round(getViewportHeight() - 72));
 }
 
-function getPreferredPanelHeight({ isRiskMode, isInundationMode, expanded = false }) {
+function getPreferredPanelHeight({ isRiskMode, isInundationMode, isSuitabilityMode, isRouteForecastMode, isImpactMode, isLandingAreaComparisonMode, expanded = false }) {
   const viewportHeight = getViewportHeight();
   const maxPanelHeight = getMaxPanelHeight();
   if (expanded) return Math.min(Math.round(viewportHeight * 0.92), maxPanelHeight);
   if (isRiskMode) return Math.min(Math.round(viewportHeight * 0.72), 720, maxPanelHeight);
   if (isInundationMode) return Math.min(Math.round(viewportHeight * 0.72), 680, maxPanelHeight);
+  if (isSuitabilityMode) return Math.min(Math.round(viewportHeight * 0.6), 560, maxPanelHeight);
+  if (isRouteForecastMode) return Math.min(Math.round(viewportHeight * 0.72), 680, maxPanelHeight);
+  if (isImpactMode) return Math.min(Math.round(viewportHeight * 0.72), 680, maxPanelHeight);
+  // Wider than tall: the comparison heatmap's value is in its width (15
+  // time columns x every named site), not extra vertical room the way the
+  // risk/route/impact tables need it.
+  if (isLandingAreaComparisonMode) return Math.min(Math.round(viewportHeight * 0.6), 560, maxPanelHeight);
   return Math.min(500, maxPanelHeight);
 }
 
@@ -168,12 +179,23 @@ function PanelSpinner({ isDarkMode, message, slowMessage }) {
   );
 }
 
-function BottomOffCanvas({ show, onHide, data, currentSliderDate, timeDisplayZone = 'Pacific/Rarotonga', onTimeSelect, onRiskThresholdsSaved }) {
+function BottomOffCanvas({
+  show, onHide, data, currentSliderDate, timeDisplayZone = 'Pacific/Rarotonga', mapCustomEnvelope = null, modelRunStart = null,
+  routeResultStale = false, routeResultSuperseded = false,
+  onTimeSelect, onRiskThresholdsSaved, onImpactWindowSelect, onImpactScenarioChange, impactInitialScenario = null, onMhwsResult, onSelectImpactAsset,
+  scenarioCount = 0, onConfirmVesselSuggestion,
+  departureSuggestionLoading, departureSuggestionProgress, departureSuggestionResult, departureSuggestionError,
+  onSuggestBetterDeparture, onApplyDepartureSuggestion, onSaveDepartureSuggestionAsScenario, onRouteProbeChange,
+}) {
   const offcanvasRef = useRef(null);
   const isRiskMode = data?.mode === "risk";
   const isInundationMode = data?.mode === "inundation";
-  const isDirectPointLoading = Boolean(data?.loading && !isRiskMode && !isInundationMode);
-  const [height, setHeight] = useState(() => getPreferredPanelHeight({ isRiskMode, isInundationMode }));
+  const isSuitabilityMode = data?.mode === "suitability";
+  const isRouteForecastMode = data?.mode === "route-forecast";
+  const isImpactMode = data?.mode === "impact";
+  const isLandingAreaComparisonMode = data?.mode === "landing-area-comparison";
+  const isDirectPointLoading = Boolean(data?.loading && !isRiskMode && !isInundationMode && !isSuitabilityMode && !isRouteForecastMode && !isImpactMode && !isLandingAreaComparisonMode);
+  const [height, setHeight] = useState(() => getPreferredPanelHeight({ isRiskMode, isInundationMode, isSuitabilityMode, isRouteForecastMode, isImpactMode, isLandingAreaComparisonMode }));
   const [maxHeight, setMaxHeight] = useState(() => getMaxPanelHeight());
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState("timeseries");
@@ -239,8 +261,8 @@ function BottomOffCanvas({ show, onHide, data, currentSliderDate, timeDisplayZon
     wasShowingRef.current = show;
     if (!justOpened) return;
     setIsExpanded(false);
-    setHeight(getPreferredPanelHeight({ isRiskMode, isInundationMode }));
-  }, [show, isRiskMode, isInundationMode]);
+    setHeight(getPreferredPanelHeight({ isRiskMode, isInundationMode, isSuitabilityMode, isRouteForecastMode, isImpactMode, isLandingAreaComparisonMode }));
+  }, [show, isRiskMode, isInundationMode, isSuitabilityMode, isRouteForecastMode, isImpactMode, isLandingAreaComparisonMode]);
 
   useEffect(() => {
     if (!show) return undefined;
@@ -287,13 +309,13 @@ function BottomOffCanvas({ show, onHide, data, currentSliderDate, timeDisplayZon
     event?.stopPropagation?.();
     const nextExpanded = !isExpanded;
     setIsExpanded(nextExpanded);
-    setHeight(getPreferredPanelHeight({ isRiskMode, isInundationMode, expanded: nextExpanded }));
-  }, [isExpanded, isRiskMode, isInundationMode]);
+    setHeight(getPreferredPanelHeight({ isRiskMode, isInundationMode, isSuitabilityMode, isRouteForecastMode, isImpactMode, isLandingAreaComparisonMode, expanded: nextExpanded }));
+  }, [isExpanded, isRiskMode, isInundationMode, isSuitabilityMode, isRouteForecastMode, isImpactMode, isLandingAreaComparisonMode]);
 
   // Centralized network fetching
   useEffect(() => {
     let isMounted = true;
-    if (isRiskMode || isInundationMode) {
+    if (isRiskMode || isInundationMode || isSuitabilityMode || isRouteForecastMode || isImpactMode || isLandingAreaComparisonMode) {
       setPerVariableData({});
       setFetchError("");
       setLoading(false);
@@ -343,7 +365,7 @@ function BottomOffCanvas({ show, onHide, data, currentSliderDate, timeDisplayZon
       if (Object.values(out).every(x => !x)) setFetchError("No data returned from server.");
     })();
     return () => { isMounted = false; clearTimeout(slowTimer); };
-  }, [data, isRiskMode, isInundationMode]);
+  }, [data, isRiskMode, isInundationMode, isSuitabilityMode, isRouteForecastMode, isImpactMode, isLandingAreaComparisonMode]);
 
   return (
     <Offcanvas
@@ -452,6 +474,42 @@ function BottomOffCanvas({ show, onHide, data, currentSliderDate, timeDisplayZon
             }}>
               Coastal Risk
             </div>
+          ) : isSuitabilityMode ? (
+            <div style={{
+              padding: "8px 20px",
+              fontWeight: "bold",
+              color: isDarkMode ? "#2A9D8F" : "#1f7a6f",
+              fontSize: 16
+            }}>
+              Vessel Suitability
+            </div>
+          ) : isRouteForecastMode ? (
+            <div style={{
+              padding: "8px 20px",
+              fontWeight: "bold",
+              color: isDarkMode ? "#38bdf8" : "#0284c7",
+              fontSize: 16
+            }}>
+              Route Forecast
+            </div>
+          ) : isImpactMode ? (
+            <div style={{
+              padding: "8px 20px",
+              fontWeight: "bold",
+              color: isDarkMode ? "#E63946" : "#c0202f",
+              fontSize: 16
+            }}>
+              Impact Assessment
+            </div>
+          ) : isLandingAreaComparisonMode ? (
+            <div style={{
+              padding: "8px 20px",
+              fontWeight: "bold",
+              color: isDarkMode ? "#38bdf8" : "#0284c7",
+              fontSize: 16
+            }}>
+              Landing Areas
+            </div>
           ) : isInundationMode ? (
             <div style={{
               padding: "6px 16px",
@@ -468,12 +526,12 @@ function BottomOffCanvas({ show, onHide, data, currentSliderDate, timeDisplayZon
                 letterSpacing: "-0.01em",
               }}>
                 {data?.rangeWindow?.mode === 'rolling-48h'
-                  ? '48h Max Inundation'
+                  ? 'Next 48h Max Inundation'
                   : data?.rangeWindow?.mode === 'custom'
                     ? 'Custom Range Inundation'
                     : 'Point Inundation Forecast'}
               </span>
-              {data?.rangeWindow?.mode === 'custom' && data?.rangeWindow?.startTime && data?.rangeWindow?.endTime ? (
+              {(data?.rangeWindow?.mode === 'custom' || data?.rangeWindow?.mode === 'rolling-48h') && data?.rangeWindow?.startTime && data?.rangeWindow?.endTime ? (
                 <span style={{
                   fontSize: 11,
                   color: isDarkMode ? "#cbd5e1" : "#475569",
@@ -610,12 +668,42 @@ function BottomOffCanvas({ show, onHide, data, currentSliderDate, timeDisplayZon
 
       <Offcanvas.Body
         className={isInundationMode ? "bottom-offcanvas__body bottom-offcanvas__body--inundation" : "bottom-offcanvas__body"}
-        role={(!isRiskMode && !isInundationMode) ? "tabpanel" : undefined}
-        id={(!isRiskMode && !isInundationMode) ? `tab-panel-${activeTab}` : undefined}
-        aria-labelledby={(!isRiskMode && !isInundationMode) ? `tab-btn-${activeTab}` : undefined}
+        role={(!isRiskMode && !isInundationMode && !isSuitabilityMode && !isRouteForecastMode && !isImpactMode && !isLandingAreaComparisonMode) ? "tabpanel" : undefined}
+        id={(!isRiskMode && !isInundationMode && !isSuitabilityMode && !isRouteForecastMode && !isImpactMode && !isLandingAreaComparisonMode) ? `tab-panel-${activeTab}` : undefined}
+        aria-labelledby={(!isRiskMode && !isInundationMode && !isSuitabilityMode && !isRouteForecastMode && !isImpactMode && !isLandingAreaComparisonMode) ? `tab-btn-${activeTab}` : undefined}
       >
         {isRiskMode ? (
           <RiskDetailsPanel data={data} isDarkMode={isDarkMode} currentSliderDate={currentSliderDate} onTimeSelect={onTimeSelect} onThresholdsSaved={onRiskThresholdsSaved} timeDisplayZone={timeDisplayZone} />
+        ) : isSuitabilityMode ? (
+          <CookIslandsSuitabilityDetailsPanel data={data} timeDisplayZone={timeDisplayZone} />
+        ) : isLandingAreaComparisonMode ? (
+          <CookIslandsLandingAreaComparisonPanel
+            vesselClass={data?.vesselClass}
+            currentSliderDate={data?.currentSliderDate ?? currentSliderDate}
+            timeDisplayZone={timeDisplayZone}
+          />
+        ) : isRouteForecastMode ? (
+          <CookIslandsRouteForecastPanel
+            data={data}
+            onRetry={data?.onRetry}
+            onRouteProbeChange={onRouteProbeChange}
+            timeDisplayZone={timeDisplayZone}
+            mapCustomEnvelope={mapCustomEnvelope}
+            modelRunStart={modelRunStart}
+            stale={routeResultStale}
+            superseded={routeResultSuperseded}
+            scenarioCount={scenarioCount}
+            onConfirmVesselSuggestion={onConfirmVesselSuggestion}
+            departureSuggestionLoading={departureSuggestionLoading}
+            departureSuggestionProgress={departureSuggestionProgress}
+            departureSuggestionResult={departureSuggestionResult}
+            departureSuggestionError={departureSuggestionError}
+            onSuggestBetterDeparture={onSuggestBetterDeparture}
+            onApplyDepartureSuggestion={onApplyDepartureSuggestion}
+            onSaveDepartureSuggestionAsScenario={onSaveDepartureSuggestionAsScenario}
+          />
+        ) : isImpactMode ? (
+          <CookIslandsImpactPanel data={data} onRetry={data?.onRetry} timeDisplayZone={timeDisplayZone} onWindowSelect={onImpactWindowSelect} onScenarioChange={onImpactScenarioChange} initialScenario={impactInitialScenario} onMhwsResult={onMhwsResult} onSelectAsset={onSelectImpactAsset} />
         ) : isInundationMode ? (
           data?.loading
             ? <PanelSpinner isDarkMode={isDarkMode} message="Loading depth timeseries…" />
@@ -645,6 +733,8 @@ function BottomOffCanvas({ show, onHide, data, currentSliderDate, timeDisplayZon
                 )
                 : <InundationTimeseries
                     timeseries={data?.timeseries}
+                    lat={data?.lat}
+                    lng={data?.lng}
                     categories={data?.categories}
                     rangeWindow={data?.rangeWindow}
                     isDarkMode={isDarkMode}

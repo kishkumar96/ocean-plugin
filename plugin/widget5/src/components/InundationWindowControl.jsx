@@ -7,7 +7,7 @@ const ZARR_UI_ENABLED = process.env.REACT_APP_ENABLE_ZARR_INUNDATION === 'true';
 
 const MODES = [
   { id: 'single', label: 'Timestep', Icon: Clock },
-  { id: 'rolling-48h', label: '48h Max', Icon: BarChart2 },
+  { id: 'rolling-48h', label: 'Next 48h Max', Icon: BarChart2 },
   { id: 'custom', label: 'Custom Max', Icon: CalendarRange },
 ];
 
@@ -16,7 +16,11 @@ const PROVIDERS = [
   { id: 'zarr', label: 'Zarr', Icon: Database },
 ];
 
-function findNearestIndex(timestamps, targetDate) {
+// Exported so callers outside this component (e.g. Home.jsx's handler for
+// jumping the map to an impact-assessment window) can compute the same
+// startIndex/endIndex this component sends via setRangeWindow, against
+// whichever layer's own availableTimestamps is authoritative at the time.
+export function findNearestIndex(timestamps, targetDate) {
   if (!timestamps?.length || !targetDate) return 0;
   const t = new Date(targetDate).getTime();
   let best = 0;
@@ -26,6 +30,33 @@ function findNearestIndex(timestamps, targetDate) {
     if (diff < bestDiff) { bestDiff = diff; best = i; }
   });
   return best;
+}
+
+// "Next 48h Max": the maximum from the forecast step at the current hour to 48 h ahead, the part of the
+// forecast people mean by "the next two days" and the most reliable part of it. (It used to be the LAST
+// 48 steps of the run -- ~8 days out on a 229-step forecast.) Clamped to what the forecast covers: before
+// the first step it starts at the first; near the end it runs to the last step and is shorter than 48 h.
+// Hourly steps, so 48 steps = 48 h. Returns null when there are no timestamps.
+export const NEXT_WINDOW_STEPS = 48;
+export function nextWindowRange(timestamps, now = Date.now()) {
+  if (!timestamps?.length) return null;
+  const last = timestamps.length - 1;
+  const nowMs = now instanceof Date ? now.getTime() : now;
+  // The step valid at the current hour: the latest step not after now (so 14:40 starts at 14:00).
+  let startIndex = 0;
+  for (let i = 0; i <= last; i += 1) {
+    if (timestamps[i].getTime() <= nowMs) startIndex = i; else break;
+  }
+  if (timestamps[last].getTime() < nowMs) startIndex = Math.max(0, last - (NEXT_WINDOW_STEPS - 1)); // forecast already over
+  const endIndex = Math.min(last, startIndex + NEXT_WINDOW_STEPS - 1);
+  return {
+    mode: 'rolling-48h',
+    startIndex,
+    endIndex,
+    startTime: timestamps[startIndex],
+    endTime: timestamps[endIndex],
+    hours: endIndex - startIndex + 1,
+  };
 }
 
 export default function InundationWindowControl({ rangeWindow, setRangeWindow, availableTimestamps, disabled, currentTime, timeDisplayZone = 'Pacific/Rarotonga' }) {
@@ -40,11 +71,25 @@ export default function InundationWindowControl({ rangeWindow, setRangeWindow, a
   // uiMode tracks which button is highlighted; may be 'custom' before Apply is hit
   const [uiMode, setUiMode] = useState(committedMode);
 
-  // Keep uiMode in sync when parent resets to single externally
+  // Keep uiMode in sync whenever the parent changes rangeWindow from outside
+  // this component's own handleModeSelect/handleCustomApply -- originally
+  // this only synced the "reset to single" direction (e.g. handleVariableChange
+  // resetting rangeWindow when leaving the inundation layer), since 'custom'
+  // could previously only ever be reached through this component's own
+  // handlers (which already set uiMode themselves in the same call, so no
+  // external->custom case existed). That's no longer true: Home.jsx's
+  // impact-window handler can now set rangeWindow to 'custom' directly (e.g.
+  // this component wasn't even mounted yet, mid-layer-switch), so the sync
+  // must cover both directions or the Custom Max button and date fields
+  // silently fail to reflect a window that's already active on the map.
   const prevCommittedMode = useRef(committedMode);
   if (prevCommittedMode.current !== committedMode) {
     prevCommittedMode.current = committedMode;
-    if (committedMode !== 'custom') setUiMode(committedMode);
+    setUiMode(committedMode);
+    if (committedMode === 'custom' && rangeWindow?.startTime && rangeWindow?.endTime) {
+      setCustomStart(toZonedInputValue(rangeWindow.startTime, timeDisplayZone));
+      setCustomEnd(toZonedInputValue(rangeWindow.endTime, timeDisplayZone));
+    }
     // rangeWindow updated → server request dispatched, clear applying spinner
     setIsApplying(false);
     clearTimeout(applyTimerRef.current);
@@ -71,9 +116,7 @@ export default function InundationWindowControl({ rangeWindow, setRangeWindow, a
     }
     if (mode === 'rolling-48h') {
       setUiMode('rolling-48h');
-      const endIndex = availableTimestamps ? availableTimestamps.length - 1 : 47;
-      const startIndex = Math.max(0, endIndex - 47);
-      setRangeWindow({ mode: 'rolling-48h', startIndex, endIndex });
+      setRangeWindow(nextWindowRange(availableTimestamps) ?? { mode: 'rolling-48h', startIndex: 0, endIndex: 47 });
       return;
     }
     if (mode === 'custom') {
@@ -303,7 +346,7 @@ export default function InundationWindowControl({ rangeWindow, setRangeWindow, a
       {currentMode !== 'single' && (
         <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.4)', fontStyle: 'italic' }}>
           {currentMode === 'rolling-48h'
-            ? 'Showing maximum depth over the 48-hour window. Time slider is paused.'
+            ? `Showing maximum depth over the next ${rangeWindow?.hours && rangeWindow.hours < NEXT_WINDOW_STEPS ? `${rangeWindow.hours} h (all the forecast has left)` : '48 h'}${rangeWindow?.startTime && rangeWindow?.endTime ? `, ${toZonedInputValue(rangeWindow.startTime, timeDisplayZone).replace('T', ' ')} to ${toZonedInputValue(rangeWindow.endTime, timeDisplayZone).replace('T', ' ')} ${tzLabel(timeDisplayZone)}` : ''}. Time slider is paused.`
             : committedMode === 'custom'
               ? 'Showing maximum depth over the selected custom window. Time slider is paused.'
               : 'Set dates above and press Apply to compute range max.'}

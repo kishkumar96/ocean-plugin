@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "status": "provisional",
+  "version": 0,
+  "approvedBy": null,
+  "approvedOn": null,
+  "effectiveFrom": null,
+  "notes": "PROVISIONAL placeholder limits chosen by the SPC development team so the Harbour Wave Conditions product can show a verdict before Cook Islands Government has supplied real criteria. They are NOT confirmed by, or attributable to, Cook Islands Government or any harbour authority, and must not be treated as approved guidance. Replace with approved limits: set status to \"approved\", fill in approvedBy / approvedOn / effectiveFrom, bump version, add a history entry. See HARBOUR_LIMITS.md. Peak period is left blank because a sensible period limit is harbour-specific.",
+  "default": {
+    "caution": {
+      "hsM": 1.0,
+      "tpS": null,
+      "windKt": 20
+    },
+    "stop": {
+      "hsM": 1.5,
+      "tpS": null,
+      "windKt": 25
+    }
+  },
+  "harbours": {},
+  "history": []
+}
