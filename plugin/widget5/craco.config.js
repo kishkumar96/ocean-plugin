@@ -20,4 +20,16 @@ module.exports = {
       return webpackConfig;
     },
   },
+  jest: {
+    configure: (jestConfig) => ({
+      ...jestConfig,
+      moduleNameMapper: {
+        ...jestConfig.moduleNameMapper,
+        // maplibre-gl v6 is ESM-only (package "exports", no "main"), which Jest 27's resolver
+        // cannot follow, so every suite importing it failed to run on a clean install. Tests
+        // only passed locally by resolving a stray maplibre-gl 4 in a parent node_modules.
+        '^maplibre-gl$': '<rootDir>/src/testUtils/maplibreGlStub.js',
+      },
+    }),
+  },
 };
