@@ -8,6 +8,8 @@ import { parseRunId, MIN_COVERAGE, coverageConfidence, boundsClose } from './rep
 import { VESSEL_OPERATING_ENVELOPE, deriveSuitabilityDriver } from '../lib/CookIslandsSuitabilityOverlay';
 import { selectHeatmapSteps } from '../utils/heatmapSteps';
 import { fetchSuitabilityMeta, fetchOperationalMap, fetchDomainBoundary } from './suitabilityReportService';
+import { fetchPublishedAt } from '../utils/modelRunTiming';
+import { WAVE_PUBLISHED_AT_URL } from '../lib/mapLayersConfig';
 
 const H = 3600e3;
 export const SITE_WINDOW_HOURS = 168;
@@ -45,7 +47,7 @@ const runsOfClass = (series, hc) => findRuns(series, (s) => s.hazardClass === hc
 
 export function buildLandingSiteReportBundle({
   site, rows = [], omittedSites = [], vesselCode, vesselLabel, validTime, timeDisplayZone = 'Pacific/Rarotonga',
-  meta = null, mapDataUrl = null, mapError = null, mapBounds = null, domainBoundary = null, now = () => new Date(),
+  meta = null, updatedAt = null, mapDataUrl = null, mapError = null, mapBounds = null, domainBoundary = null, now = () => new Date(),
 }) {
   if (!site || !Array.isArray(site.steps) || site.steps.length === 0) throw new Error('No landing-site data to export.');
   const warnings = [];
@@ -92,7 +94,7 @@ export function buildLandingSiteReportBundle({
   return {
     reportType: 'landing-site-advisory',
     generatedAt: now(),
-    modelRun: { runId: meta?.runId ?? null, time: runTime, ageHours: runTime ? (now().getTime() - runTime.getTime()) / H : null },
+    modelRun: { runId: meta?.runId ?? null, time: runTime, ageHours: runTime ? (now().getTime() - runTime.getTime()) / H : null, updatedAt },
     validTime: validMs,
     forecastWindow: { start: series[0].validTime, end: series[series.length - 1].validTime, hours: SITE_WINDOW_HOURS },
     timezone: timeDisplayZone,
@@ -126,6 +128,7 @@ export async function buildLandingSiteReport(params, { signal } = {}, deps = {})
   const fetchMeta = deps.fetchMeta ?? fetchSuitabilityMeta;
   const fetchMap = deps.fetchMap ?? fetchOperationalMap;
   const fetchBoundary = deps.fetchBoundary ?? fetchDomainBoundary;
+  const fetchUpdatedAt = deps.fetchUpdatedAt ?? (() => fetchPublishedAt(WAVE_PUBLISHED_AT_URL));
   const { site, vesselCode, timeIndex } = params;
   const meta = await fetchMeta({ signal }).catch(() => null);
   const dLat = SITE_MAP_HALF_SPAN_DEG;
@@ -149,5 +152,6 @@ export async function buildLandingSiteReport(params, { signal } = {}, deps = {})
   }
   let domainBoundary = null;
   if (mapDataUrl) { try { domainBoundary = await fetchBoundary({ signal }); } catch { domainBoundary = null; } }
-  return buildLandingSiteReportBundle({ ...params, meta, mapDataUrl, mapError, mapBounds, domainBoundary });
+  const updatedAt = await fetchUpdatedAt().catch(() => null);
+  return buildLandingSiteReportBundle({ ...params, meta, updatedAt, mapDataUrl, mapError, mapBounds, domainBoundary });
 }

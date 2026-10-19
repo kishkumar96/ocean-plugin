@@ -1,0 +1,48 @@
+/* EEZ popup: country, drought status, then recent impacts (impact log). */
+.popup {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #1f2328;
+}
+
+.popup p {
+  margin: 2px 0 0;
+}
+
+.impactsLabel {
+  margin-top: 8px !important;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.impacts {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 3px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.impacts a {
+  color: #2563eb;
+}
+
+.impactMonth {
+  display: block;
+  font-size: 10.5px;
+  color: #6b7280;
+}
+
+.impactSource {
+  color: #6b7280;
+}
+
+.impactsFoot {
+  margin-top: 6px !important;
+  font-size: 10.5px;
+  color: #6b7280;
+}

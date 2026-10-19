@@ -13,11 +13,14 @@ import {
   fetchSuitabilityMeta, fetchVesselStep, fetchBestContrast, fetchOperationalMap, fetchSummarySeries, fetchDomainBoundary, mapWithLimit, ReportAbortError,
 } from './suitabilityReportService';
 import { recolorMapDataUrl } from './mapRecolor';
-import { parseRunId, zonedWallTimeToUtc, ReportExportBlockedError, boundsClose, BOUNDS_EPS, coverageConfidence, scopePlaceName } from './reportRules';
+import { fetchPublishedAt } from '../utils/modelRunTiming';
+import { WAVE_PUBLISHED_AT_URL } from '../lib/mapLayersConfig';
+import { buildBriefing, reportId, validateDomainBundle } from './domainBriefing';
+import { parseRunId, zonedWallTimeToUtc, ReportExportBlockedError, boundsClose, BOUNDS_EPS, coverageConfidence, scopePlaceName, ELEVATED_WARNING_RULE, VESSEL_THRESHOLD_SET } from './reportRules';
 import {
   bestWindow, lowestExposureWindow, highestRiskStep, elevatedRuns, recoveryWindows, unavailableRuns, coverageOf,
 } from './seriesAnalysis';
-import { VESSEL_CLASS_OPTIONS } from '../lib/CookIslandsSuitabilityOverlay';
+import { VESSEL_CLASS_OPTIONS, VESSEL_OPERATING_ENVELOPE } from '../lib/CookIslandsSuitabilityOverlay';
 
 const VESSEL_CODES = VESSEL_CLASS_OPTIONS.map((v) => v.value);
 const SERIES_STRIDE_HOURS = 6;
@@ -99,9 +102,11 @@ const swallow = async (fn, onError) => { try { return await fn(); } catch (e) { 
 export async function buildDomainReportBundle({
   vessel, timeIndex = 0, bounds = null, scope = 'viewport', horizonHours = 0,
   timeDisplayZone = 'Pacific/Rarotonga', customEnvelope = null, fallbackMapDataUrl = null, signal, onProgress, now = () => new Date(),
+  dashboardUrl = null,
 } = {}, deps = {}) {
   const d = {
-    fetchMeta: fetchSuitabilityMeta, fetchStep: fetchVesselStep, fetchContrast: fetchBestContrast, fetchMap: fetchOperationalMap, fetchSeries: fetchSummarySeries, fetchBoundary: fetchDomainBoundary, recolorMap: recolorMapDataUrl, ...deps,
+    fetchMeta: fetchSuitabilityMeta, fetchStep: fetchVesselStep, fetchContrast: fetchBestContrast, fetchMap: fetchOperationalMap, fetchSeries: fetchSummarySeries, fetchBoundary: fetchDomainBoundary, recolorMap: recolorMapDataUrl,
+    fetchUpdatedAt: () => fetchPublishedAt(WAVE_PUBLISHED_AT_URL), ...deps,
   };
   const warnings = [];
   const limitations = [...LIMITATIONS];
@@ -312,10 +317,15 @@ export async function buildDomainReportBundle({
   if (!runTime) warnings.push('The model run time was not reported by the service.');
   if (customEnvelope) limitations.push('Custom thresholds are applied on the on-screen map; this report uses the preset thresholds for every vessel class.');
 
-  return {
+  const runIdUsed = stepRunId ?? meta.runId ?? null;
+  const ageHours = runTime ? (generatedAt.getTime() - runTime.getTime()) / 3600e3 : null;
+  // When the forecast last reached the server (suitability ships with the wave store's upload).
+  const updatedAt = await swallow(() => d.fetchUpdatedAt());
+  const updateAgeHours = updatedAt ? (generatedAt.getTime() - updatedAt.getTime()) / 3600e3 : null;
+  const bundle = {
     reportType: 'domain-advisory',
     generatedAt,
-    modelRun: { runId: stepRunId ?? meta.runId, time: runTime, ageHours: runTime ? (generatedAt.getTime() - runTime.getTime()) / 3600e3 : null },
+    modelRun: { runId: runIdUsed, time: runTime, ageHours, updatedAt, updateAgeHours },
     validTime: validTimeMs,
     forecastWindow: {
       start: validTimeMs, end: timeSeries ? (timeSeries.byVessel[vessel].filter((s) => s.validTime).slice(-1)[0]?.validTime ?? null) : validTimeMs,
@@ -341,4 +351,18 @@ export async function buildDomainReportBundle({
     limitations,
     warnings,
   };
+  bundle.reportId = reportId({
+    runId: runIdUsed, validTime: validTimeMs, vessel, scope: scopeInfo.effective, bounds: mapBounds,
+    methodologyVersion: bundle.methodology.methodologyVersion, ruleId: ELEVATED_WARNING_RULE.id, thresholdSetId: VESSEL_THRESHOLD_SET.id,
+  });
+  bundle.dashboardUrl = dashboardUrl;
+  bundle.governance = { summaryRule: ELEVATED_WARNING_RULE, thresholdSet: VESSEL_THRESHOLD_SET };
+  bundle.briefing = buildBriefing({
+    step: sel, envelope: VESSEL_OPERATING_ENVELOPE[vessel], analysis: timeSeries ? timeSeries.analysis[vessel] : null,
+    pointCoverage, stepCoverage: timeSeries ? timeSeries.analysis[vessel]?.coverage ?? null : null, runAgeHours: ageHours, updateAgeHours,
+  });
+  // Last gate: numbers that cannot be right never reach a PDF.
+  const check = validateDomainBundle(bundle);
+  if (!check.ok) throw new ReportExportBlockedError(`Report not generated: the data failed consistency checks (${check.errors.slice(0, 3).join(' ')}).`);
+  return bundle;
 }

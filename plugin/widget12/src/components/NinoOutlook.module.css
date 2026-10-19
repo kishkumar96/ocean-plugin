@@ -1,0 +1,170 @@
+/* Relative Niño3.4 outlook chart (the card and header come from
+   EnsoGauge.module.css so both side cards match). */
+
+/* The seven-band outlook dial needs more width for its labels. */
+.wideDial {
+  max-width: 300px;
+}
+
+/* The chapter's notes under the dial: a summary line, then a quiet caption
+   (same look as under the story card's dial). */
+.note {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #374151;
+}
+
+.note + .note:last-of-type {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 10px;
+}
+
+.grid {
+  stroke: #f0f1f3;
+  stroke-width: 1;
+}
+
+.zero {
+  stroke: #9ca3af;
+  stroke-width: 1;
+}
+
+.tick {
+  font-size: 9px;
+  fill: #6b7280;
+  text-anchor: end;
+}
+
+.threshold {
+  stroke: #9ca3af;
+  stroke-width: 0.8;
+  stroke-dasharray: 4 3;
+}
+
+.thresholdLabel {
+  font-size: 8.5px;
+  font-weight: 700;
+  text-anchor: end;
+}
+
+.hatchLine {
+  stroke: rgba(31, 35, 40, 0.35);
+  stroke-width: 1;
+}
+
+.value {
+  font-size: 8.5px;
+  font-weight: 600;
+  fill: #1f2328;
+  text-anchor: middle;
+}
+
+.share {
+  font-size: 8px;
+  fill: #4b5563;
+  text-anchor: middle;
+}
+
+/* NOAA RONI markers: thin 90% line, thick 50% box, white median diamond. */
+.roni line {
+  stroke: #1f2328;
+}
+
+.roni rect {
+  fill: #1f2328;
+}
+
+.median {
+  fill: #ffffff;
+  stroke: #1f2328;
+  stroke-width: 1.2;
+}
+
+.season {
+  font-size: 7px;
+  fill: #4b5563;
+  text-anchor: middle;
+}
+
+.split {
+  stroke: #6b7280;
+  stroke-width: 0.8;
+  stroke-dasharray: 2 2;
+}
+
+.splitLabel {
+  font-size: 9px;
+  font-weight: 600;
+  fill: #374151;
+}
+
+.monthLabel {
+  font-size: 9px;
+  fill: #374151;
+  text-anchor: middle;
+}
+
+.yearLabel {
+  font-size: 8.5px;
+  fill: #6b7280;
+  text-anchor: middle;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: #4b5563;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.swatch {
+  flex-shrink: 0;
+  width: 12px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.swatchHatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(31, 35, 40, 0.35) 0 1px,
+    transparent 1px 4px
+  );
+  box-shadow: inset 0 0 0 1px #6b7280;
+}
+
+.diamond {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin: 0 2px;
+  border: 1.5px solid #1f2328;
+  background: #ffffff;
+  transform: rotate(45deg);
+}
+
+.caption {
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: #6b7280;
+}

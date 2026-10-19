@@ -60,7 +60,8 @@ function page1(doc, b, pages) {
     ['Valid time', local(b.validTime)],
     ['Wind', cur.wind !== null ? `${cur.wind.toFixed(1)} kt` : 'Unavailable'],
     ['Waves (Hs)', cur.wave !== null ? `${cur.wave.toFixed(2)} m` : 'Unavailable'],
-    ['Model run', b.modelRun.time ? `${formatUtc(b.modelRun.time)}${Number.isFinite(b.modelRun.ageHours) ? ` (${Math.round(b.modelRun.ageHours)} h before generation)` : ''}` : 'Not reported'],
+    ...(b.modelRun.updatedAt ? [['Forecast updated', formatUtc(b.modelRun.updatedAt)]] : []),
+    ['Model data', b.modelRun.time ? formatUtc(b.modelRun.time) : 'Not reported'],
     ['Aggregation', `${METHOD_LABELS[b.aggregation.basis] ?? b.aggregation.basis}${b.aggregation.pointCount !== null ? ` (${b.aggregation.pointCount} points)` : ''}`],
     ['Step coverage', `${b.timeline.coverage.available} of ${b.timeline.coverage.total} forecast steps assessed`],
   ];

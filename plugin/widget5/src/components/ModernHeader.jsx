@@ -2,7 +2,7 @@ import React from 'react';
 import { AlertCircle, Check, Share2 } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 import { formatZoned } from '../utils/timeZoneFormat';
-import { modelRunAgeHours, forecastFreshness, formatAge } from '../utils/modelRunTiming';
+import { modelRunAgeHours, updateFreshness, formatAge } from '../utils/modelRunTiming';
 
 // What the status dot says about the FORECAST, not about the connection: how old the model run is.
 const FRESHNESS = {
@@ -12,7 +12,7 @@ const FRESHNESS = {
   unknown: { color: '#94a3b8', glow: 'rgba(148, 163, 184, 0.5)', word: 'Forecast run unknown' },
 };
 
-const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga', onShareView, modelRunStart = null }) => {
+const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga', onShareView, modelRunStart = null, updatedAt = null }) => {
   const [currentTime, setCurrentTime] = React.useState(new Date());
   const [shareStatus, setShareStatus] = React.useState('idle');
   const shareResetTimerRef = React.useRef(null);
@@ -124,22 +124,32 @@ const ModernHeader = ({ timeDisplayZone = 'Pacific/Rarotonga', onShareView, mode
         )}
         <ThemeToggle />
 
-        {/* Forecast status: when the model run was issued and how old it is (not a "live" connection light) */}
+        {/* Forecast status: when the forecast last updated (not a "live" connection light) */}
         {(() => {
-          const ageHours = modelRunAgeHours(modelRunStart, currentTime.getTime());
-          const state = forecastFreshness(ageHours);
+          const now = currentTime.getTime();
+          const runAgeHours = modelRunAgeHours(modelRunStart, now);
+          const updateAgeHours = modelRunAgeHours(updatedAt, now);
+          const { state } = updateFreshness(updateAgeHours, runAgeHours);
           const f = FRESHNESS[state];
-          const issued = modelRunStart instanceof Date && Number.isFinite(modelRunStart.getTime())
-            ? formatZoned(modelRunStart, timeDisplayZone, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
-            : null;
-          const tip = issued
-            ? `Model run issued ${issued}. Age ${formatAge(ageHours)}. A healthy run is up to a day old when it reaches the dashboard; older than 30 h means a newer run has not published.`
-            : 'The model run time of the selected layer is not known.';
+          const fmt = (d) => (d instanceof Date && Number.isFinite(d.getTime())
+            ? formatZoned(d, timeDisplayZone, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+            : null);
+          const updated = fmt(updatedAt);
+          const modelData = fmt(modelRunStart);
+          // Lead with the update time; the model init time is ~16 h earlier even for a fresh
+          // forecast, so as an "age" it reads like downtime that never happened.
+          const tip = [
+            updated && `Forecast updated ${updated} (${formatAge(updateAgeHours)} ago). The system updates every 6 h.`,
+            modelData && `Model data: GFS cycle ${modelData}.`,
+          ].filter(Boolean).join(' ') || 'The update time of the selected layer is not known.';
+          let text = f.word;
+          if (updated) text = <>Updated {updated} · {formatAge(updateAgeHours)} ago · <b style={{ color: f.color }}>{f.word}</b></>;
+          else if (modelData) text = <>Model data {modelData} · <b style={{ color: f.color }}>{f.word}</b></>;
           return (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} role="status" data-testid="forecast-status" title={tip}>
               <div aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: f.color, boxShadow: `0 0 6px ${f.glow}` }} />
               <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.78)' }}>
-                {issued ? <>Forecast issued {issued} · {formatAge(ageHours)} old · <b style={{ color: f.color }}>{f.word}</b></> : f.word}
+                {text}
               </span>
               <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', marginLeft: '10px' }}>
                 {formatDateTime(currentTime)}

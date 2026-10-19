@@ -33,3 +33,7 @@ yarn-error.log*
 # session, e.g. CookIslandslocalhost.har, Niue.har.
 *.har
 pdf-samples/
+
+# local tool caches
+.jython_cache/
+__pycache__/

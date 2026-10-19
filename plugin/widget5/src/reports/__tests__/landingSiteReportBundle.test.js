@@ -86,6 +86,9 @@ describe('buildLandingSiteReport', () => {
     const b = await buildLandingSiteReport({ ...base, meta: undefined, site: site(), rows: [site()], timeIndex: 5 }, {}, { fetchMeta: async () => ({ runId: '2026092312' }), fetchMap });
     expect(fetchMap).toHaveBeenCalledWith('small_craft', 5, expect.objectContaining({ west: expect.any(Number) }), expect.anything());
     expect(b.map.dataUrl).toMatch(/^data:image/);
+    expect(b.modelRun.updatedAt).toBeNull(); // no update time reachable in tests -> unknown, not a guess
+    const b3 = await buildLandingSiteReport({ ...base, meta: undefined, site: site(), rows: [site()], timeIndex: 5 }, {}, { fetchMeta: async () => ({ runId: '2026092312' }), fetchMap, fetchUpdatedAt: async () => new Date('2026-09-24T01:00:00Z') });
+    expect(b3.modelRun.updatedAt.toISOString()).toBe('2026-09-24T01:00:00.000Z');
     const b2 = await buildLandingSiteReport({ ...base, meta: undefined, site: site(), rows: [site()], timeIndex: 5 }, {}, { fetchMeta: async () => ({ runId: '2026092312' }), fetchMap: async () => { throw new Error('x'); } });
     expect(b2.map).toBeNull();
   });

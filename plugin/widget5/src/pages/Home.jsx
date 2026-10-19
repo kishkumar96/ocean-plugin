@@ -34,11 +34,13 @@ import { findNearestIndex, nextWindowRange } from '../components/InundationWindo
 import { useCookIslandsHarbourWaveConditions } from '../hooks/useCookIslandsHarbourWaveConditions';
 import { useHarbourUnloadingLimits } from '../hooks/useHarbourUnloadingLimits';
 import { buildHarbourAdvisoryBundle } from '../reports/harbourAdvisoryBundle';
+import { useForecastUpdatedAt } from '../hooks/useForecastUpdatedAt';
 import { buildHarbourOutlookFeatures } from '../lib/harbourOutlookLayer';
 import { findIslandZoomTarget } from '../config/islandConfig';
 import { COOK_ISLANDS_PRESET_ROUTES, presetRouteBounds, shouldConfirmRouteReplacement } from '../config/cookIslandsPresetRoutes';
 import { createAppShareUrl, readAppShareState } from '../domain/share/appStateSnapshot';
 import { defaultSliderIndex } from '../utils/forecastTime';
+import { IMPACT_ENABLED } from '../config/featureFlags';
 
 const widgetContainerStyle = {
   position: 'fixed',
@@ -290,14 +292,16 @@ function CookIslandsForecast() {
   const harbourOutlookEnabled = !impactsVisible;
   const harbourConditions = useCookIslandsHarbourWaveConditions(harbourOutlookEnabled);
   const harbourLimits = useHarbourUnloadingLimits(harbourOutlookEnabled);
+  const harbourUpdatedAt = useForecastUpdatedAt(harbourOutlookEnabled ? undefined : null);
   const harbourBundle = useMemo(() => buildHarbourAdvisoryBundle({
     rows: harbourConditions.rows,
     suitabilityRunStart: harbourConditions.suitabilityRunStart,
+    updatedAt: harbourUpdatedAt,
     limits: harbourLimits.active,
     limitsUnavailable: harbourLimits.published.state === 'unavailable' || harbourLimits.published.state === 'invalid',
     timeDisplayZone,
     generatedAt: new Date(),
-  }), [harbourConditions.rows, harbourConditions.suitabilityRunStart, harbourLimits.active, harbourLimits.published.state, timeDisplayZone]);
+  }), [harbourConditions.rows, harbourConditions.suitabilityRunStart, harbourUpdatedAt, harbourLimits.active, harbourLimits.published.state, timeDisplayZone]);
   const harbourOutlookGeojson = useMemo(() => buildHarbourOutlookFeatures(harbourBundle), [harbourBundle]);
   // The impact window on screen -> the hazard block (same cycle, same window) RiskScape read, so the
   // map's depth layer is exactly what the impact figures were computed from. Only while an impact
@@ -736,7 +740,7 @@ function CookIslandsForecast() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { loadImpact(); }, [loadImpact]);
+  useEffect(() => { if (IMPACT_ENABLED) loadImpact(); }, [loadImpact]);
 
   // Whether the desktop Inundation & Impacts tab is the one currently on
   // screen (lifted up from ForecastApp.jsx's own rightPanelTab state via
@@ -1122,7 +1126,7 @@ function CookIslandsForecast() {
 
   return (
     <div style={widgetContainerStyle}>
-      <ModernHeader timeDisplayZone={timeDisplayZone} onShareView={handleShareView} modelRunStart={capTime.modelRunStart} />
+      <ModernHeader timeDisplayZone={timeDisplayZone} onShareView={handleShareView} modelRunStart={capTime.modelRunStart} updatedAt={capTime.updatedAt} />
       <ForecastApp
         harbourConditions={harbourConditions}
         harbourLimits={harbourLimits}

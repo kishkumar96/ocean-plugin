@@ -1,9 +1,11 @@
 import React from 'react';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import CookIslandsImpactPanel from '../CookIslandsImpactPanel';
+import { exportCookIslandsImpactInundationPdf } from '../../../utils/CookIslandsImpactInundationPdf';
 
 jest.mock('../ImpactSectorChart', () => () => null);
 jest.mock('../ImpactCategoryAccordion', () => () => null);
+jest.mock('../../../utils/CookIslandsImpactInundationPdf', () => ({ exportCookIslandsImpactInundationPdf: jest.fn() }));
 
 const block = (n, extra = {}) => ({
   scenario: `block0${n}_2026-09-23_to_2026-09-26`, dateStart: '2026-09-23', dateEnd: '2026-09-26',
@@ -29,6 +31,8 @@ const data = {
 
 describe('CookIslandsImpactPanel: area above each MHWS water mark', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
+    exportCookIslandsImpactInundationPdf.mockResolvedValue('report.pdf');
     global.fetch = jest.fn((url) => {
       const b = Number(/block=(\d)/.exec(url)[1]);
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(summary(b)) });
@@ -98,6 +102,18 @@ describe('CookIslandsImpactPanel: area above each MHWS water mark', () => {
     // no empty dash columns, and no depth toggle that would do nothing
     expect(screen.queryByRole('columnheader', { name: /17\.5 cm/ })).toBeNull();
     expect(screen.queryByRole('group', { name: 'Minimum flood depth' })).toBeNull();
+  });
+
+  it('exports a report with the selected impact window and only cycle-matched inundation summaries', async () => {
+    render(<CookIslandsImpactPanel data={data} />);
+    await screen.findAllByText('4.13 ha');
+    fireEvent.click(screen.getByRole('button', { name: 'Export PDF' }));
+    await waitFor(() => expect(exportCookIslandsImpactInundationPdf).toHaveBeenCalledWith(expect.objectContaining({
+      impact: data.result,
+      selected: expect.objectContaining({ scenario: block(1).scenario }),
+      selectedSummary: expect.objectContaining({ cycleId: '2026092306' }),
+      summariesByScenario: expect.objectContaining({ [block(1).scenario]: expect.objectContaining({ cycleId: '2026092306' }) }),
+    })));
   });
 
   it('drops the previous depth’s values while the new depth loads', async () => {

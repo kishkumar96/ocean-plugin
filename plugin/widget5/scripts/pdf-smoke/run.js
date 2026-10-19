@@ -25,6 +25,7 @@ const { buildCookIslandsRouteAdvisoryPdfDoc } = require(`${SRC}utils/CookIslands
 const { buildCookIslandsLandingAreaComparisonPdfDoc } = require(`${SRC}utils/CookIslandsLandingAreaComparisonPdf`);
 const { renderCookIslandsCommsPosterPdfDoc } = require(`${SRC}utils/CookIslandsCommsPosterPdf`);
 const { buildCookIslandsHarbourAdvisoryPdfDoc } = require(`${SRC}utils/CookIslandsHarbourAdvisoryPdf`);
+const { buildCookIslandsImpactInundationPdfDoc } = require(`${SRC}utils/CookIslandsImpactInundationPdf`);
 const { buildHarbourAdvisoryBundle } = require(`${SRC}reports/harbourAdvisoryBundle`);
 const { COOK_ISLANDS_HARBOUR_POINTS } = require(`${SRC}config/cookIslandsHarbourPoints`);
 const { findForbiddenPhrases } = require(`${SRC}reports/reportRules`);
@@ -79,7 +80,7 @@ function inspect(name, doc, { pages, mustContain = [], mustNotContain = [], rawM
   }
 }
 
-const meta = { runId: '2026092312', schemaVersion: '1.0.0', hindcastHoursBeforeRun: 48, forecastStart: new Date(T0 - 60 * H), forecastEnd: new Date(T0 + 168 * H), timestepCount: 229, locations: [], vessels: {} };
+const meta = { runId: '2026092312', schemaVersion: '1.0.0', hindcastHoursBeforeRun: 48, forecastStart: new Date(T0), forecastEnd: new Date(T0 + 228 * H), timestepCount: 229, locations: [], vessels: {} };
 const stepFor = (i, v, bounds, over = {}) => ({
   timeIndex: i, validTime: T0 + i * H, vessel: v, available: true,
   suitable: v === 'traditional_craft' ? 25 : 60, caution: 25, warning: v === 'traditional_craft' ? 50 : 15,
@@ -105,7 +106,7 @@ const base = { vessel: 'small_craft', timeIndex: 60, bounds: B, scope: 'viewport
   inspect('domain_viewport_7d', await dom({ horizonHours: 168 }), {
     minImage: 100,
     pages: 6,
-    mustContain: [/COOK ISLANDS · RAROTONGA — CURRENT MAP VIEW/, /Offshore and coastal model grid only\. Reef passages, lagoons and nearshore waters are not resolved/, /Lowest exposure:/, /Model data window/, /History before run/, /Outlook in this report/, /Report summary rule \(not a vessel threshold\)|report summary rule \(not a vessel threshold\)/, /Peak wave height \(Hs\)/, /Estimated driver/, /Change from previous day/, /Estimated driver: the peak wave height/, /Estimated driver: waves over the|stay below this vessel/, /1\.7 m|2\.3 m/, /Waves/, /share of points by class/, /Warning share, all vessel classes/, /Model run 2026-09-23 12:00 UTC/, /Scope: Current map view/, /MULTI-VESSEL OUTLOOK/, /SAME CONDITIONS, DIFFERENT VESSELS/, /DAILY FORECAST EVOLUTION/, /FORECAST TREND/, /METHODOLOGY, SCOPE/, /Beyond the forecast horizon|step \d{2}:\d{2}/, /100 of 100 eligible|100 classified of 100 eligible/],
+    mustContain: [/COOK ISLANDS · RAROTONGA — CURRENT MAP VIEW/, /Offshore and coastal model grid only\. Reef passages, lagoons and nearshore waters are not resolved/, /Lowest exposure:/, /Model data window/, /History before run/, /Outlook in this report/, /Report summary rule \(not a vessel threshold\)|report summary rule \(not a vessel threshold\)/, /BRIEFING/, /Estimated driver:/, /Peak vs threshold:/, /Data confidence:\s+High/, /Worst in outlook:/, /Report COK-SUIT-2026092312-V/, /cok-vessel-presets-v1 \(version 1\) · status: provisional · not yet approved/, /warning_share_v1/, /Now \(valid time\)/, /(above|below) (Warning|Caution)/, /W [+-]\d+ · C [+-]\d+ pts/, /\d+ km/, /Peak wave height \(Hs\)/, /Estimated driver/, /Change from previous day/, /Estimated driver: the peak wave height/, /Estimated driver: waves over the|stay below this vessel/, /1\.7 m|2\.3 m/, /Waves/, /share of points by class/, /Warning share, all vessel classes/, /Model run 2026-09-23 12:00 UTC/, /Scope: Current map view/, /MULTI-VESSEL OUTLOOK/, /SAME CONDITIONS, DIFFERENT VESSELS/, /DAILY FORECAST EVOLUTION/, /FORECAST TREND/, /METHODOLOGY, SCOPE/, /Beyond the forecast horizon|step \d{2}:\d{2}/, /100 of 100 eligible|100 classified of 100 eligible/],
   });
   // a bulk outlook that returns only the first few steps of the grid it was asked for
   const truncatedSeries = async (b, { startIndex }) => ({
@@ -266,7 +267,7 @@ const base = { vessel: 'small_craft', timeIndex: 60, bounds: B, scope: 'viewport
     rows: withheldRows, suitabilityRunStart: iso(-40),
     limits: { basis: 'approved', config: { ...limitsCfg, default: { ...limitsCfg.default, stop: { hsM: 9, tpS: 14, windKt: null } } }, meta: approvedMeta },
   }))).doc, {
-    pages: 2, mustContain: [/Forecast may be outdated: the model run is 42 h old/, /Peak period and wave direction are withheld/, /withheld/, /Incomplete data/],
+    pages: 2, mustContain: [/Forecast may be outdated: the latest update has no newer model data/, /Peak period and wave direction are withheld/, /withheld/, /Incomplete data/],
     mustNotContain: [/Within limits/],
   });
 
@@ -299,6 +300,33 @@ const base = { vessel: 'small_craft', timeIndex: 60, bounds: B, scope: 'viewport
     vessel: 'small_craft', speedKt: 8, modelRunStart: iso(-6), midpointConditions: null,
   });
   inspect('route_midpoint_unavailable', noMid.doc, { pages: 2, mustContain: [/Midpoint wave conditions \(period, direction, swell\) were unavailable/], mustNotContain: [/MIDPOINT WAVE CONDITIONS/] });
+
+  // combined RiskScape impact and cycle-matched SFINCS inundation report
+  const impactBlock = {
+    scenario: 'block01_20260924_to_20260926', dateStart: '2026-09-24', dateEnd: '2026-09-26',
+    totalLoss: 1250000, totalExposedBuildings: 42, totalExposedValue: 3500000,
+    population: { value: 128, validated: true }, lossesBySector: { education: 125000, infrastructure: 300000, productive: 80000, public: 50000, residential: 600000, other: 95000 },
+  };
+  const impactSummary = {
+    cycleId: '2026092312', block: 1, depthThresholdM: 0.1,
+    levels: [0, 15, 17.5, 20].map((marginCm) => ({
+      marginCm, areaHa: 20 - marginCm / 10, outsideDistrictsHa: 2,
+      districts: [{ districtId: 'A', districtName: 'Avarua', areaHa: 8 - marginCm / 20 }],
+    })),
+  };
+  const impactPdf = await buildCookIslandsImpactInundationPdfDoc({
+    impact: { label: 'Cook Islands flood impact estimate', cycleId: '2026092312', blocks: [impactBlock] },
+    selected: impactBlock,
+    districts: [{ scenario: impactBlock.scenario, districtId: 'A', districtName: 'Avarua', totalLoss: 750000, totalExposedBuildings: 25 }],
+    selectedSummary: impactSummary,
+    summariesByScenario: { [impactBlock.scenario]: impactSummary },
+    timeZone: 'Pacific/Rarotonga',
+    generatedAt: new Date(T0),
+  });
+  inspect('impact_inundation', impactPdf.doc, {
+    pages: 2,
+    mustContain: [/Flood impact and inundation brief/, /Forecast-window comparison/, /Estimated damage by sector/, /Inundated land by water mark/, /MHWS \+ 17\.5 cm \(working mark\)/, /Avarua/, /2026092312/, /outside census districts/i],
+  });
 
   console.log(failures ? `\npdf-smoke: ${failures} check(s) failed` : '\npdf-smoke: all checks passed');
   process.exit(failures ? 1 : 0);

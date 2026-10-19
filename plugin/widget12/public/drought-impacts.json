@@ -1,0 +1,123 @@
+{
+  "source": "COSPPac impact log",
+  "generated": "2026-10-08",
+  "since": "2026-01-01",
+  "countries": {
+    "CK": [
+      {
+        "id": 154,
+        "title": "National disaster management committee activated drought response plan",
+        "month": "2026-06",
+        "source": "Media",
+        "link": "https://www.cookislandsnews.com/internal/national/local/outer-islands/weather/el-nino-brings-drought-risks-to-south-heavy-rain-to-north/"
+      }
+    ],
+    "FJ": [
+      {
+        "id": 167,
+        "title": "Fiji Water Authority activating drought response",
+        "month": "2026-08",
+        "source": "Ministry",
+        "link": "https://waterauthority.com.fj/national-warning-for-careful-water-use-as-the-dry-season-continues/"
+      },
+      {
+        "id": 158,
+        "title": "Fiji Government set aside funds to prepare for water shortages",
+        "month": "2026-07",
+        "source": "Media",
+        "link": "https://www.rnz.co.nz/news/pacific/757900/first-stage-of-drought-declared-for-parts-of-vanuatu"
+      }
+    ],
+    "FM": [
+      {
+        "id": 168,
+        "title": "Kosrae Drought Taskforce delivered community outreach program",
+        "month": "2026-08",
+        "source": "Ministry",
+        "link": "https://www.facebook.com/story.php?story_fbid=1032688792857803&id=100083500746620&rdid=H9Wj8Ofvve7KhdAe#"
+      }
+    ],
+    "PG": [
+      {
+        "id": 157,
+        "title": "PNG Power Ltd has implemented drought response plan for hydroelectricity generation in response to El Nino advice",
+        "month": "2026-07",
+        "source": "End user",
+        "link": "https://www.facebook.com/PNGPowerLtd/posts/pfbid02QLvMhUB8nkDcM8x5G8LCyVwmQrYmf5ezMryULZvK9bERxJHz2BMPVKRPA4hxmm55l?rdid=k9EEh3rIC1UmMHmb"
+      },
+      {
+        "id": 161,
+        "title": "PNG support to frost in Highlands is unclear",
+        "month": "2026-06",
+        "source": "Media",
+        "link": "https://www.theguardian.com/world/2026/jun/25/el-nino-pacific-papua-new-guinea-png-food-shortages"
+      }
+    ],
+    "PW": [
+      {
+        "id": 169,
+        "title": "Palau implementing National Drought Action Plan",
+        "month": "2026-08",
+        "source": "NMHS",
+        "link": "https://www.facebook.com/photo?fbid=1487173450110001&set=pcb.1487173860109960"
+      }
+    ],
+    "SB": [
+      {
+        "id": 153,
+        "title": "National disaster management committee activated drought response plan",
+        "month": "2026-06",
+        "source": "Media",
+        "link": "https://www.sibconline.com.sb/ndmo-activates-drought-response-plan-as-el-nino-conditions-develop/"
+      }
+    ],
+    "TO": [
+      {
+        "id": 166,
+        "title": "Drought insurance payouts in Tonga",
+        "month": "2026-08",
+        "source": "Media",
+        "link": "https://pcric.org/fourth-drought-payout-for-tonga-under-gssp-supported-policy/"
+      },
+      {
+        "id": 160,
+        "title": "Tonga distributed drought relief supplies including water tanks to the Ha'apai province",
+        "month": "2026-07",
+        "source": "Ministry",
+        "link": "https://www.facebook.com/PrimeMinistersOffice.Tonga/posts/the-government-of-tonga-continues-to-respond-to-the-impacts-of-the-current-super/122131649733200706/"
+      },
+      {
+        "id": 152,
+        "title": "National disaster management committee activated drought response plan",
+        "month": "2026-06",
+        "source": "Media",
+        "link": "https://matangitonga.to/2026/06/24/el-ni-o-declared-significant-climate-impacts-expected-tonga"
+      },
+      {
+        "id": 155,
+        "title": "Tonga Agriculture Ministry directed farmers based on El Nino guidance",
+        "month": "2026-06",
+        "source": "Media",
+        "link": "https://matangitonga.to/2026/07/03/agricultural-planning-vital-foodsecurity"
+      }
+    ],
+    "VU": [
+      {
+        "id": 159,
+        "title": "Vanuatu government distributed water tanks to drought-affected provinces",
+        "month": "2026-07",
+        "source": "Media",
+        "link": "https://www.dailypost.vu/news/torba-to-receive-70-water-tanks-during-pm-visit/article_82243732-015a-52e0-b66e-c925e28c26fd.html"
+      }
+    ],
+    "WS": [
+      {
+        "id": 163,
+        "title": "Samoa Ministry of Agriculture and Fisheries published El Nino awareness materials",
+        "month": "2026-07",
+        "source": "Ministry",
+        "link": "https://www.facebook.com/share/p/1E4yyS3184/?mibextid=wwXIfr"
+      }
+    ]
+  }
+}
