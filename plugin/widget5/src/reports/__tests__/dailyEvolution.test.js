@@ -17,6 +17,13 @@ describe('estimateDriver', () => {
     expect(estimateDriver(step(1.6, 10), env)).toMatchObject({ level: 'caution', driver: 'waves' });
   });
 
+  test('a peak reported as null is missing, never 0 m', () => {
+    expect(estimateDriver({ wave: { max: null }, wind: { max: null } }, env)).toBeNull();
+    const [row] = dailyEvolutionRows([{ targetTime: 1, step: { ...step(1, 1, 10), wave: { max: null }, wind: { max: null } } }], env);
+    expect(row.peakHsM).toBeNull();
+    expect(row.peakWindKt).toBeNull();
+  });
+
   test('below both thresholds, or no data', () => {
     expect(estimateDriver(step(0.8, 9), env)).toMatchObject({ level: null, driver: 'none', label: 'Below thresholds' });
     expect(estimateDriver({ wave: null, wind: null }, env)).toBeNull();

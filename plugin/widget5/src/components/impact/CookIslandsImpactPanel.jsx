@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { RotateCcw, TriangleAlert, DollarSign, Building2, Users } from 'lucide-react';
+import { RotateCcw, TriangleAlert, DollarSign, Building2, Users, FileDown, Loader2 } from 'lucide-react';
 import ImpactSectorChart from './ImpactSectorChart';
 import ImpactCategoryAccordion from './ImpactCategoryAccordion';
 import { formatZoned } from '../../utils/timeZoneFormat';
 import { fmtUsd, fmtDateRange, parseCycleId, MODEL_STATUS, computeModelStatus, worstBlockIndex, fmtHectares, portLossByScenario, blockWithoutPort } from './impactFormat';
+import { exportCookIslandsImpactInundationPdf } from '../../utils/CookIslandsImpactInundationPdf';
 import {
   DISTRICT_LOSS_COLOR_STOPS,
   MHWS_LINES,
@@ -210,6 +211,12 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
   const mhwsCycleMismatch = Object.values(mhws.byBlock).find(
     (sm) => sm.cycleId && result?.cycleId && sm.cycleId !== String(result.cycleId),
   )?.cycleId ?? null;
+  const selectedSummary = summaryFor(selected?.scenario);
+  const summariesByScenario = useMemo(() => Object.fromEntries(
+    blocks
+      .map((block) => [block.scenario, mhws.byBlock[mhwsBlockIndexFromScenario(block.scenario)] ?? null])
+      .filter(([scenario, summary]) => scenario && summary && (!result?.cycleId || !summary.cycleId || summary.cycleId === String(result.cycleId))),
+  ), [blocks, mhws.byBlock, result?.cycleId]);
 
   // Area columns appear only when there is something honest to show: not when the hazard run and the
   // impact run differ, and not when the area service failed. Otherwise they would be columns of dashes.
@@ -251,6 +258,32 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
     loading: Boolean(data?.loading), error: data?.error ?? null, result,
     hasPriorResult: Boolean(result),
   });
+  const [pdfState, setPdfState] = useState({ loading: false, error: '' });
+  const exportReport = async () => {
+    setPdfState({ loading: true, error: '' });
+    try {
+      const inundationUnavailableReason = selectedSummary ? null
+        : mhwsCycleMismatch
+          ? `Inundation run ${mhwsCycleMismatch} does not match impact run ${result?.cycleId ?? 'not reported'}; inundation values are omitted.`
+          : mhws.error
+            ? `Inundation summary unavailable: ${mhws.error}`
+            : 'No matching inundation summary is available for this forecast window.';
+      await exportCookIslandsImpactInundationPdf({
+        impact: result,
+        selected: viewSelected,
+        districts: selectedScenarioDistricts,
+        summariesByScenario,
+        selectedSummary,
+        inundationUnavailableReason,
+        portLoss: selectedPortLoss,
+        excludePortAssets: portOff,
+        timeZone: timeDisplayZone,
+      });
+      setPdfState({ loading: false, error: '' });
+    } catch (error) {
+      setPdfState({ loading: false, error: error?.message || 'PDF export failed.' });
+    }
+  };
 
   const wrapperStyle = { padding: '1rem 1.25rem 1.25rem', color: TEXT_PRIMARY, fontFamily: 'inherit' };
 
@@ -294,8 +327,22 @@ function CookIslandsImpactPanel({ data, onRetry, onWindowSelect, onScenarioChang
           {result.label}
           {cycleDate && ` — forecast issued ${formatZoned(cycleDate, timeDisplayZone)}`}
         </div>
-        <StatusBadge status={modelStatus} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <StatusBadge status={modelStatus} />
+          <button
+            type="button"
+            className="map-display-option__btn"
+            onClick={exportReport}
+            disabled={pdfState.loading || (mhws.loading && !selectedSummary)}
+            title="Download a PDF of the selected impact window and matching inundation summary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+          >
+            {pdfState.loading ? <Loader2 size={13} className="spin" /> : <FileDown size={13} />}
+            {pdfState.loading ? 'Preparing PDF…' : 'Export PDF'}
+          </button>
+        </div>
       </div>
+      {pdfState.error && <div role="alert" style={{ marginBottom: '0.5rem', fontSize: '0.75rem', color: '#f87171' }}>{pdfState.error}</div>}
       {mhwsCycleMismatch && (
         <div role="status" style={{ marginBottom: '0.5rem', fontSize: '0.78rem', color: '#fde68a' }}>
           Available, but based on the previous hazard run: the newest hazard run ({mhwsCycleMismatch}) is not yet in this impact estimate ({String(result.cycleId)}).

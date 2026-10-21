@@ -75,10 +75,15 @@ export const FLOOD_3D_CONFIG = {
   available: true,
 };
 
+// Every pipeline upload rewrites a store's .zmetadata, so its Last-Modified is when that
+// layer's forecast was last updated (see fetchPublishedAt in utils/modelRunTiming.js).
+export const WAVE_PUBLISHED_AT_URL = `${WAVE_ZARR_BASE}/SWAN_UGRID.zarr/.zmetadata`;
+
 const COMMON_SWAN_LAYER = {
   type: 'ugrid',
   datasetName: 'SWAN_UGRID.zarr',
   zarrBaseUrl: WAVE_ZARR_BASE,
+  publishedAtUrl: WAVE_PUBLISHED_AT_URL,
   ugridApiBase: SFINCS_API_BASE,
   bounds: COOK_ISLANDS_WAVE_BOUNDS,
   metadata: {
@@ -256,6 +261,9 @@ export const MAP_LAYERS = [
     sourceType: 'cok-suitability',
     bounds: COOK_ISLANDS_WAVE_BOUNDS,
     defaultVesselClass: 'traditional_craft',
+    // Its /cok/suitability/summary carries no publish time; it is built from the same SWAN
+    // run and uploaded in the same pipeline run, so the wave store's update time stands in.
+    publishedAtUrl: WAVE_PUBLISHED_AT_URL,
     description: 'Marine vessel suitability — Cook Islands (wind & wave hazard, forereef points)',
   },
 
@@ -267,6 +275,7 @@ export const MAP_LAYERS = [
     type: 'sfincs-raster',
     sourceType: 'sfincs-raster',
     apiBase: SFINCS_API_BASE,
+    publishedAtUrl: `${SFINCS_API_BASE}/zarr/sfincs_hmax_forecast.zarr/.zmetadata`,
 
     units: 'm',
     colorMode: 'fixed-breaks',

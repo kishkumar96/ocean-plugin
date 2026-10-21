@@ -313,6 +313,7 @@ export async function buildCookIslandsHarbourAdvisoryPdfDoc(bundle) {
   const zoned = (d) => `${formatEta(d, tz)} ${tzLabel(tz)}`;
   const provenance = [
     `Harbour forecast run ${bundle.runStart ? `${new Date(bundle.runStart).toISOString().slice(0, 16).replace('T', ' ')} UTC` : 'not reported'}`,
+    bundle.updatedAt ? `Forecast updated ${zoned(new Date(bundle.updatedAt))}` : null,
     bundle.waveRunStart ? `Wave feed run ${new Date(bundle.waveRunStart).toISOString().slice(0, 16).replace('T', ' ')} UTC` : null,
     `Generated ${zoned(bundle.generatedAt)}`,
     'Source: SPC SWAN wave model (Cook Islands) and vessel-suitability forecast',

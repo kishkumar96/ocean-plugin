@@ -15,17 +15,18 @@
 import {
   MARGIN, HDR_H, HEADER_BG, TEXT_MD, TEXT_DK, GRID_CLR, NO_DATA_GREY, TEXT_LT,
   hazardColor, hazardText, hazardLabel, setFill, setDraw, setFont, rect,
-  drawHeaderBand, drawFooter, card, banner, notice, sectionTitle, keyValue, fitText, drawLegendRow,
+  drawHeaderBand, drawFooter, card, hazardLight, notice, sectionTitle, keyValue, fitText, drawLegendRow,
   drawHazardShareBar, contentBottom, loadVesselSvgIcon, ensureReportFont, PAGE_W,
 } from './pdfTheme';
 import { tzLabel } from './timeZoneFormat';
 import { VESSEL_OPERATING_ENVELOPE, VESSEL_CLASS_OPTIONS } from '../lib/CookIslandsSuitabilityOverlay';
 import { buildDomainReportBundle } from '../reports/domainReportBundle';
-import { dailyEvolutionRows, estimateDriver } from '../reports/dailyEvolution';
+import { dailyEvolutionRows, estimateDriver, deltaText } from '../reports/dailyEvolution';
+import { operationalSummary, thresholdMargin } from '../reports/domainBriefing';
 import { MAP_FILL_RGB } from '../reports/mapRecolor';
 import { drawBoundaryOverlay, BOUNDARY_CAPTION } from '../reports/mapOverlay';
 import {
-  stepLevel, pctText, scopeLabel, formatLocal, formatUtc, zonedWallTimeToUtc, ELEVATED_WARNING_PERCENT, ELEVATED_WARNING_RULE, SOURCE_TEXT,
+  stepLevel, pctText, scopeLabel, formatLocal, formatUtc, zonedWallTimeToUtc, ELEVATED_WARNING_PERCENT, ELEVATED_WARNING_RULE, SOURCE_TEXT, governanceText,
 } from '../reports/reportRules';
 
 const CW = PAGE_W - 2 * MARGIN; // content width
@@ -132,7 +133,36 @@ const MAP_LEGEND_WASHED = [[0, 'Suitable'], [1, 'Caution'], [2, 'Warning']].map(
 const MAP_LEGEND_FILL = [[0, 'Suitable'], [1, 'Caution'], [2, 'Warning']].map(([h, label]) => [MAP_FILL_RGB[h], label]);
 const mapLegend = (bundle) => (bundle.maps.selected?.recolored ? MAP_LEGEND_FILL : MAP_LEGEND_WASHED);
 
-function drawMap(doc, bundle, map, x, y, w, h, alias) {
+// Scale bar (bottom-left) and north marker (top-right) on a service-rendered map, whose extent is known
+// exactly. Never on a screenshot fallback, whose extent is not.
+const NICE = [1, 2, 5];
+function niceKm(target) {
+  const exp = 10 ** Math.floor(Math.log10(target));
+  return NICE.map((n) => n * exp).concat([10 * exp]).reduce((best, v) => (v <= target ? v : best), exp);
+}
+function drawMapFurniture(doc, r, bounds) {
+  if (!r || !bounds) return;
+  const midLat = (bounds.south + bounds.north) / 2;
+  const widthKm = (bounds.east - bounds.west) * 111.32 * Math.cos((midLat * Math.PI) / 180);
+  if (!(widthKm > 0)) return;
+  const kmPerMm = widthKm / r.w;
+  const km = niceKm(Math.max(kmPerMm * r.w * 0.22, 0.1));
+  const barW = km / kmPerMm;
+  const bx = r.x + 3; const by = r.y + r.h - 4.5;
+  setFill(doc, [255, 255, 255]); doc.rect(bx - 1.5, by - 4.2, barW + 13, 6.2, 'F');
+  setFill(doc, [36, 49, 58]); doc.rect(bx, by, barW / 2, 1, 'F');
+  setFill(doc, [255, 255, 255]); setDraw(doc, [36, 49, 58]); doc.setLineWidth(0.2); doc.rect(bx + barW / 2, by, barW / 2, 1, 'FD');
+  doc.rect(bx, by, barW, 1, 'S');
+  setFont(doc, [36, 49, 58], 5.4, 'bold'); doc.text(`${km >= 1 ? km : km.toFixed(1)} km`, bx + barW + 1.5, by + 1);
+  setFont(doc, [36, 49, 58], 4.6); doc.text('0', bx, by - 1);
+  // north marker
+  const nx = r.x + r.w - 6; const ny = r.y + 4;
+  setFill(doc, [255, 255, 255]); doc.circle(nx, ny + 2.2, 3.4, 'F');
+  setFill(doc, [36, 49, 58]); doc.triangle(nx, ny - 0.4, nx - 1.5, ny + 3.6, nx + 1.5, ny + 3.6, 'F');
+  setFont(doc, [36, 49, 58], 4.6, 'bold'); doc.text('N', nx, ny + 5.4, { align: 'center' });
+}
+
+function drawMap(doc, bundle, map, x, y, w, h, alias, { furniture = false } = {}) {
   const r = fitImage(doc, map.dataUrl, x, y, w, h, alias);
   // A recoloured map already has calm fills; only an original-palette image is washed.
   if (r && !map.recolored) {
@@ -146,6 +176,7 @@ function drawMap(doc, bundle, map, x, y, w, h, alias) {
     }
   }
   overlayBoundary(doc, bundle, map, r);
+  if (furniture && !map.fallback) drawMapFurniture(doc, r, bundle.maps.bounds);
   return r;
 }
 
@@ -166,7 +197,7 @@ const LEVEL_LETTER = { 0: 'S', 1: 'C', 2: 'W' };
 function provenanceLine(bundle) {
   const { local } = ctx(bundle);
   const run = bundle.modelRun.time ? formatUtc(bundle.modelRun.time) : 'not reported';
-  return `Model run ${run} · Valid ${local(bundle.validTime)} · Scope: ${scopeLabel(bundle.scope.effective)} · Generated ${formatLocal(bundle.generatedAt, bundle.timezone, tzLabel(bundle.timezone))} · Source: ${SOURCE_TEXT}`;
+  return `${bundle.reportId ? `Report ${bundle.reportId} · ` : ''}Model run ${run} · Valid ${local(bundle.validTime)} · Scope: ${scopeLabel(bundle.scope.effective)} · Generated ${formatLocal(bundle.generatedAt, bundle.timezone, tzLabel(bundle.timezone))} · Source: ${SOURCE_TEXT}`;
 }
 
 function pageHeader(doc, bundle, subtitle, pageNo, pageCount) {
@@ -216,12 +247,14 @@ async function drawPage1(doc, bundle, pageCount) {
   const present = hasVesselData(selected);
   const haz = present ? domainHazard(selected.warning, selected.caution) : null;
   const selLabel = vesselLabel(bundle.selectedVessel);
-  banner(doc, {
-    y: HDR_H + 4,
-    hazard: present ? haz : null,
-    text: `${selLabel.toUpperCase()} — ${present ? hazardLabel(haz).toUpperCase() : 'NO DATA'}   ·   ${domainFinding({ label: selLabel, data: selected })}`,
-    h: 9.5,
-  });
+  // Meaning first (a sentence a reader can act on), then the numbers behind it.
+  const bannerH = 13;
+  rect(doc, MARGIN, HDR_H + 4, PAGE_W - 2 * MARGIN, bannerH, present ? hazardLight(haz) : [238, 242, 246], present ? hazardColor(haz) : GRID_CLR, 0.3);
+  setFill(doc, present ? hazardColor(haz) : NO_DATA_GREY); doc.rect(MARGIN, HDR_H + 4, 2.2, bannerH, 'F');
+  setFont(doc, present ? hazardText(haz) : TEXT_MD, 9, 'bold');
+  doc.text(fitText(doc, `${selLabel.toUpperCase()} — ${present ? hazardLabel(haz).toUpperCase() : 'NO DATA'}   ·   ${operationalSummary(selLabel, selected).replace(`${selLabel}: `, '')}`, PAGE_W - 2 * MARGIN - 10), MARGIN + 5, HDR_H + 9.2);
+  setFont(doc, present ? hazardText(haz) : TEXT_MD, 7);
+  doc.text(fitText(doc, domainFinding({ label: selLabel, data: selected }), PAGE_W - 2 * MARGIN - 10), MARGIN + 5, HDR_H + 14.2);
 
   // A viewport request that the service could not honour and fell back to the whole
   // domain instead (scope.effective !== scope.requested) is a much bigger semantic
@@ -234,7 +267,7 @@ async function drawPage1(doc, bundle, pageCount) {
   if (scopeSubstituted) {
     substitutionNoticeH = notice(doc, {
       x: MARGIN,
-      y: HDR_H + 4 + 9.5 + 2,
+      y: HDR_H + 4 + 13 + 2,
       w: PAGE_W - 2 * MARGIN,
       text: `REQUESTED VIEW UNAVAILABLE — this report uses ${scopeLabel(bundle.scope.effective).toLowerCase()} instead. `
         + `Requested: ${scopeLabel(bundle.scope.requested)}. Applied: ${scopeLabel(bundle.scope.effective)}. `
@@ -245,7 +278,7 @@ async function drawPage1(doc, bundle, pageCount) {
 
   // Directly under the verdict, before anything else: what this model can and cannot see, and (if the
   // user had a custom envelope on screen) that this report does not use it.
-  let noticeY = HDR_H + 4 + 9.5 + 2 + substitutionNoticeH;
+  let noticeY = HDR_H + 4 + 13 + 2 + substitutionNoticeH;
   const smallCraft = ['traditional_craft', 'very_small_motorised_craft'].includes(bundle.selectedVessel);
   noticeY += notice(doc, {
     x: MARGIN, y: noticeY, w: PAGE_W - 2 * MARGIN, size: 6.8,
@@ -269,7 +302,7 @@ async function drawPage1(doc, bundle, pageCount) {
   const hasMap = Boolean(bundle.maps.selected?.dataUrl);
   const legendH = hasMap ? 7 : 0;
   if (hasMap) {
-    drawMap(doc, bundle, bundle.maps.selected, MARGIN + 2, top + 2, mapW - 4, bottom - top - capH - legendH - 4, 'domain_map');
+    drawMap(doc, bundle, bundle.maps.selected, MARGIN + 2, top + 2, mapW - 4, bottom - top - capH - legendH - 4, 'domain_map', { furniture: true });
     drawLegendRow(doc, MARGIN + 3, bottom - capH - legendH + 5, mapLegend(bundle));
   } else {
     placeholderBox(doc, MARGIN + 2, top + 2, mapW - 4, bottom - top - capH - 4, 'Map unavailable — the service did not return a map for this view. Statistics are still shown.');
@@ -280,21 +313,59 @@ async function drawPage1(doc, bundle, pageCount) {
     MARGIN + 3, bottom - capH + 3,
   );
 
-  // Provenance / evidence card
+  // Decision briefing: status, why, what next, how much to trust it -- then the provenance behind it.
   const cov = bundle.coverage.points;
-  const age = bundle.modelRun.ageHours;
+  const updatedAt = bundle.modelRun.updatedAt;
+  const updateAge = bundle.modelRun.updateAgeHours;
+  const br = bundle.briefing ?? {};
+  const env = VESSEL_OPERATING_ENVELOPE[bundle.selectedVessel];
+  const FRESH = { current: [25, 94, 89], aging: hazardText(1), stale: hazardText(2), unknown: TEXT_MD };
+  const marginBits = [];
+  if (Number.isFinite(br.peakHsM) && env) marginBits.push(`Hs ${formatNumber(br.peakHsM)} m (${thresholdMargin(br.peakHsM, env.cautionWaveHeightM, env.maxWaveHeightM, { unit: 'm' })?.text})`);
+  if (Number.isFinite(br.peakWindKt) && env) marginBits.push(`wind ${formatNumber(br.peakWindKt, 0)} kt (${thresholdMargin(br.peakWindKt, env.cautionWindKt, env.maxWindKt, { unit: 'kt', digits: 0 })?.text})`);
+  const stepCov = bundle.coverage.steps;
+  const confText = br.confidence
+    ? `${br.confidence[0].toUpperCase()}${br.confidence.slice(1)} · ${cov ? `${cov.classified} of ${cov.eligible ?? '—'} points` : 'points n/a'}${stepCov ? ` · ${pctText((100 * stepCov.available) / Math.max(1, stepCov.total))}% of outlook steps` : ''}`
+    : 'Unavailable';
+  const lowestBrief = (() => {
+    const lw = br.lowest;
+    if (!bundle.timeSeries) return null;
+    if (!lw) return 'Not assessed';
+    if (lw.kind === 'all-suitable') return `All Suitable ${spanText(local, lw.start.validTime, lw.end.validTime)}`;
+    if (lw.flat) return `No lower period (Warning ${pctText(lw.highestWarning)}% throughout)`;
+    return `${spanText(local, lw.start.validTime, lw.end.validTime)} · ${pctText(lw.warning)}% Warning`;
+  })();
   const rows = [
-    ['Model run', bundle.modelRun.time ? `${formatUtc(bundle.modelRun.time)}${Number.isFinite(age) ? ` (${Math.round(age)} h before generation)` : ''}` : 'Not reported by the service'],
+    ['Status', present ? `${hazardLabel(haz)} · ${pctText(selected.caution)}% Caution · ${pctText(selected.warning)}% Warning` : 'No data', present ? hazardText(haz) : TEXT_MD],
+    ['Estimated driver', br.driver ? (br.driver.level ? `${br.driver.label}, over the ${br.driver.level} threshold` : br.driver.label) : 'Not reported'],
+    ...(marginBits.length ? [['Peak vs threshold', marginBits.join('; ')]] : []),
+    ...(lowestBrief ? [['Lowest exposure', lowestBrief]] : []),
+    ...(bundle.timeSeries ? [['Worst in outlook', br.worst && br.worst.warning > 0 ? `${pctText(br.worst.warning)}% Warning at ${local(br.worst.validTime)}` : 'No Warning-level points modelled']] : []),
+    ['Data confidence', confText],
+    // When it last updated, not an age from the model's init time (~16 h old even when fresh).
+    ['Forecast', `${updatedAt ? `Updated ${formatUtc(updatedAt)}${Number.isFinite(updateAge) ? ` (${Math.round(updateAge)} h ago)` : ''} · model data ` : 'Model data '}${bundle.modelRun.time ? formatUtc(bundle.modelRun.time) : 'not reported'} · ${{ current: 'Current', aging: 'Aging', stale: 'Stale', unknown: 'Age unknown' }[br.freshness ?? 'unknown']}`, FRESH[br.freshness ?? 'unknown']],
     ['Valid time', local(bundle.validTime)],
     ['Scope', `${scopeLabel(bundle.scope.effective)}${bundle.scope.mismatch ? ' (differs from request — see notice)' : ''}`],
-    ['Point coverage', cov ? `${cov.classified} of ${cov.eligible ?? cov.total ?? '—'} eligible model points classified` : 'Unavailable'],
     ['Thresholds', bundle.methodology.thresholdSource],
   ];
-  const evH = 8 + rows.length * 4.6;
+  const kvSize = 6.4; const keyW = 26; const valW = colW - keyW - 7;
+  const rowH = (v) => Math.max(4.2, doc.splitTextToSize(String(v), valW).length * (kvSize * 0.5 + 0.1) + 1);
+  setFont(doc, TEXT_DK, kvSize);
+  const evH = 9 + rows.reduce((a, [, v]) => a + rowH(v), 0) + (bundle.dashboardUrl ? 4.5 : 0);
   card(doc, colX, top, colW, evH);
-  sectionTitle(doc, 'EVIDENCE', colX + 3, top + 5, { size: 7 });
+  sectionTitle(doc, 'BRIEFING', colX + 3, top + 5, { size: 7 });
   let ry = top + 10;
-  rows.forEach(([k, v]) => { ry += keyValue(doc, colX + 3, ry, k, v, { keyW: 27, maxW: colW - 34, size: 6.6 }); });
+  rows.forEach(([k, v, color]) => {
+    const h = rowH(v);
+    setFont(doc, TEXT_MD, kvSize, 'bold'); doc.text(`${k}:`, colX + 3, ry);
+    setFont(doc, color ?? TEXT_DK, kvSize, color ? 'bold' : 'normal');
+    doc.text(doc.splitTextToSize(String(v), valW), colX + 3 + keyW, ry);
+    ry += h;
+  });
+  if (bundle.dashboardUrl) {
+    setFont(doc, [0, 110, 160], kvSize, 'bold');
+    doc.textWithLink(fitText(doc, 'Live dashboard: latest conditions and updated forecast', colW - 6), colX + 3, ry + 0.5, { url: bundle.dashboardUrl });
+  }
   let y = top + evH + 3;
   if (bundle.warnings.length) y += notice(doc, { x: colX, y, w: colW, text: `Notice: ${bundle.warnings.join(' ')}`, size: 6.2 }) + 3;
 
@@ -432,7 +503,7 @@ function drawPage3(doc, bundle, pageNo, pageCount) {
       card(doc, px, y, pw, ph);
       setFill(doc, ok ? hazardColor(vh) : NO_DATA_GREY); doc.rect(px, y, pw, 7, 'F');
       setFont(doc, TEXT_LT, 8, 'bold'); doc.text(vesselLabel(p.vessel), px + 3, y + 4.9);
-      if (p.map?.dataUrl) drawMap(doc, bundle, p.map, px + 2, y + 9, pw - 4, imgH, `contrast_${p.vessel}`);
+      if (p.map?.dataUrl) drawMap(doc, bundle, p.map, px + 2, y + 9, pw - 4, imgH, `contrast_${p.vessel}`, { furniture: true });
       else placeholderBox(doc, px + 2, y + 9, pw - 4, imgH, 'Map unavailable');
       const by = y + 9 + imgH + 4;
       if (ok) {
@@ -448,11 +519,16 @@ function drawPage3(doc, bundle, pageNo, pageCount) {
         // What these thresholds mean for this sea state: which variable crosses them (estimated, as on page 4).
         const est = ok ? estimateDriver(p.step, rule) : null;
         if (est) {
-          const why = est.level
-            ? `Estimated driver: ${est.label.toLowerCase()} over the ${est.level} threshold (peak Hs ${formatNumber(p.step.wave?.max)} m, wind ${formatNumber(p.step.wind?.max, 0)} kt)`
-            : `Peak Hs ${formatNumber(p.step.wave?.max)} m and wind ${formatNumber(p.step.wind?.max, 0)} kt stay below this vessel's thresholds`;
-          setFont(doc, TEXT_DK, 6.1);
-          doc.text(doc.splitTextToSize(why, pw - 6).slice(0, 3), px + 3, by + 25.5);
+          setFont(doc, TEXT_DK, 6.1, 'bold');
+          doc.text(fitText(doc, est.level ? `Estimated driver: ${est.label.toLowerCase()} over ${est.level}` : 'Peaks stay below this vessel\'s thresholds', pw - 6), px + 3, by + 25.5);
+          // How far the shared peaks sit from THIS vessel's thresholds: the reason the panels differ.
+          const hsM = thresholdMargin(p.step.wave?.max, rule.cautionWaveHeightM, rule.maxWaveHeightM, { unit: 'm' });
+          const windM = thresholdMargin(p.step.wind?.max, rule.cautionWindKt, rule.maxWindKt, { unit: 'kt', digits: 0 });
+          [[hsM, `Hs ${formatNumber(p.step.wave?.max)} m`], [windM, `Wind ${formatNumber(p.step.wind?.max, 0)} kt`]].forEach(([m, lab], k) => {
+            if (!m) return;
+            setFont(doc, m.side === 'above' || (m.side === 'at' && m.level === 'warning') ? hazardText(2) : m.level === 'warning' || m.side === 'at' ? hazardText(1) : hazardText(0), 6.1, 'bold');
+            doc.text(fitText(doc, `${lab}: ${m.text}`, pw - 6), px + 3, by + 30 + k * 4.2);
+          });
         }
       }
     });
@@ -554,11 +630,13 @@ function drawPage4(doc, bundle, pageNo, pageCount) {
     const driverText = r.driver ? (r.driver.level ? `${r.driver.label} · over ${r.driver.level}` : r.driver.label) : 'Not reported';
     doc.text(fitText(doc, driverText, colW('driver') - 4), colX('driver') + 2.5, mid + 1.2);
     setFont(doc, r.change ? (r.change.direction === 'higher' ? hazardText(2) : r.change.direction === 'lower' ? hazardText(0) : TEXT_DK) : TEXT_MD, 7, r.change ? 'bold' : 'normal');
-    doc.text(fitText(doc, r.change ? r.change.text : (!rows.slice(0, i).some((q) => q.available) ? 'First day shown' : '—'), colW('change') - 4), colX('change') + 2.5, mid + 1.2);
+    const changeLabel = r.delta ? deltaText(r.delta) : (!rows.slice(0, i).some((q) => q.available) ? 'First day shown' : '—');
+    if (r.delta) setFont(doc, r.delta.warning > 1 ? hazardText(2) : r.delta.warning < -1 ? hazardText(0) : TEXT_DK, 6.3, 'bold');
+    doc.text(fitText(doc, changeLabel, colW('change') - 4), colX('change') + 2.5, mid + 1.2);
   });
 
   setFont(doc, TEXT_MD, 5.9, 'italic');
-  doc.text(doc.splitTextToSize(`Estimated driver: the peak wave height and wind in the area are compared with the ${vesselLabel(vessel)} thresholds (Caution Hs >= ${formatNumber(envelope?.cautionWaveHeightM)} m or wind >= ${formatNumber(envelope?.cautionWindKt, 0)} kt; Warning Hs >= ${formatNumber(envelope?.maxWaveHeightM)} m or wind >= ${formatNumber(envelope?.maxWindKt, 0)} kt). The service does not report which variable classified each point. Peak values are coloured by the threshold they reach.`, CW), MARGIN, top + headerH + n * tableRowH + 4.5);
+  doc.text(doc.splitTextToSize(`Estimated driver: the peak wave height and wind in the area are compared with the ${vesselLabel(vessel)} thresholds (Caution Hs >= ${formatNumber(envelope?.cautionWaveHeightM)} m or wind >= ${formatNumber(envelope?.cautionWindKt, 0)} kt; Warning Hs >= ${formatNumber(envelope?.maxWaveHeightM)} m or wind >= ${formatNumber(envelope?.maxWindKt, 0)} kt). The service does not report which variable classified each point. Peak values are coloured by the threshold they reach. Change: W / C = change in Warning / Caution share (percentage points) and in peak Hs and wind since the previous day shown.`, CW), MARGIN, top + headerH + n * tableRowH + 4.5);
   pageFooter(doc, bundle);
 }
 
@@ -652,6 +730,33 @@ function drawPage5(doc, bundle, pageNo, pageCount) {
   const OTHER = [[128, 136, 146], [186, 192, 199], [112, 140, 170]];
   VESSEL_CLASS_OPTIONS.filter((v) => v.value !== sel).forEach((v, i) => drawSeries(v.value, OTHER[i % 3], 0.5));
   drawSeries(sel, SELECTED_LINE, 1.4);
+
+  // Event markers for the selected vessel: where "now" is, when exposure is lowest, when Warning first
+  // appears and when it peaks -- labels staggered so they never overlap.
+  const anSel = ts.analysis[sel];
+  const firstWarn = ts.byVessel[sel].find((st) => st.available !== false && st.warning > 0);
+  const events = [
+    ['Now (valid time)', bundle.validTime],
+    anSel.lowest && !anSel.lowest.flat && !anSel.best ? ['Lowest exposure', anSel.lowest.start.validTime] : null,
+    anSel.best ? ['All Suitable', anSel.best.start.validTime] : null,
+    firstWarn && firstWarn.validTime !== bundle.validTime ? ['Warning first appears', firstWarn.validTime] : null,
+    anSel.highest && anSel.highest.warning > 0 ? [`Peak Warning ${pctText(anSel.highest.warning)}%`, anSel.highest.validTime] : null,
+  ].filter((e) => e && Number.isFinite(e[1]) && e[1] >= t0 && e[1] <= t1).sort((a, b) => a[1] - b[1]);
+  const placed = [];
+  events.forEach(([label, t]) => {
+    const ex = X(t);
+    setDraw(doc, [18, 50, 74]); doc.setLineWidth(0.25); doc.setLineDashPattern([0.8, 0.8], 0);
+    doc.line(ex, cy, ex, cy + ch);
+    doc.setLineDashPattern([], 0);
+    setFont(doc, [18, 50, 74], 5.4, 'bold');
+    const w = doc.getTextWidth(label) + 2;
+    const clashes = (r) => placed.some((q) => q.row === r && Math.abs(q.x - ex) < (q.w + w) / 2 + 1);
+    const row = [0, 1, 2, 3].find((r) => !clashes(r)) ?? 3;
+    placed.push({ x: ex, w, row });
+    const lx2 = Math.min(Math.max(ex - w / 2, cx), cx + cw - w);
+    setFill(doc, [255, 255, 255]); doc.rect(lx2, cy + 1 + row * 4, w, 3.4, 'F');
+    doc.text(label, lx2 + 1, cy + 3.6 + row * 4);
+  });
   drawTimeAxis(doc, bundle, cx, cy + ch + 0.5, cw, t0, t1);
 
   // legend
@@ -739,6 +844,10 @@ function drawPageMethodology(doc, bundle, pageNo, pageCount) {
     ['Generated', formatLocal(bundle.generatedAt, bundle.timezone, tzLabel(bundle.timezone))],
     ['Methodology version', bundle.methodology.methodologyVersion ?? `Not reported by the service (API schema ${bundle.methodology.apiSchemaVersion ?? 'unknown'})`],
     ['Thresholds', bundle.methodology.thresholdSource],
+    ['Threshold set', governanceText(bundle.governance?.thresholdSet)],
+    ['Summary rule', governanceText(bundle.governance?.summaryRule)],
+    ['Report ID', bundle.reportId ?? '—'],
+    ...(bundle.dashboardUrl ? [['Live dashboard', bundle.dashboardUrl]] : []),
     ['Source', SOURCE_TEXT],
   ];
   rows.forEach(([k, v]) => { y += keyValue(doc, MARGIN + 4, y, k, v, { keyW: 34, maxW: leftW - 44 }); });

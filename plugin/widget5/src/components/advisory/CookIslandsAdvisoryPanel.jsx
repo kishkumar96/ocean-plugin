@@ -208,6 +208,8 @@ function CookIslandsAdvisoryPanel({
     await exporter({
       vessel, scope, horizonHours, timeIndex: suitabilityTimeIndex, bounds: currentViewBounds(),
       timeDisplayZone, customEnvelope: mapCustomEnvelope, fallbackMapDataUrl, signal, onProgress,
+      // The live dashboard (no hash: no saved view or token), printed as "latest conditions" in the report.
+      dashboardUrl: typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : null,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapInstance, suitabilityTimeIndex, timeDisplayZone, mapCustomEnvelope]);

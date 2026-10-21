@@ -24,7 +24,7 @@ import {
   RISK_LABELS,
 } from '../services/riskDataService';
 import { disableTerrain, enableTerrain, hasTerrainDem } from '../lib/terrainMapLibre';
-import { resolveModelRunStart, modelRunAgeHours as modelRunAgeHoursFor, isModelRunStale } from '../utils/modelRunTiming';
+import { resolveModelRunStart, modelRunAgeHours as modelRunAgeHoursFor, fetchPublishedAt, updateFreshness } from '../utils/modelRunTiming';
 import { legLabelsNearPoint } from '../utils/routeProbeLayout';
 import { registerHarbourIcons, harbourPopupHtml } from '../lib/harbourOutlookLayer';
 
@@ -357,6 +357,8 @@ export function useZarrMap({
   // needing "this data is really for my just-selected layer" can compare it
   // against selectedLayerId instead of trusting non-emptiness alone.
   const [timeLabelsLayerId, setTimeLabelsLayerId] = useState(null);
+  // When the selected layer's forecast last reached the server (null until known / unavailable).
+  const [publishedAt, setPublishedAt] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [overlayStats, setOverlayStats] = useState(null);
@@ -1035,6 +1037,19 @@ export function useZarrMap({
       }
     }
   }, [timeCount]);
+
+  // Last update time of the layer whose time labels are showing. Re-checked every 10 min so a
+  // page left open notices a new run (or the lack of one) without a reload.
+  useEffect(() => {
+    const url = findLayerById(timeLabelsLayerId)?.publishedAtUrl;
+    setPublishedAt(null);
+    if (!url) return undefined;
+    let cancelled = false;
+    const load = () => fetchPublishedAt(url).then((d) => { if (!cancelled) setPublishedAt(d); });
+    load();
+    const timer = setInterval(load, 10 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [timeLabelsLayerId, timeLabels[0]]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── slider → overlay ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -2186,6 +2201,8 @@ export function useZarrMap({
   const availableTimestamps = timeLabels.map(parseTimeLabel).filter(Boolean);
   const modelRunStart = resolveModelRunStart(availableTimestamps[0], timeLabelsLayerId);
   const modelRunAgeHours = modelRunAgeHoursFor(modelRunStart);
+  const updateAgeHours = modelRunAgeHoursFor(publishedAt);
+  const freshness = updateFreshness(updateAgeHours, modelRunAgeHours);
   const capTime = {
     loading,
     availableTimestamps,
@@ -2200,8 +2217,14 @@ export function useZarrMap({
     warmupDays: 0,
     modelRunStart,
     modelRunAgeHours,
-    // True when data is older than 30 h — indicates a missed pipeline run
-    isStale: isModelRunStale(modelRunAgeHours),
+    // When this forecast reached the server, and hours since. This, not modelRunAgeHours, is
+    // what tells a forecaster whether the system is running (see utils/modelRunTiming.js).
+    updatedAt: publishedAt,
+    updateAgeHours,
+    freshness: freshness.state,
+    // 'not-updated' (runs missed) or 'old-model-data' (updates, but no newer GFS cycle)
+    staleReason: freshness.reason,
+    isStale: freshness.state === 'stale',
   };
 
   const currentSliderDate = timeLabels[sliderIndex] ? parseTimeLabel(timeLabels[sliderIndex]) : null;

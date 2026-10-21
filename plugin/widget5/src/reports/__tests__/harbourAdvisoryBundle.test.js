@@ -68,14 +68,26 @@ describe('buildHarbourAdvisoryBundle', () => {
     expect(b.warnings.join(' ')).toMatch(/withheld/);
   });
 
-  test('stale run (>30 h) is called out; unavailable locations are counted and carry no numbers', () => {
+  test('stale run (>30 h, update time unknown) is called out; unavailable locations are counted and carry no numbers', () => {
     const late = new Date(T0 + 34 * H);
     const b = buildHarbourAdvisoryBundle({ rows: [row(29, 'A'), row(30, 'B', { available: false, outlookSteps: [] })], suitabilityRunStart: new Date(T0).toISOString(), generatedAt: late });
     expect(b.stale).toBe(true);
-    expect(b.warnings.join(' ')).toMatch(/model run is 34 h old/);
+    expect(b.warnings.join(' ')).toMatch(/no newer model data/);
     expect(b.warnings.join(' ')).toMatch(/1 of 2 locations have no model data/);
     const unavailable = b.harbours[1];
     expect([unavailable.hsM, unavailable.windKt, unavailable.max24HsM]).toEqual([null, null, null]);
+  });
+
+  test('staleness follows when the forecast last updated, not the model init age', () => {
+    const at = new Date(T0 + 28 * H);
+    // 28 h past init but updated 6 h ago: a normal day, no warning.
+    const ok = buildHarbourAdvisoryBundle({ rows: [row(29, 'A')], suitabilityRunStart: new Date(T0).toISOString(), updatedAt: new Date(T0 + 22 * H), generatedAt: at });
+    expect(ok.stale).toBe(false);
+    expect(ok.updateAgeHours).toBe(6);
+    // No update for 14 h: two runs lost.
+    const late = buildHarbourAdvisoryBundle({ rows: [row(29, 'A')], suitabilityRunStart: new Date(T0).toISOString(), updatedAt: new Date(T0 + 14 * H), generatedAt: at });
+    expect(late.stale).toBe(true);
+    expect(late.warnings.join(' ')).toMatch(/has not updated for 14 h/);
   });
 
   test('fresh run: no staleness warning', () => {

@@ -6,7 +6,8 @@
 // variable put each point there, so the driver is inferred from the area's PEAK Hs and wind against the
 // vessel's own thresholds. It is labelled as such wherever it is printed.
 
-const finite = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+// null / undefined / '' are missing, not zero (Number(null) is 0).
+const finite = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 
 // stats: { min, mean, max } from the per-step response (wave_height_m / wind_speed_kt).
 const peak = (stats) => finite(stats?.max);
@@ -59,9 +60,26 @@ export function dailyEvolutionRows(daily, envelope) {
       peakWindKt: ok ? peak(step.wind) : null,
       driver: ok ? estimateDriver(step, envelope) : null,
       change: ok && previous ? describeChange(step.warning, previous.warning) : null,
+      // Quantified change since the previous day with data: Warning and Caution share (points) and peaks.
+      delta: ok && previous ? {
+        warning: step.warning - previous.warning,
+        caution: step.caution - previous.caution,
+        hsM: peak(step.wave) !== null && previous.peakHsM !== null ? peak(step.wave) - previous.peakHsM : null,
+        windKt: peak(step.wind) !== null && previous.peakWindKt !== null ? peak(step.wind) - previous.peakWindKt : null,
+      } : null,
       map: p?.map ?? null,
     };
     if (ok) previous = row;
     return row;
   });
+}
+
+// "W +2 · C +24 pts · Hs +0.2 m · wind +2 kt" -- every change since the previous day, signed.
+export function deltaText(delta) {
+  if (!delta) return '';
+  const sign = (v, digits) => `${v >= 0 ? '+' : '-'}${Math.abs(v).toFixed(digits)}`;
+  const parts = [`W ${sign(Math.round(delta.warning), 0)}`, `C ${sign(Math.round(delta.caution), 0)} pts`];
+  if (Number.isFinite(delta.hsM)) parts.push(`Hs ${sign(delta.hsM, 1)} m`);
+  if (Number.isFinite(delta.windKt)) parts.push(`wind ${sign(delta.windKt, 0)} kt`);
+  return parts.join(' · ');
 }

@@ -88,6 +88,36 @@ describe('buildDomainReportBundle', () => {
     expect(b.warnings).toEqual([]);
   });
 
+  test('freshness follows when the forecast last updated, not the model init age', async () => {
+    const updated = (iso) => ({ ...deps(), fetchUpdatedAt: async () => new Date(iso) });
+    // 14 h past init but updated 3 h ago: current.
+    const fresh = await buildDomainReportBundle({ ...base, horizonHours: 0 }, updated('2026-09-23T23:00:00Z'));
+    expect(fresh.modelRun.updateAgeHours).toBeCloseTo(3);
+    expect(fresh.briefing.freshness).toBe('current');
+    // Not updated for 15 h: two runs lost.
+    const late = await buildDomainReportBundle({ ...base, horizonHours: 0 }, updated('2026-09-23T11:00:00Z'));
+    expect(late.briefing.freshness).toBe('stale');
+    // An unreachable update time leaves the model-run rules in charge.
+    const unknown = await buildDomainReportBundle({ ...base, horizonHours: 0 }, { ...deps(), fetchUpdatedAt: async () => { throw new Error('offline'); } });
+    expect(unknown.modelRun.updatedAt).toBeNull();
+    expect(unknown.briefing.freshness).toBe('current');
+  });
+
+  test('data that fails the consistency checks blocks the report instead of printing it', async () => {
+    const broken = deps({ fetchStep: async (i, v, b) => stepFor(i, v, b, { suitable: 60, caution: 30, warning: 40 }) });
+    await expect(buildDomainReportBundle({ ...base, horizonHours: 0 }, broken))
+      .rejects.toMatchObject({ name: 'ReportExportBlockedError', message: expect.stringMatching(/consistency checks.*sum to 130/) });
+  });
+
+  test('carries a reproducible report id, the governance records and the page-1 briefing', async () => {
+    const b = await buildDomainReportBundle({ ...base, horizonHours: 0, dashboardUrl: 'https://example.test/widget5/' }, deps());
+    expect(b.reportId).toMatch(/^COK-SUIT-2026092312-V\d{10}-SC-VIEW-/);
+    expect(b.dashboardUrl).toBe('https://example.test/widget5/');
+    expect(b.governance.summaryRule).toMatchObject({ id: 'warning_share_v1', status: 'provisional', approvedBy: null });
+    expect(b.governance.thresholdSet).toMatchObject({ status: 'provisional', approvedBy: null });
+    expect(b.briefing).toMatchObject({ level: 1, confidence: 'high' });
+  });
+
   test('a scope mismatch is reported and the effective scope is what the service used', async () => {
     const b = await buildDomainReportBundle({ ...base, horizonHours: 0 }, deps({ fetchStep: async (i, v) => stepFor(i, v, null) }));
     expect(b.scope.mismatch).toBe(true);

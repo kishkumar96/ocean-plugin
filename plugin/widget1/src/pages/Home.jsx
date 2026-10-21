@@ -5,7 +5,7 @@ import BottomOffCanvas from './BottomOffCanvas';
 import BottomBuoyOffCanvas from './BottomBuoyOffCanvas';
 import ForecastApp from '../components/ForecastApp';
 import ModernHeader from '../components/ModernHeader';
-import { MAP_LAYERS, findLayerById } from '../lib/mapLayersConfig';
+import { MAP_LAYERS, NIUE_CURRENT_LAYERS, findLayerById } from '../lib/mapLayersConfig';
 import { useZarrMap } from '../hooks/useZarrMap';
 import useInundationThresholds from '../hooks/useInundationThresholds';
 import { useLandingAreaTimeseries } from '../hooks/useLandingAreaTimeseries';
@@ -51,6 +51,19 @@ function buoyMarkerColor(buoy) {
 function Home() {
   const allLayers = useMemo(() => MAP_LAYERS, []);
   const [selectedWaveForecast, setSelectedWaveForecast] = useState(allLayers[0]?.value ?? '');
+  // 'wave' | 'current' — lives here (not inside ForecastApp) because it must
+  // gate the actual map overlay in useZarrMap below, not just the side-panel UI.
+  const [forecastCategory, setForecastCategory] = useState('wave');
+  // Which Niue currents variable (velocity/temperature/salinity/sea surface
+  // height) is on the map — separate from selectedWaveForecast since the two
+  // tabs pick from entirely different layer lists.
+  const [selectedCurrentLayer, setSelectedCurrentLayer] = useState(NIUE_CURRENT_LAYERS[0]?.value ?? '');
+  // Depth in meters (negative = below surface) for the currents layer.
+  const [currentDepth, setCurrentDepth] = useState(-30);
+  // Animated flow particles — only meaningful for the Velocity layer (the
+  // only one with u/v components); the lifecycle effect in useZarrMap tears
+  // the overlay down automatically if the user switches to another layer.
+  const [currentsParticlesEnabled, setCurrentsParticlesEnabled] = useState(true);
   const [wmsOpacity, setWmsOpacity] = useState(1);
   // riskPoints defaults to false: Niue has no risk/points.json published on
   // THREDDS yet (unlike Cook Islands). The fetch/render code is wired and
@@ -205,6 +218,13 @@ function Home() {
     if (showBuoyCanvas) setShowBottomCanvas(false);
   }, [showBuoyCanvas]);
 
+  // Insitu station detail panel — close it if the Current tab is opened
+  // while it's showing, since its data (wave buoy / tide gauge) belongs to
+  // the wave forecast, not currents.
+  useEffect(() => {
+    if (forecastCategory === 'current') setShowBuoyCanvas(false);
+  }, [forecastCategory]);
+
   const inundationThresholds = useInundationThresholds();
   // 'bands' | 'continuous' — lets the inundation layer render as a smooth
   // depth gradient (default, matching the wave/period forecast layers) or
@@ -223,11 +243,17 @@ function Home() {
     suitabilityBuffering,
     suitabilityCustomSummary,
     suitabilityCustomStatus,
+    depthLevels,
     fitBounds,
     setBasemap,
     removePinMarker,
+    goToCurrentsPoint,
   } = useZarrMap({
-    selectedLayerId: selectedWaveForecast,
+    // Wave and Current pick from entirely separate layer lists — swap which
+    // one drives the map overlay based on the active tab.
+    selectedLayerId: forecastCategory === 'current' ? selectedCurrentLayer : selectedWaveForecast,
+    depth: forecastCategory === 'current' ? currentDepth : null,
+    currentsParticlesEnabled,
     sliderIndex,
     setSliderIndex,
     isPlaying,
@@ -241,7 +267,10 @@ function Home() {
     riskEnabled: activeLayers?.riskPoints !== false,
     setBottomCanvasData,
     setShowBottomCanvas,
-    waveParticleMode,
+    // Wave particles (and the matching raster dimming) only apply to the wave
+    // tab. Passing 'off' on the Current tab keeps current rasters at full
+    // opacity, while the user's wave choice is restored on switching back.
+    waveParticleMode: forecastCategory === 'current' ? 'off' : waveParticleMode,
     particleQuality,
     swellSourcesEnabled,
     selectedVessel,
@@ -254,6 +283,16 @@ function Home() {
     routePoints,
     routeForecastResult,
   });
+
+  // Currents point panel — close it and drop its pin when leaving the Current
+  // tab. Left open, its charts would receive the wave layer's sliderIndex as
+  // a CROCO timeIndex (wrong timestep, or past the end of the dataset).
+  useEffect(() => {
+    if (forecastCategory === 'current' || bottomCanvasData?.mode !== 'currents') return;
+    setShowBottomCanvas(false);
+    setBottomCanvasData(null);
+    removePinMarker();
+  }, [forecastCategory, bottomCanvasData, removePinMarker]);
 
   // Layer errors are dev/ops signal, not something to alarm the end user with —
   // log to console instead of the "Layer error" banner this used to render.
@@ -540,7 +579,11 @@ function Home() {
     buoyMarkersRef.current.forEach((marker) => marker.remove());
     buoyMarkersRef.current = [];
 
-    buoyMarkersRef.current = NIUE_BUOYS.map((buoy) => {
+    // NIUE_BUOYS are all insitu stations (ocean-obs-api.spc.int/insitu/stations/)
+    // feeding the wave/tide forecast — hide all of them on the Current tab.
+    const visibleBuoys = forecastCategory === 'current' ? [] : NIUE_BUOYS;
+
+    buoyMarkersRef.current = visibleBuoys.map((buoy) => {
       const el = document.createElement('button');
       el.type = 'button';
       el.title = buoy.label ?? buoy.id;
@@ -568,7 +611,7 @@ function Home() {
       buoyMarkersRef.current.forEach((marker) => marker.remove());
       buoyMarkersRef.current = [];
     };
-  }, [handleBuoySelect, mapInstance]);
+  }, [handleBuoySelect, mapInstance, forecastCategory]);
 
   // Persistent landing-area flag marker — separate from useZarrMap's
   // transient click-query pin (pinMarkerRef/addPinMarker/removePinMarker).
@@ -621,6 +664,16 @@ function Home() {
         ALL_LAYERS={allLayers}
         selectedWaveForecast={selectedWaveForecast}
         setSelectedWaveForecast={setSelectedWaveForecast}
+        forecastCategory={forecastCategory}
+        setForecastCategory={setForecastCategory}
+        CURRENT_LAYERS={NIUE_CURRENT_LAYERS}
+        selectedCurrentLayer={selectedCurrentLayer}
+        setSelectedCurrentLayer={setSelectedCurrentLayer}
+        currentDepth={currentDepth}
+        setCurrentDepth={setCurrentDepth}
+        currentDepthLevels={depthLevels}
+        currentsParticlesEnabled={currentsParticlesEnabled}
+        setCurrentsParticlesEnabled={setCurrentsParticlesEnabled}
         opacity={wmsOpacity}
         setOpacity={setWmsOpacity}
         sliderIndex={sliderIndex}
@@ -705,6 +758,8 @@ function Home() {
         seaLevelTimeseries={seaLevelTimeseries}
         suitabilityApiBase={suitabilityApiBase}
         currentTimeIndex={sliderIndex}
+        currentDepth={currentDepth}
+        onGoToLocation={goToCurrentsPoint}
         onRunRouteForecast={handleRunRouteForecast}
         currentRouteInputs={{ routePoints, vessel: selectedVessel, speedKt: routeSpeedKt, departureTime: routeDepartureTime }}
         currentModelRunStart={capTime.modelRunStart}

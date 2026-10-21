@@ -7,7 +7,8 @@
 import {
   evaluateConditions, worstVerdict, limitsForHarbour, hasAnyLimit, explainWindow, findOperationalWindow, MIN_WINDOW_HOURS, unloadingLabel, INCOMPLETE,
 } from '../config/cookIslandsHarbourLimits';
-import { waveRunAgeHours, WAVE_STALE_HOURS, compassPoint } from '../services/cookIslandsWaveTimeseriesService';
+import { waveRunAgeHours, compassPoint } from '../services/cookIslandsWaveTimeseriesService';
+import { formatAge, updateFreshness } from '../utils/modelRunTiming';
 
 // Report wording for a verdict. Deliberately the vocabulary of "limits"
 // (conditions against criteria), never instructions to act -- see
@@ -166,7 +167,7 @@ export function limitsBasisStatement(basis, meta) {
 }
 
 export function buildHarbourAdvisoryBundle({
-  rows = [], suitabilityRunStart = null, limits = { basis: 'none', config: null, meta: null },
+  rows = [], suitabilityRunStart = null, updatedAt = null, limits = { basis: 'none', config: null, meta: null },
   limitsUnavailable = false, timeDisplayZone = 'Pacific/Rarotonga', generatedAt = new Date(),
 }) {
   const basis = limitsUnavailable ? 'unavailable' : limits.basis;
@@ -246,7 +247,10 @@ export function buildHarbourAdvisoryBundle({
   });
 
   const runAgeHours = waveRunAgeHours(suitabilityRunStart, generatedAt.getTime());
-  const stale = runAgeHours !== null && runAgeHours > WAVE_STALE_HOURS;
+  // Freshness by when the forecast last updated, as on screen (see utils/modelRunTiming.js).
+  const updateAgeHours = waveRunAgeHours(updatedAt, generatedAt.getTime());
+  const freshness = runAgeHours === null ? { state: 'unknown', reason: null } : updateFreshness(updateAgeHours, runAgeHours);
+  const stale = freshness.state === 'stale';
   const periodWithheld = rows.some((r) => r.periodWithheld);
   const waveRunStart = rows.find((r) => r.waveRunStart)?.waveRunStart ?? null;
   const availableCount = harbours.filter((h) => h.available).length;
@@ -265,7 +269,9 @@ export function buildHarbourAdvisoryBundle({
     warnings.push(`${farNodes.length} of ${harbours.length} locations use a wave-model point more than ${NODE_FAR_KM} km away (marked †). The model does not resolve reefs, lagoons or passages, so conditions at the harbour itself can differ.`);
   }
   if (stale) {
-    warnings.push(`Forecast may be outdated: the model run is ${Math.round(runAgeHours)} h old. A newer run may not have published yet.`);
+    warnings.push(freshness.reason === 'not-updated'
+      ? `Forecast may be outdated: it has not updated for ${formatAge(updateAgeHours)} (the system normally updates every 6 h).`
+      : 'Forecast may be outdated: the latest update has no newer model data. A newer run may not have published yet.');
   }
   if (periodWithheld) {
     warnings.push('Peak period and wave direction are withheld: the wave feed is not from the same model run as wave height and wind. Any period limit reads Incomplete data.');
@@ -284,6 +290,8 @@ export function buildHarbourAdvisoryBundle({
     runStart: suitabilityRunStart,
     waveRunStart,
     runAgeHours,
+    updatedAt,
+    updateAgeHours,
     stale,
     periodWithheld,
     basis,

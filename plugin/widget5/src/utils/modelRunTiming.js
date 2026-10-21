@@ -66,3 +66,42 @@ export function formatLead(hours) {
   const rounded = Math.round(hours);
   return `${rounded >= 0 ? '+' : '-'}${Math.abs(rounded)} h`;
 }
+
+// ── When the forecast actually reached the dashboard ─────────────────────────────────────────
+// Ages above are measured from the model's init time, which forecasters read as "time since the
+// system last ran": a healthy forecast is already ~16 h old when it publishes, so "model run is
+// 33 h old" sounded like a day and a half of downtime when one run had been missed. The pipeline
+// publishes every 6 h, so time since the last *update* is what says whether the system is running.
+// An update is the Last-Modified of the layer's zarr .zmetadata (rewritten by every upload).
+export const UPDATE_AGING_AFTER_HOURS = 7;  // one run late or lost
+export const UPDATE_STALE_AFTER_HOURS = 13; // two runs lost
+
+export async function fetchPublishedAt(url, fetchImpl = fetch) {
+  if (!url) return null;
+  try {
+    // GET, not HEAD: zarr-api's static route omits Last-Modified on HEAD.
+    const res = await fetchImpl(url, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const lastModified = res.headers.get('last-modified');
+    const date = lastModified ? new Date(lastModified) : null;
+    return date && Number.isFinite(date.getTime()) ? date : null;
+  } catch {
+    return null;
+  }
+}
+
+// Combined freshness. The update age is the primary signal; the model-run age still matters
+// because a run that re-processes the same GFS cycle (NOMADS feed not advancing) re-uploads
+// it, so the update looks recent while the forecast data does not move on.
+// Returns { state, reason } with reason 'not-updated' | 'old-model-data' | null.
+export function updateFreshness(updateAgeHours, runAgeHours) {
+  const hasUpdate = Number.isFinite(updateAgeHours);
+  if (!hasUpdate) {
+    const state = forecastFreshness(runAgeHours);
+    return { state, reason: state === 'stale' ? 'old-model-data' : null };
+  }
+  if (updateAgeHours > UPDATE_STALE_AFTER_HOURS) return { state: 'stale', reason: 'not-updated' };
+  if (isModelRunStale(runAgeHours)) return { state: 'stale', reason: 'old-model-data' };
+  if (updateAgeHours > UPDATE_AGING_AFTER_HOURS) return { state: 'aging', reason: 'not-updated' };
+  return { state: 'current', reason: null };
+}

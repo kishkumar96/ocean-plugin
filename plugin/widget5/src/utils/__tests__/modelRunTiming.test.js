@@ -81,3 +81,33 @@ describe('forecast freshness and lead time', () => {
     expect(leadHours(new Date(), null)).toBeNull();
   });
 });
+
+describe('update freshness (time since the forecast last reached the server)', () => {
+  const { updateFreshness, fetchPublishedAt } = require('../modelRunTiming');
+
+  test('every 6 h is current; one lost run aging; two lost runs stale', () => {
+    expect(updateFreshness(5.9, 22)).toEqual({ state: 'current', reason: null });
+    expect(updateFreshness(10, 28)).toEqual({ state: 'aging', reason: 'not-updated' });
+    expect(updateFreshness(14, 28)).toEqual({ state: 'stale', reason: 'not-updated' });
+  });
+
+  test('re-uploads of the same old GFS cycle are stale despite a recent update', () => {
+    expect(updateFreshness(2, 34)).toEqual({ state: 'stale', reason: 'old-model-data' });
+  });
+
+  test('falls back to the model-run age rules when the update time is unknown', () => {
+    expect(updateFreshness(null, 19)).toEqual({ state: 'current', reason: null });
+    expect(updateFreshness(null, 34)).toEqual({ state: 'stale', reason: 'old-model-data' });
+    expect(updateFreshness(null, null)).toEqual({ state: 'unknown', reason: null });
+  });
+
+  test('fetchPublishedAt reads Last-Modified, and is null on any failure', async () => {
+    const res = (ok, lm) => Promise.resolve({ ok, headers: { get: () => lm } });
+    await expect(fetchPublishedAt('u', () => res(true, 'Wed, 07 Oct 2026 22:12:22 GMT')))
+      .resolves.toEqual(new Date(Date.UTC(2026, 9, 7, 22, 12, 22)));
+    await expect(fetchPublishedAt('u', () => res(true, null))).resolves.toBeNull();
+    await expect(fetchPublishedAt('u', () => res(false, 'Wed, 07 Oct 2026 22:12:22 GMT'))).resolves.toBeNull();
+    await expect(fetchPublishedAt('u', () => Promise.reject(new Error('offline')))).resolves.toBeNull();
+    await expect(fetchPublishedAt(null)).resolves.toBeNull();
+  });
+});

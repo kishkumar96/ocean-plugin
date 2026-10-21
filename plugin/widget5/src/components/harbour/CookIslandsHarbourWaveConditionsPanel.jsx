@@ -5,6 +5,7 @@ import CookIslandsWaveTimeseriesChart from '../wave/CookIslandsWaveTimeseriesCha
 import CookIslandsWaveRunAge from '../wave/CookIslandsWaveRunAge';
 import CookIslandsHarbourLimitsEditor from './CookIslandsHarbourLimitsEditor';
 import { useHarbourUnloadingLimits } from '../../hooks/useHarbourUnloadingLimits';
+import { useForecastUpdatedAt } from '../../hooks/useForecastUpdatedAt';
 import { buildHarbourAdvisoryBundle } from '../../reports/harbourAdvisoryBundle';
 import { exportCookIslandsHarbourAdvisoryPdf } from '../../utils/CookIslandsHarbourAdvisoryPdf';
 import {
@@ -166,6 +167,7 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
   const { loading, error, rows, suitabilityRunStart } = conditions ?? ownConditions;
   const [expandedId, setExpandedId] = useState(null);
   const ownLimits = useHarbourUnloadingLimits(enabled && !sharedLimits);
+  const updatedAt = useForecastUpdatedAt(enabled ? undefined : null);
   const limitsState = sharedLimits ?? ownLimits;
   const [editingLimits, setEditingLimits] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -182,6 +184,7 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
       const bundle = buildHarbourAdvisoryBundle({
         rows,
         suitabilityRunStart,
+        updatedAt,
         limits: limitsState.active,
         limitsUnavailable: limitsState.published.state === 'unavailable' || limitsState.published.state === 'invalid',
         timeDisplayZone,
@@ -203,11 +206,12 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
   const reportBundle = useMemo(() => buildHarbourAdvisoryBundle({
     rows,
     suitabilityRunStart,
+    updatedAt,
     limits: limitsState.active,
     limitsUnavailable: limitsState.published.state === 'unavailable' || limitsState.published.state === 'invalid',
     timeDisplayZone,
     generatedAt: new Date(),
-  }), [rows, suitabilityRunStart, limitsState.active, limitsState.published.state, timeDisplayZone]);
+  }), [rows, suitabilityRunStart, updatedAt, limitsState.active, limitsState.published.state, timeDisplayZone]);
   const detailById = useMemo(() => new Map(reportBundle.harbours.map((h) => [h.riskPointId, h])), [reportBundle]);
   const anyLimitSet = useMemo(() => (
     hasAnyLimit(limitsConfig.default) || Object.values(limitsConfig.harbours).some(hasAnyLimit)
@@ -259,6 +263,7 @@ function CookIslandsHarbourWaveConditionsPanel({ enabled, timeDisplayZone = 'Pac
         <>
           <CookIslandsWaveRunAge
             runStart={suitabilityRunStart}
+            updatedAt={updatedAt}
             label="Harbour forecast (wave height and wind)"
             timeDisplayZone={timeDisplayZone}
           />

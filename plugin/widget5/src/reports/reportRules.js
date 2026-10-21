@@ -30,12 +30,41 @@ export class ReportExportBlockedError extends Error {
 // this only decides how a mixed area is summarised in one word. Kept as a documented record so the
 // report can print what it is and where it came from, rather than presenting a bare number that reads
 // like an operational limit. No external authority has set it; change `version` with `percent`.
+// Governance fields are recorded, not invented: approvedBy/approvedOn/evidence stay null until a named
+// body signs the rule off, and the report prints that it is provisional and unapproved.
 export const ELEVATED_WARNING_RULE = {
+  id: 'warning_share_v1',
   percent: 20,
   version: 1,
   kind: 'Report summary rule (not a vessel threshold)',
+  purpose: 'Report-level escalation of a mixed area to one word',
+  status: 'provisional',
+  approvedBy: null,
+  approvedOn: null,
+  evidence: null,
   basis: 'Set by the dashboard team for this report; not externally validated. Smaller Warning shares are always printed as numbers, never hidden.',
 };
+
+// The vessel operating thresholds (Hs / wind per class) as a versioned set. Same rule: provisional
+// advisory defaults until a maritime authority approves them; the report says so.
+export const VESSEL_THRESHOLD_SET = {
+  id: 'cok-vessel-presets-v1',
+  version: 1,
+  status: 'provisional',
+  approvedBy: null,
+  approvedOn: null,
+  evidence: null,
+  basis: 'Advisory defaults built into the dashboard; not yet approved by a maritime authority.',
+};
+
+// One line saying what authority a governed rule or threshold set rests on.
+export function governanceText(record) {
+  if (!record) return '';
+  const approved = record.approvedBy && record.approvedOn
+    ? `approved by ${record.approvedBy} on ${String(record.approvedOn).slice(0, 10)}`
+    : 'not yet approved';
+  return `${record.id} (version ${record.version}) · status: ${record.status} · ${approved}${record.evidence ? ` · evidence: ${record.evidence}` : ''}`;
+}
 export const ELEVATED_WARNING_PERCENT = ELEVATED_WARNING_RULE.percent;
 
 // Minimum available share of samples/steps for a result to support a recommendation.
